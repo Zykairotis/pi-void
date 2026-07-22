@@ -13,9 +13,9 @@
  *   pi --extension examples/extensions/custom-compaction.ts
  */
 
-import { complete } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { convertToLlm, serializeConversation } from "@mariozechner/pi-coding-agent";
+import { complete } from "@earendil-works/pi-ai/compat";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { convertToLlm, serializeConversation } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_before_compact", async (event, ctx) => {
@@ -31,9 +31,13 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		// Resolve API key for the summarization model
-		const apiKey = await ctx.modelRegistry.getApiKey(model);
-		if (!apiKey) {
+		// Resolve request auth for the summarization model
+		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+		if (!auth.ok) {
+			ctx.ui.notify(`Compaction auth failed: ${auth.error}`, "warning");
+			return;
+		}
+		if (!auth.apiKey) {
 			ctx.ui.notify(`No API key for ${model.provider}, using default compaction`, "warning");
 			return;
 		}
@@ -83,7 +87,17 @@ ${conversationText}
 
 		try {
 			// Pass signal to honor abort requests (e.g., user cancels compaction)
-			const response = await complete(model, { messages: summaryMessages }, { apiKey, maxTokens: 8192, signal });
+			const response = await complete(
+				model,
+				{ messages: summaryMessages },
+				{
+					apiKey: auth.apiKey,
+					headers: auth.headers,
+					env: auth.env,
+					maxTokens: 8192,
+					signal,
+				},
+			);
 
 			const summary = response.content
 				.filter((c): c is { type: "text"; text: string } => c.type === "text")
@@ -102,6 +116,7 @@ ${conversationText}
 					summary,
 					firstKeptEntryId,
 					tokensBefore,
+					usage: response.usage,
 				},
 			};
 		} catch (error) {

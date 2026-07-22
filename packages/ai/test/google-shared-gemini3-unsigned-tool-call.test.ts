@@ -1,72 +1,116 @@
 import { describe, expect, it } from "vitest";
-import { convertMessages } from "../src/providers/google-shared.js";
-import type { Context, Model } from "../src/types.js";
+import { convertMessages } from "../src/api/google-shared.ts";
+import type { Context, Model } from "../src/types.ts";
 
-describe("google-shared convertMessages", () => {
-	it("converts unsigned tool calls to text for Gemini 3", () => {
-		const model: Model<"google-generative-ai"> = {
-			id: "gemini-3-pro-preview",
-			name: "Gemini 3 Pro Preview",
-			api: "google-generative-ai",
-			provider: "google",
-			baseUrl: "https://generativelanguage.googleapis.com",
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 128000,
-			maxTokens: 8192,
-		};
+function makeGemini3Model<TApi extends "google-generative-ai" | "google-vertex">(
+	api: TApi,
+	provider: Model<TApi>["provider"],
+	id = "gemini-3-pro-preview",
+): Model<TApi> {
+	return {
+		id,
+		name: "Gemini 3 Pro Preview",
+		api,
+		provider,
+		baseUrl: "https://example.com",
+		reasoning: true,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 128000,
+		maxTokens: 8192,
+	};
+}
 
-		const now = Date.now();
-		const context: Context = {
-			messages: [
-				{ role: "user", content: "Hi", timestamp: now },
-				{
-					role: "assistant",
-					content: [
-						{
-							type: "toolCall",
-							id: "call_1",
-							name: "bash",
-							arguments: { command: "ls -la" },
-							// No thoughtSignature: simulates Claude via Antigravity.
-						},
-					],
-					api: "google-gemini-cli",
-					provider: "google-antigravity",
-					model: "claude-sonnet-4-20250514",
-					usage: {
-						input: 0,
-						output: 0,
-						cacheRead: 0,
-						cacheWrite: 0,
-						totalTokens: 0,
-						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+function makeContext(model: { api: string; provider: string; id: string }, thoughtSignature?: string): Context {
+	const now = Date.now();
+	return {
+		messages: [
+			{ role: "user", content: "Hi", timestamp: now },
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "call_1",
+						name: "bash",
+						arguments: { command: "echo hi" },
+						...(thoughtSignature && { thoughtSignature }),
 					},
-					stopReason: "stop",
-					timestamp: now,
+					{
+						type: "toolCall",
+						id: "call_2",
+						name: "bash",
+						arguments: { command: "ls -la" },
+					},
+				],
+				api: model.api,
+				provider: model.provider,
+				model: model.id,
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 				},
-			],
-		};
+				stopReason: "toolUse",
+				timestamp: now,
+			},
+		],
+	};
+}
 
-		const contents = convertMessages(model, context);
+describe("google-shared convertMessages — Gemini 3 unsigned tool calls", () => {
+	it("does not add skip_thought_signature_validator for unsigned Google Gen AI tool calls", () => {
+		const model = makeGemini3Model("google-generative-ai", "google");
+		const contents = convertMessages(model, makeContext({ ...model, id: "other-model" }));
 
-		let toolTurn: (typeof contents)[number] | undefined;
-		for (let i = contents.length - 1; i >= 0; i -= 1) {
-			if (contents[i]?.role === "model") {
-				toolTurn = contents[i];
-				break;
-			}
-		}
+		const modelTurn = contents.find((c) => c.role === "model");
+		expect(modelTurn).toBeTruthy();
 
-		expect(toolTurn).toBeTruthy();
-		expect(toolTurn?.parts?.some((p) => p.functionCall !== undefined)).toBe(false);
+		const functionCallParts = modelTurn?.parts?.filter((p) => p.functionCall !== undefined) ?? [];
+		expect(functionCallParts).toHaveLength(2);
+		expect(functionCallParts[0]?.thoughtSignature).toBeUndefined();
+		expect(functionCallParts[1]?.thoughtSignature).toBeUndefined();
+		expect(JSON.stringify(modelTurn)).not.toContain("skip_thought_signature_validator");
 
-		const text = toolTurn?.parts?.map((p) => p.text ?? "").join("\n");
-		// Should contain historical context note to prevent mimicry
-		expect(text).toContain("Historical context");
-		expect(text).toContain("bash");
-		expect(text).toContain("ls -la");
-		expect(text).toContain("Do not mimic this format");
+		const textParts = modelTurn?.parts?.filter((p) => p.text !== undefined) ?? [];
+		const historicalText = textParts.filter((p) => p.text?.includes("Historical context"));
+		expect(historicalText).toHaveLength(0);
+	});
+
+	it("does not add skip_thought_signature_validator for unsigned Vertex tool calls", () => {
+		const model = makeGemini3Model("google-vertex", "google-vertex");
+		const contents = convertMessages(model, makeContext(model));
+		const modelTurn = contents.find((c) => c.role === "model");
+		const functionCallParts = modelTurn?.parts?.filter((p) => p.functionCall !== undefined) ?? [];
+
+		expect(functionCallParts).toHaveLength(2);
+		expect(functionCallParts[0]?.thoughtSignature).toBeUndefined();
+		expect(functionCallParts[1]?.thoughtSignature).toBeUndefined();
+		expect(JSON.stringify(modelTurn)).not.toContain("skip_thought_signature_validator");
+	});
+
+	it("preserves valid thoughtSignature when present for the same provider and model", () => {
+		const model = makeGemini3Model("google-generative-ai", "google");
+		const validSig = "AAAAAAAAAAAAAAAAAAAAAA==";
+		const contents = convertMessages(model, makeContext(model, validSig));
+		const modelTurn = contents.find((c) => c.role === "model");
+		const functionCallParts = modelTurn?.parts?.filter((p) => p.functionCall !== undefined) ?? [];
+
+		expect(functionCallParts).toHaveLength(2);
+		expect(functionCallParts[0]?.thoughtSignature).toBe(validSig);
+		expect(functionCallParts[1]?.thoughtSignature).toBeUndefined();
+	});
+
+	it("does not add a thoughtSignature for non-Gemini-3 models", () => {
+		const model = makeGemini3Model("google-generative-ai", "google", "gemini-2.5-flash");
+		const contents = convertMessages(model, makeContext({ ...model, id: "other-model" }));
+		const modelTurn = contents.find((c) => c.role === "model");
+		const fcPart = modelTurn?.parts?.find((p) => p.functionCall !== undefined);
+
+		expect(fcPart).toBeTruthy();
+		expect(fcPart?.thoughtSignature).toBeUndefined();
 	});
 });

@@ -1,11 +1,21 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { EditorTheme, MarkdownTheme, SelectListTheme } from "@mariozechner/pi-tui";
-import { type Static, Type } from "@sinclair/typebox";
-import { TypeCompiler } from "@sinclair/typebox/compiler";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import {
+	type EditorTheme,
+	getCapabilities,
+	type MarkdownTheme,
+	type RgbColor,
+	type SelectListTheme,
+	type SettingsListTheme,
+} from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { highlight, supportsLanguage } from "cli-highlight";
-import { getCustomThemesDir, getThemesDir } from "../../../config.js";
+import { type Static, Type } from "typebox";
+import { Compile } from "typebox/compile";
+import { getCustomThemesDir, getThemesDir } from "../../../config.ts";
+import type { SourceInfo } from "../../../core/source-info.ts";
+import { closeWatcher, watchWithErrorHandler } from "../../../utils/fs-watch.ts";
+import { highlight, supportsLanguage } from "../../../utils/syntax-highlight.ts";
 
 // ============================================================================
 // Types & Schema
@@ -79,6 +89,7 @@ const ThemeJsonSchema = Type.Object({
 		thinkingMedium: ColorValueSchema,
 		thinkingHigh: ColorValueSchema,
 		thinkingXhigh: ColorValueSchema,
+		thinkingMax: Type.Optional(ColorValueSchema),
 		// Bash Mode (1 color)
 		bashMode: ColorValueSchema,
 	}),
@@ -93,7 +104,7 @@ const ThemeJsonSchema = Type.Object({
 
 type ThemeJson = Static<typeof ThemeJsonSchema>;
 
-const validateThemeJson = TypeCompiler.Compile(ThemeJsonSchema);
+const validateThemeJson = Compile(ThemeJsonSchema);
 
 export type ThemeColor =
 	| "accent"
@@ -140,6 +151,7 @@ export type ThemeColor =
 	| "thinkingMedium"
 	| "thinkingHigh"
 	| "thinkingXhigh"
+	| "thinkingMax"
 	| "bashMode";
 
 export type ThemeBg =
@@ -155,28 +167,6 @@ type ColorMode = "truecolor" | "256color";
 // ============================================================================
 // Color Utilities
 // ============================================================================
-
-function detectColorMode(): ColorMode {
-	const colorterm = process.env.COLORTERM;
-	if (colorterm === "truecolor" || colorterm === "24bit") {
-		return "truecolor";
-	}
-	// Windows Terminal supports truecolor
-	if (process.env.WT_SESSION) {
-		return "truecolor";
-	}
-	const term = process.env.TERM || "";
-	// Fall back to 256color for truly limited terminals
-	if (term === "dumb" || term === "" || term === "linux") {
-		return "256color";
-	}
-	// Terminal.app also doesn't support truecolor
-	if (process.env.TERM_PROGRAM === "Apple_Terminal") {
-		return "256color";
-	}
-	// Assume truecolor for everything else - virtually all modern terminals support it
-	return "truecolor";
-}
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
 	const cleaned = hex.replace("#", "");
@@ -329,6 +319,10 @@ function resolveThemeColors<T extends Record<string, ColorValue>>(
 	return resolved as Record<keyof T, string | number>;
 }
 
+function withThemeColorFallbacks(colors: ThemeJson["colors"]): ThemeJson["colors"] & { thinkingMax: ColorValue } {
+	return { ...colors, thinkingMax: colors.thinkingMax ?? colors.thinkingXhigh };
+}
+
 // ============================================================================
 // Theme Class
 // ============================================================================
@@ -336,6 +330,7 @@ function resolveThemeColors<T extends Record<string, ColorValue>>(
 export class Theme {
 	readonly name?: string;
 	readonly sourcePath?: string;
+	sourceInfo?: SourceInfo;
 	private fgColors: Map<ThemeColor, string>;
 	private bgColors: Map<ThemeBg, string>;
 	private mode: ColorMode;
@@ -344,13 +339,15 @@ export class Theme {
 		fgColors: Record<ThemeColor, string | number>,
 		bgColors: Record<ThemeBg, string | number>,
 		mode: ColorMode,
-		options: { name?: string; sourcePath?: string } = {},
+		options: { name?: string; sourcePath?: string; sourceInfo?: SourceInfo } = {},
 	) {
 		this.name = options.name;
 		this.sourcePath = options.sourcePath;
+		this.sourceInfo = options.sourceInfo;
 		this.mode = mode;
 		this.fgColors = new Map();
-		for (const [key, value] of Object.entries(fgColors) as [ThemeColor, string | number][]) {
+		const colors = { ...fgColors, thinkingMax: fgColors.thinkingMax ?? fgColors.thinkingXhigh };
+		for (const [key, value] of Object.entries(colors) as [ThemeColor, string | number][]) {
 			this.fgColors.set(key, fgAnsi(value, mode));
 		}
 		this.bgColors = new Map();
@@ -407,7 +404,7 @@ export class Theme {
 		return this.mode;
 	}
 
-	getThinkingBorderColor(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"): (str: string) => string {
+	getThinkingBorderColor(level: ThinkingLevel): (str: string) => string {
 		// Map thinking levels to dedicated theme colors
 		switch (level) {
 			case "off":
@@ -422,6 +419,8 @@ export class Theme {
 				return (str: string) => this.fg("thinkingHigh", str);
 			case "xhigh":
 				return (str: string) => this.fg("thinkingXhigh", str);
+			case "max":
+				return (str: string) => this.fg("thinkingMax", str);
 			default:
 				return (str: string) => this.fg("thinkingOff", str);
 		}
@@ -452,20 +451,7 @@ function getBuiltinThemes(): Record<string, ThemeJson> {
 }
 
 export function getAvailableThemes(): string[] {
-	const themes = new Set<string>(Object.keys(getBuiltinThemes()));
-	const customThemesDir = getCustomThemesDir();
-	if (fs.existsSync(customThemesDir)) {
-		const files = fs.readdirSync(customThemesDir);
-		for (const file of files) {
-			if (file.endsWith(".json")) {
-				themes.add(file.slice(0, -5));
-			}
-		}
-	}
-	for (const name of registeredThemes.keys()) {
-		themes.add(name);
-	}
-	return Array.from(themes).sort();
+	return getAvailableThemesWithPaths().map(({ name }) => name);
 }
 
 export interface ThemeInfo {
@@ -475,55 +461,92 @@ export interface ThemeInfo {
 
 export function getAvailableThemesWithPaths(): ThemeInfo[] {
 	const themesDir = getThemesDir();
-	const customThemesDir = getCustomThemesDir();
 	const result: ThemeInfo[] = [];
+	const seen = new Set<string>();
+	const addTheme = (themeInfo: ThemeInfo) => {
+		if (seen.has(themeInfo.name)) {
+			return;
+		}
+		seen.add(themeInfo.name);
+		result.push(themeInfo);
+	};
 
 	// Built-in themes
 	for (const name of Object.keys(getBuiltinThemes())) {
-		result.push({ name, path: path.join(themesDir, `${name}.json`) });
+		addTheme({ name, path: path.join(themesDir, `${name}.json`) });
 	}
 
 	// Custom themes
-	if (fs.existsSync(customThemesDir)) {
-		for (const file of fs.readdirSync(customThemesDir)) {
-			if (file.endsWith(".json")) {
-				const name = file.slice(0, -5);
-				if (!result.some((t) => t.name === name)) {
-					result.push({ name, path: path.join(customThemesDir, file) });
-				}
-			}
-		}
+	for (const themeInfo of getCustomThemeInfos()) {
+		addTheme(themeInfo);
 	}
 
 	for (const [name, theme] of registeredThemes.entries()) {
-		if (!result.some((t) => t.name === name)) {
-			result.push({ name, path: theme.sourcePath });
-		}
+		addTheme({ name, path: theme.sourcePath });
 	}
 
 	return result.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function getCustomThemeInfos(): ThemeInfo[] {
+	const customThemesDir = getCustomThemesDir();
+	const result: ThemeInfo[] = [];
+	if (!fs.existsSync(customThemesDir)) {
+		return result;
+	}
+
+	for (const file of fs.readdirSync(customThemesDir)) {
+		if (!file.endsWith(".json")) {
+			continue;
+		}
+		const themePath = path.join(customThemesDir, file);
+		try {
+			const customTheme = loadThemeFromPath(themePath);
+			if (customTheme.name) {
+				result.push({ name: customTheme.name, path: themePath });
+			}
+		} catch {
+			// Invalid themes are ignored here; the resource loader reports them
+			// during normal startup/reload.
+		}
+	}
+	return result;
+}
+
+function assertThemeNameIsValid(name: string): void {
+	if (name.includes("/")) {
+		throw new Error(
+			`Invalid theme name "${name}": theme names cannot contain "/" because it is reserved for automatic light/dark theme settings.`,
+		);
+	}
+}
+
 function parseThemeJson(label: string, json: unknown): ThemeJson {
 	if (!validateThemeJson.Check(json)) {
 		const errors = Array.from(validateThemeJson.Errors(json));
-		const missingColors: string[] = [];
+		const missingColors = new Set<string>();
 		const otherErrors: string[] = [];
 
-		for (const e of errors) {
-			// Check for missing required color properties
-			const match = e.path.match(/^\/colors\/(\w+)$/);
-			if (match && e.message.includes("Required")) {
-				missingColors.push(match[1]);
-			} else {
-				otherErrors.push(`  - ${e.path}: ${e.message}`);
+		for (const error of errors) {
+			if (error.keyword === "required" && error.instancePath === "/colors") {
+				const requiredProperties = (error.params as { requiredProperties?: string[] }).requiredProperties;
+				for (const requiredProperty of requiredProperties ?? []) {
+					missingColors.add(requiredProperty);
+				}
+				continue;
 			}
+
+			const path = error.instancePath || "/";
+			otherErrors.push(`  - ${path}: ${error.message}`);
 		}
 
 		let errorMessage = `Invalid theme "${label}":\n`;
-		if (missingColors.length > 0) {
+		if (missingColors.size > 0) {
 			errorMessage += "\nMissing required color tokens:\n";
-			errorMessage += missingColors.map((c) => `  - ${c}`).join("\n");
+			errorMessage += Array.from(missingColors)
+				.sort()
+				.map((color) => `  - ${color}`)
+				.join("\n");
 			errorMessage += '\n\nPlease add these colors to your theme\'s "colors" object.';
 			errorMessage += "\nSee the built-in themes (dark.json, light.json) for reference values.";
 		}
@@ -534,7 +557,9 @@ function parseThemeJson(label: string, json: unknown): ThemeJson {
 		throw new Error(errorMessage);
 	}
 
-	return json as ThemeJson;
+	const themeJson = json as ThemeJson;
+	assertThemeNameIsValid(themeJson.name);
+	return themeJson;
 }
 
 function parseThemeJsonContent(label: string, content: string): ThemeJson {
@@ -570,8 +595,8 @@ function loadThemeJson(name: string): ThemeJson {
 }
 
 function createTheme(themeJson: ThemeJson, mode?: ColorMode, sourcePath?: string): Theme {
-	const colorMode = mode ?? detectColorMode();
-	const resolvedColors = resolveThemeColors(themeJson.colors, themeJson.vars);
+	const colorMode = mode ?? (getCapabilities().trueColor ? "truecolor" : "256color");
+	const resolvedColors = resolveThemeColors(withThemeColorFallbacks(themeJson.colors), themeJson.vars);
 	const fgColors: Record<ThemeColor, string | number> = {} as Record<ThemeColor, string | number>;
 	const bgColors: Record<ThemeBg, string | number> = {} as Record<ThemeBg, string | number>;
 	const bgColorKeys: Set<string> = new Set([
@@ -618,23 +643,153 @@ export function getThemeByName(name: string): Theme | undefined {
 	}
 }
 
-function detectTerminalBackground(): "dark" | "light" {
-	const colorfgbg = process.env.COLORFGBG || "";
-	if (colorfgbg) {
-		const parts = colorfgbg.split(";");
-		if (parts.length >= 2) {
-			const bg = parseInt(parts[1], 10);
-			if (!Number.isNaN(bg)) {
-				const result = bg < 8 ? "dark" : "light";
-				return result;
-			}
-		}
+export type TerminalTheme = "dark" | "light";
+
+export function parseAutoThemeSetting(
+	themeSetting: string | undefined,
+): { lightTheme: string; darkTheme: string } | undefined {
+	if (!themeSetting) return undefined;
+	const slashIndex = themeSetting.indexOf("/");
+	if (slashIndex === -1 || themeSetting.indexOf("/", slashIndex + 1) !== -1) {
+		return undefined;
 	}
-	return "dark";
+
+	const lightTheme = themeSetting.slice(0, slashIndex).trim();
+	const darkTheme = themeSetting.slice(slashIndex + 1).trim();
+	if (!lightTheme || !darkTheme) {
+		return undefined;
+	}
+	return { lightTheme, darkTheme };
 }
 
-function getDefaultTheme(): string {
-	return detectTerminalBackground();
+export function resolveThemeSetting(
+	themeSetting: string | undefined,
+	terminalTheme: TerminalTheme,
+): string | undefined {
+	const autoTheme = parseAutoThemeSetting(themeSetting);
+	if (autoTheme) {
+		return terminalTheme === "light" ? autoTheme.lightTheme : autoTheme.darkTheme;
+	}
+	if (themeSetting?.includes("/")) return undefined;
+	if (typeof themeSetting === "string") return themeSetting;
+	return undefined;
+}
+
+export interface TerminalThemeDetection {
+	theme: TerminalTheme;
+	source: "terminal background" | "COLORFGBG" | "fallback";
+	detail: string;
+	confidence: "high" | "low";
+}
+
+export interface TerminalThemeDetectionOptions {
+	env?: NodeJS.ProcessEnv;
+}
+
+export interface TerminalBackgroundThemeDetector {
+	queryTerminalBackgroundColor({ timeoutMs }: { timeoutMs: number }): Promise<RgbColor | undefined>;
+}
+
+export interface TerminalAutoThemeDetector extends TerminalBackgroundThemeDetector {
+	queryTerminalColorScheme?({ timeoutMs }: { timeoutMs: number }): Promise<TerminalTheme | undefined>;
+}
+
+export interface TerminalBackgroundThemeDetectionOptions extends TerminalThemeDetectionOptions {
+	ui: TerminalBackgroundThemeDetector;
+	timeoutMs: number;
+}
+
+export interface TerminalAutoThemeDetectionOptions extends TerminalThemeDetectionOptions {
+	ui: TerminalAutoThemeDetector;
+	timeoutMs: number;
+}
+
+function getColorFgBgBackgroundIndex(colorfgbg: string): number | undefined {
+	const parts = colorfgbg.split(";");
+	for (let i = parts.length - 1; i >= 0; i--) {
+		const bg = parseInt(parts[i].trim(), 10);
+		if (Number.isInteger(bg) && bg >= 0 && bg <= 255) {
+			return bg;
+		}
+	}
+	return undefined;
+}
+
+function getRgbColorLuminance({ r, g, b }: RgbColor): number {
+	const toLinear = (channel: number) => {
+		const value = channel / 255;
+		return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+	};
+	return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+}
+
+function getAnsiColorLuminance(index: number): number {
+	return getRgbColorLuminance(hexToRgb(ansi256ToHex(index)));
+}
+
+export function getThemeForRgbColor(rgb: RgbColor): TerminalTheme {
+	return getRgbColorLuminance(rgb) >= 0.5 ? "light" : "dark";
+}
+
+export function detectTerminalBackgroundFromEnv(options: TerminalThemeDetectionOptions = {}): TerminalThemeDetection {
+	const env = options.env ?? process.env;
+	const colorfgbg = env.COLORFGBG || "";
+	const bg = getColorFgBgBackgroundIndex(colorfgbg);
+	if (bg !== undefined) {
+		return {
+			theme: getAnsiColorLuminance(bg) >= 0.5 ? "light" : "dark",
+			source: "COLORFGBG",
+			detail: `background color index ${bg}`,
+			confidence: "high",
+		};
+	}
+
+	return {
+		theme: "dark",
+		source: "fallback",
+		detail: "no terminal background hint found",
+		confidence: "low",
+	};
+}
+
+export async function detectTerminalBackgroundTheme({
+	ui,
+	timeoutMs,
+	env,
+}: TerminalBackgroundThemeDetectionOptions): Promise<TerminalThemeDetection> {
+	try {
+		const rgb = await ui.queryTerminalBackgroundColor({ timeoutMs });
+		if (rgb) {
+			return {
+				theme: getThemeForRgbColor(rgb),
+				source: "terminal background",
+				detail: `OSC 11 background rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`,
+				confidence: "high",
+			};
+		}
+	} catch {
+		// Fall back to environment-based detection when the terminal query fails.
+	}
+
+	return detectTerminalBackgroundFromEnv({ env });
+}
+
+export async function detectTerminalThemeForAuto({
+	ui,
+	timeoutMs,
+	env,
+}: TerminalAutoThemeDetectionOptions): Promise<TerminalTheme> {
+	try {
+		const colorScheme = await ui.queryTerminalColorScheme?.({ timeoutMs });
+		if (colorScheme) return colorScheme;
+	} catch {
+		// Fall back to OSC 11 / COLORFGBG detection when color-scheme DSR is unsupported.
+	}
+	return (await detectTerminalBackgroundTheme({ ui, timeoutMs, env })).theme;
+}
+
+export function getDefaultTheme(): string {
+	return detectTerminalBackgroundFromEnv().theme;
 }
 
 // ============================================================================
@@ -642,7 +797,8 @@ function getDefaultTheme(): string {
 // ============================================================================
 
 // Use globalThis to share theme across module loaders (tsx + jiti in dev mode)
-const THEME_KEY = Symbol.for("@mariozechner/pi-coding-agent:theme");
+const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
+const THEME_KEY_OLD = Symbol.for("@mariozechner/pi-coding-agent:theme");
 
 // Export theme as a getter that reads from globalThis
 // This ensures all module instances (tsx, jiti) see the same theme
@@ -656,10 +812,12 @@ export const theme: Theme = new Proxy({} as Theme, {
 
 function setGlobalTheme(t: Theme): void {
 	(globalThis as Record<symbol, Theme>)[THEME_KEY] = t;
+	(globalThis as Record<symbol, Theme>)[THEME_KEY_OLD] = t;
 }
 
 let currentThemeName: string | undefined;
 let themeWatcher: fs.FSWatcher | undefined;
+let themeReloadTimer: NodeJS.Timeout | undefined;
 let onThemeChangeCallback: (() => void) | undefined;
 const registeredThemes = new Map<string, Theme>();
 
@@ -667,6 +825,7 @@ export function setRegisteredThemes(themes: Theme[]): void {
 	registeredThemes.clear();
 	for (const theme of themes) {
 		if (theme.name) {
+			assertThemeNameIsValid(theme.name);
 			registeredThemes.set(theme.name, theme);
 		}
 	}
@@ -725,11 +884,7 @@ export function onThemeChange(callback: () => void): void {
 }
 
 function startThemeWatcher(): void {
-	// Stop existing watcher if any
-	if (themeWatcher) {
-		themeWatcher.close();
-		themeWatcher = undefined;
-	}
+	stopThemeWatcher();
 
 	// Only watch if it's a custom theme (not built-in)
 	if (!currentThemeName || currentThemeName === "dark" || currentThemeName === "light") {
@@ -737,56 +892,77 @@ function startThemeWatcher(): void {
 	}
 
 	const customThemesDir = getCustomThemesDir();
-	const themeFile = path.join(customThemesDir, `${currentThemeName}.json`);
+	const watchedThemeName = currentThemeName;
+	const watchedFileName = `${watchedThemeName}.json`;
+	const themeFile = path.join(customThemesDir, watchedFileName);
 
 	// Only watch if the file exists
 	if (!fs.existsSync(themeFile)) {
 		return;
 	}
 
-	try {
-		themeWatcher = fs.watch(themeFile, (eventType) => {
-			if (eventType === "change") {
-				// Debounce rapid changes
-				setTimeout(() => {
-					try {
-						// Reload the theme
-						setGlobalTheme(loadTheme(currentThemeName!));
-						// Notify callback (to invalidate UI)
-						if (onThemeChangeCallback) {
-							onThemeChangeCallback();
-						}
-					} catch (_error) {
-						// Ignore errors (file might be in invalid state while being edited)
-					}
-				}, 100);
-			} else if (eventType === "rename") {
-				// File was deleted or renamed - fall back to default theme
-				setTimeout(() => {
-					if (!fs.existsSync(themeFile)) {
-						currentThemeName = "dark";
-						setGlobalTheme(loadTheme("dark"));
-						if (themeWatcher) {
-							themeWatcher.close();
-							themeWatcher = undefined;
-						}
-						if (onThemeChangeCallback) {
-							onThemeChangeCallback();
-						}
-					}
-				}, 100);
+	const scheduleReload = () => {
+		if (themeReloadTimer) {
+			clearTimeout(themeReloadTimer);
+		}
+		themeReloadTimer = setTimeout(() => {
+			themeReloadTimer = undefined;
+
+			// Ignore stale timers after switching themes or stopping the watcher
+			if (currentThemeName !== watchedThemeName) {
+				return;
 			}
-		});
-	} catch (_error) {
-		// Ignore errors starting watcher
-	}
+
+			// Keep the last successfully loaded theme active if the file is temporarily missing
+			if (!fs.existsSync(themeFile)) {
+				return;
+			}
+
+			try {
+				// Reload the theme from disk and refresh the registry cache
+				const reloadedTheme = loadThemeFromPath(themeFile);
+				registeredThemes.set(watchedThemeName, reloadedTheme);
+				setGlobalTheme(reloadedTheme);
+				// Notify callback (to invalidate UI)
+				if (onThemeChangeCallback) {
+					onThemeChangeCallback();
+				}
+			} catch (_error) {
+				// Ignore errors (file might be in invalid state while being edited)
+			}
+		}, 100);
+	};
+
+	themeWatcher =
+		watchWithErrorHandler(
+			customThemesDir,
+			(_eventType, filename) => {
+				if (currentThemeName !== watchedThemeName) {
+					return;
+				}
+				if (!filename) {
+					scheduleReload();
+					return;
+				}
+				if (filename !== watchedFileName) {
+					return;
+				}
+				scheduleReload();
+			},
+			() => {
+				closeWatcher(themeWatcher);
+				themeWatcher = undefined;
+			},
+		) ?? undefined;
 }
 
 export function stopThemeWatcher(): void {
-	if (themeWatcher) {
-		themeWatcher.close();
-		themeWatcher = undefined;
+	if (themeReloadTimer) {
+		clearTimeout(themeReloadTimer);
+		themeReloadTimer = undefined;
 	}
+	closeWatcher(themeWatcher);
+	themeWatcher = undefined;
 }
 
 // ============================================================================
@@ -847,7 +1023,7 @@ export function getResolvedThemeColors(themeName?: string): Record<string, strin
 	const name = themeName ?? currentThemeName ?? getDefaultTheme();
 	const isLight = name === "light";
 	const themeJson = loadThemeJson(name);
-	const resolved = resolveThemeColors(themeJson.colors, themeJson.vars);
+	const resolved = resolveThemeColors(withThemeColorFallbacks(themeJson.colors), themeJson.vars);
 
 	// Default text color for empty values (terminal uses default fg color)
 	const defaultText = isLight ? "#000000" : "#e5e5e7";
@@ -890,16 +1066,12 @@ export function getThemeExportColors(themeName?: string): {
 		if (!exportSection) return {};
 
 		const vars = themeJson.vars ?? {};
-		const resolve = (value: string | number | undefined): string | undefined => {
+		const resolve = (value: ColorValue | undefined): string | undefined => {
 			if (value === undefined) return undefined;
-			if (typeof value === "number") return ansi256ToHex(value);
-			if (value.startsWith("$")) {
-				const resolved = vars[value];
-				if (resolved === undefined) return undefined;
-				if (typeof resolved === "number") return ansi256ToHex(resolved);
-				return resolved;
-			}
-			return value;
+			const resolved = resolveVarRefs(value, vars);
+			if (typeof resolved === "number") return ansi256ToHex(resolved);
+			if (resolved === "") return undefined;
+			return resolved;
 		};
 
 		return {
@@ -927,17 +1099,27 @@ function buildCliHighlightTheme(t: Theme): CliHighlightTheme {
 		built_in: (s: string) => t.fg("syntaxType", s),
 		literal: (s: string) => t.fg("syntaxNumber", s),
 		number: (s: string) => t.fg("syntaxNumber", s),
+		regexp: (s: string) => t.fg("syntaxString", s),
 		string: (s: string) => t.fg("syntaxString", s),
 		comment: (s: string) => t.fg("syntaxComment", s),
+		doctag: (s: string) => t.fg("syntaxComment", s),
+		meta: (s: string) => t.fg("muted", s),
 		function: (s: string) => t.fg("syntaxFunction", s),
 		title: (s: string) => t.fg("syntaxFunction", s),
 		class: (s: string) => t.fg("syntaxType", s),
 		type: (s: string) => t.fg("syntaxType", s),
+		tag: (s: string) => t.fg("syntaxPunctuation", s),
+		name: (s: string) => t.fg("syntaxKeyword", s),
 		attr: (s: string) => t.fg("syntaxVariable", s),
 		variable: (s: string) => t.fg("syntaxVariable", s),
 		params: (s: string) => t.fg("syntaxVariable", s),
 		operator: (s: string) => t.fg("syntaxOperator", s),
 		punctuation: (s: string) => t.fg("syntaxPunctuation", s),
+		emphasis: (s: string) => t.italic(s),
+		strong: (s: string) => t.bold(s),
+		link: (s: string) => t.underline(s),
+		addition: (s: string) => t.fg("toolDiffAdded", s),
+		deletion: (s: string) => t.fg("toolDiffRemoved", s),
 	};
 }
 
@@ -956,6 +1138,12 @@ function getCliHighlightTheme(t: Theme): CliHighlightTheme {
 export function highlightCode(code: string, lang?: string): string[] {
 	// Validate language before highlighting to avoid stderr spam from cli-highlight
 	const validLang = lang && supportsLanguage(lang) ? lang : undefined;
+	// Skip highlighting when no valid language is specified. cli-highlight's
+	// auto-detection is unreliable and can misidentify prose as AppleScript,
+	// LiveCodeServer, etc., coloring random English words as keywords.
+	if (!validLang) {
+		return code.split("\n").map((line) => theme.fg("mdCodeBlock", line));
+	}
 	const opts = {
 		language: validLang,
 		ignoreIllegals: true,
@@ -1058,6 +1246,12 @@ export function getMarkdownTheme(): MarkdownTheme {
 		highlightCode: (code: string, lang?: string): string[] => {
 			// Validate language before highlighting to avoid stderr spam from cli-highlight
 			const validLang = lang && supportsLanguage(lang) ? lang : undefined;
+			// Skip highlighting when no valid language is specified. cli-highlight's
+			// auto-detection is unreliable and can misidentify prose as AppleScript,
+			// LiveCodeServer, etc., coloring random English words as keywords.
+			if (!validLang) {
+				return code.split("\n").map((line) => theme.fg("mdCodeBlock", line));
+			}
 			const opts = {
 				language: validLang,
 				ignoreIllegals: true,
@@ -1089,7 +1283,7 @@ export function getEditorTheme(): EditorTheme {
 	};
 }
 
-export function getSettingsListTheme(): import("@mariozechner/pi-tui").SettingsListTheme {
+export function getSettingsListTheme(): SettingsListTheme {
 	return {
 		label: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : text),
 		value: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : theme.fg("muted", text)),
