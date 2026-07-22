@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added all 98 themes from OhMyPi's pinned catalog, for 100 built-in themes alongside Pi's native dark and light themes. Bundled themes are discovered and validated from packaged JSON assets, with source adaptations and MIT attribution documented in [Bundled Theme Sources](docs/theme-sources.md).
+
 ## [0.81.1] - 2026-07-21
 
 ### New Features
