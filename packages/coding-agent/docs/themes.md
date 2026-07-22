@@ -18,7 +18,7 @@ Themes are JSON files that define colors for the TUI.
 
 Pi loads themes from:
 
-- Built-in: `dark`, `light`
+- Built-in: 100 themes—Pi's `dark` and `light` plus all 98 themes from OhMyPi's pinned catalog
 - Global: `~/.pi/agent/themes/*.json`
 - Project: `.pi/themes/*.json` (only after the project is trusted)
 - Packages: `themes/` directories or `pi.themes` entries in `package.json`
@@ -38,6 +38,16 @@ Select a theme via `/settings` or in `settings.json`:
 ```
 
 On first run, pi detects your terminal background and defaults to `dark` or `light`.
+
+Use separate themes for light and dark terminal appearance by joining their names with `/`:
+
+```json
+{
+  "theme": "light-tokyo-night/dark-tokyo-night"
+}
+```
+
+See [Bundled Theme Sources](theme-sources.md) for source and license details of adapted themes.
 
 ## Creating a Custom Theme
 
