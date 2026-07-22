@@ -37,6 +37,7 @@ import {
 	compact,
 	estimateContextTokens,
 	generateBranchSummary,
+	modelAwareReserveTokens,
 	prepareCompaction,
 	shouldCompact,
 } from "./compaction/index.js";
@@ -1660,6 +1661,11 @@ export class AgentSession {
 		if (skipAbortedCheck && assistantMessage.stopReason === "aborted") return;
 
 		const contextWindow = this.model?.contextWindow ?? 0;
+		// Reserve enough context for this model's advertised maximum output. Keep
+		// compaction's own summary budget independent in _runAutoCompaction().
+		if (!this.settingsManager.hasExplicitCompactionReserveTokens() && this.model) {
+			settings.reserveTokens = modelAwareReserveTokens(contextWindow, this.model.maxTokens);
+		}
 
 		// Skip overflow check if the message came from a different model.
 		// This handles the case where user switched from a smaller-context model (e.g. opus)

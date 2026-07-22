@@ -227,6 +227,10 @@ export function shouldCompact(contextTokens: number, contextWindow: number, sett
 	return reserveTriggered || percentTriggered;
 }
 
+export function modelAwareReserveTokens(contextWindow: number, maxTokens: number): number {
+	return Math.min(maxTokens, Math.floor(contextWindow / 2));
+}
+
 // ============================================================================
 // Cut point detection
 // ============================================================================

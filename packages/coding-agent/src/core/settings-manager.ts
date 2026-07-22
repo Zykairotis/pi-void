@@ -623,6 +623,10 @@ export class SettingsManager {
 		return this.settings.compaction?.reserveTokens ?? 16384;
 	}
 
+	hasExplicitCompactionReserveTokens(): boolean {
+		return this.settings.compaction?.reserveTokens !== undefined;
+	}
+
 	getCompactionKeepRecentTokens(): number {
 		return this.settings.compaction?.keepRecentTokens ?? 20000;
 	}
