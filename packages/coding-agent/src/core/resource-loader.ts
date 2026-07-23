@@ -505,7 +505,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 
 		const inlineExtensions = await this.loadExtensionFactories(extensionsResult.runtime);
-		extensionsResult.extensions.push(...inlineExtensions.extensions);
+		extensionsResult.extensions = this.orderWithInlineExtensions(
+			extensionsResult.extensions,
+			inlineExtensions.extensions,
+		);
 		extensionsResult.errors.push(...inlineExtensions.errors);
 		return extensionsResult;
 	}
@@ -521,7 +524,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 		if (!preTrustExtensions) {
 			const extensionsResult = await loadExtensionsCached(extensionPaths, this.cwd, this.eventBus);
 			const inlineExtensions = await this.loadExtensionFactories(extensionsResult.runtime);
-			extensionsResult.extensions.push(...inlineExtensions.extensions);
+			extensionsResult.extensions = this.orderWithInlineExtensions(
+				extensionsResult.extensions,
+				inlineExtensions.extensions,
+			);
 			extensionsResult.errors.push(...inlineExtensions.errors);
 			this.addExtensionConflictDiagnostics(extensionsResult);
 			return extensionsResult;
@@ -553,10 +559,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const inlineExtensions = preTrustExtensions.extensions.filter((extension) =>
 			extension.path.startsWith("<inline:"),
 		);
-		const orderedExtensions = extensionPaths
+		const orderedUserExtensions = extensionPaths
 			.map((path) => loadedByPath.get(this.resolveExtensionLoadPath(path)))
 			.filter((extension): extension is Extension => extension !== undefined);
-		orderedExtensions.push(...inlineExtensions);
+		const orderedExtensions = this.orderWithInlineExtensions(orderedUserExtensions, inlineExtensions);
 
 		const extensionsResult: LoadExtensionsResult = {
 			extensions: orderedExtensions,
@@ -565,6 +571,12 @@ export class DefaultResourceLoader implements ResourceLoader {
 		};
 		this.addExtensionConflictDiagnostics(extensionsResult);
 		return extensionsResult;
+	}
+
+	private orderWithInlineExtensions(userExtensions: Extension[], inlineExtensions: Extension[]): Extension[] {
+		const beforeUser = inlineExtensions.filter((extension) => extension.inlinePriority === "before-user");
+		const normal = inlineExtensions.filter((extension) => extension.inlinePriority !== "before-user");
+		return [...beforeUser, ...userExtensions, ...normal];
 	}
 
 	private addExtensionConflictDiagnostics(extensionsResult: LoadExtensionsResult): void {
@@ -900,6 +912,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 			try {
 				const extension = await loadExtensionFromFactory(factory, this.cwd, this.eventBus, runtime, extensionPath);
 				extension.hidden = isNamed && input.hidden;
+				extension.inlinePriority = isNamed ? input.priority : undefined;
 				extensions.push(extension);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : "failed to load extension";

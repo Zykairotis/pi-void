@@ -1481,6 +1481,9 @@ export interface ProviderModelConfig {
 /** Extension factory function type. Supports both sync and async initialization. */
 export type ExtensionFactory = (pi: ExtensionAPI) => void | Promise<void>;
 
+/** Load-order priority for application-supplied inline extensions. */
+export type InlineExtensionPriority = "normal" | "before-user";
+
 export type InlineExtension =
 	| ExtensionFactory
 	| {
@@ -1489,6 +1492,8 @@ export type InlineExtension =
 			factory: ExtensionFactory;
 			/** Omit this extension from the startup Extensions list. */
 			hidden?: boolean;
+			/** Run before discovered user extensions. Reserved for application-owned guards. */
+			priority?: InlineExtensionPriority;
 	  };
 
 // ============================================================================
@@ -1657,6 +1662,7 @@ export interface Extension {
 	path: string;
 	resolvedPath: string;
 	hidden?: boolean;
+	inlinePriority?: InlineExtensionPriority;
 	sourceInfo: SourceInfo;
 	handlers: Map<string, HandlerFn[]>;
 	tools: Map<string, RegisteredTool>;
