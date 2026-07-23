@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added Pi Void guarded execution through the `piv` launcher: exact plan/build tool modes, Bash default-off, canonical direct edit/write path protection, durable session state, and a project-trusted settled verifier with bounded output and headless failure status. This is not a sandbox; opted-in Bash and filesystem TOCTOU can bypass direct-tool checks.
 - Added all 98 themes from OhMyPi's pinned catalog, for 100 built-in themes alongside Pi's native dark and light themes. Bundled themes are discovered and validated from packaged JSON assets, with source adaptations and MIT attribution documented in [Bundled Theme Sources](docs/theme-sources.md).
 
 ## [0.81.1] - 2026-07-21
