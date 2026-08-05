@@ -15,8 +15,13 @@ import { killProcessTree, trackDetachedChildPid, untrackDetachedChildPid } from 
 
 const STATE_TYPE = "piv-safe-verify-state";
 const STATE_VERSION = 2;
-const PLAN_TOOLS = ["read", "grep", "find", "ls", "draft_plan", "propose_plan", "read_plan"];
-const BUILD_TOOLS = [...PLAN_TOOLS.filter((tool) => tool !== "draft_plan" && tool !== "propose_plan"), "edit", "write"];
+const PLAN_TOOLS = ["read", "grep", "find", "ls", "draft_plan", "propose_plan"];
+const BUILD_TOOLS = [
+	...PLAN_TOOLS.filter((tool) => tool !== "draft_plan" && tool !== "propose_plan"),
+	"read_plan",
+	"edit",
+	"write",
+];
 const MAX_PLAN_TITLE_BYTES = 512;
 const MAX_PLAN_MARKDOWN_BYTES = 64 * 1024;
 const PLAN_MODE_PROMPT = `[PLAN MODE ACTIVE]

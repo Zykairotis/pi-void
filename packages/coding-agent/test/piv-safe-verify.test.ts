@@ -275,16 +275,11 @@ describe("Pi Void guarded extension", () => {
 	it("applies the default plan tool set and independently denies unknown calls", async () => {
 		const plan = extensionFixture();
 		await plan.emit("session_start");
-		expect(plan.activeTools.at(-1)).toEqual([
-			"read",
-			"grep",
-			"find",
-			"ls",
-			"draft_plan",
-			"propose_plan",
-			"read_plan",
-		]);
+		expect(plan.activeTools.at(-1)).toEqual(["read", "grep", "find", "ls", "draft_plan", "propose_plan"]);
 		expect(await plan.emit("tool_call", { toolCallId: "1", toolName: "edit", input: { path: "x" } })).toMatchObject({
+			block: true,
+		});
+		expect(await plan.emit("tool_call", { toolCallId: "1b", toolName: "read_plan", input: {} })).toMatchObject({
 			block: true,
 		});
 		expect(await plan.emit("tool_call", { toolCallId: "2", toolName: "mcp_unknown", input: {} })).toMatchObject({
