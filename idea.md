@@ -22,7 +22,7 @@ Implemented today:
 - API credentials remain in user configuration and never enter Git.
 - Auto-compaction reserves space using selected model's advertised maximum output, capped at half its context window.
 - The interactive theme picker includes all 98 themes from OhMyPi's pinned catalog alongside Pi's native dark and light themes.
-- `piv` bundles Guarded Build v0: exact plan/build tool modes, Bash default-off, canonical direct edit/write checks, durable session state, and one project-trusted settled verifier.
+- `piv` bundles Guarded Build v0: exact plan/build tool modes, OMP-style draft/refine/propose workflow, session-native bounded Markdown plan state, explicit interactive approval, approved-plan execution handoff and reread gating before mutation, Bash default-off, canonical direct edit/write checks, durable session state, and one project-trusted settled verifier.
 - Guarded Build v0 is guarded execution, not a sandbox: opted-in Bash, custom external effects, and filesystem TOCTOU remain outside its direct-tool boundary.
 
 Current endpoint:
@@ -408,7 +408,7 @@ Keep this list current when fork-specific files change.
 2. Add endpoint refresh observability without exposing secrets.
 3. Add compatibility probes for chat completions, tools, streaming, images, reasoning, and structured output.
 4. Build Stage 0 same-model instrumentation and regression runner.
-5. Field-test Guarded Build v0 before extracting a `safe` profile or package boundary; automatic repair, generic policy rules, multi-verifier pipelines, sandboxing, subagents, rollback, and trace services remain deferred.
+5. Field-test Guarded Build v0 and session-native plan approval before extracting a `safe` profile or package boundary; automatic repair, generic policy rules, multi-verifier pipelines, sandboxing, subagents, rollback, and trace services remain deferred.
 6. Add isolated workspace only after host-mode policy and verification are measurable.
 7. Evaluate recovery before durable autonomy; evaluate single-agent baseline before delegation.
 

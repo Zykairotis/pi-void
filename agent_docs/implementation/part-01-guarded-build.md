@@ -10,8 +10,10 @@ The implementation provides guarded host execution rather than operating-system 
 
 - Modes are exactly `plan` and `build`.
 - The default mode is `plan`.
-- Plan tools are `read`, `grep`, `find`, and `ls`.
-- Build tools add `edit` and `write`.
+- Plan tools are `read`, `grep`, `find`, `ls`, `draft_plan`, `propose_plan`, and `read_plan`.
+- Build tools include `read`, `grep`, `find`, `ls`, `read_plan`, `edit`, and `write`; draft and proposal tools remain plan-only.
+- Plan mode stores bounded session-native Markdown drafts, requires explicit interactive approval before build handoff, and keeps headless proposals pending.
+- Approved build mode requires `read_plan` before mutation and after build-mode re-entry or compaction.
 - Bash is available only when all three conditions are true:
   - mode is `build`;
   - the current process received `--piv-allow-bash`;
@@ -101,6 +103,7 @@ State is stored in a versioned custom session entry and is not sent to the langu
 
 - mode and root identity;
 - Git baseline;
+- bounded plan status, title, Markdown, content hash, and build reread state;
 - mutation and checked generations;
 - structured verifier status and bounded evidence;
 - whether Bash was effectively enabled in the recorded process.
