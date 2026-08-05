@@ -4,6 +4,27 @@
 
 ### Breaking Changes
 
+- Replaced the legacy harness session model with the v4 lane-based `Session`, `SessionStorage`, and `SessionRepo` APIs, including durable operation records, global facts, shared sequence numbers, and tree-scoped lane views.
+- Promoted the v2 session and `AgentHarness` API from the experimental entrypoint to the default package export and removed the experimental subpaths.
+- Removed the legacy JSONL and in-memory repository APIs. `InMemorySessionRepo` is the reference v4 repository; JSONL v4 support will use the new `SessionRepo` contract.
+
+### Added
+
+- Added bounded `Session.findEntriesOnBranch()` and `findEntryOnBranch()` queries with explicit traversal, filtering, ordering, and limit options.
+- Added a compile-complete `AgentHarness` v2 scaffold; unfinished operation paths reject with `HarnessNotImplemented` while durable execution is implemented.
+
+### Fixed
+
+- Fixed Windows path handling for `NodeExecutionEnv` file basenames, recursive skill loading, and prompt template names.
+
+## [0.83.0] - 2026-07-29
+
+## [0.82.1] - 2026-07-25
+
+## [0.82.0] - 2026-07-24
+
+### Breaking Changes
+
 - Replaced `AgentHarness`'s `ExecutionEnv` dependency and context-free `AgentTool` inputs with application-defined `toolContext` values and context-aware `AgentHarnessTool` definitions.
 
 ### Added
@@ -13,6 +34,10 @@
 ### Changed
 
 - Aligned harness tool path handling, edit serialization, shell output capture, explicit non-inherited environments, and cross-platform process cleanup with coding-agent behavior.
+
+### Fixed
+
+- Fixed compaction and branch-summary requests to use fresh routing session IDs with prompt caching disabled where supported ([#6618](https://github.com/earendil-works/pi/pull/6618) by [@tmustier](https://github.com/tmustier)).
 
 ## [0.81.1] - 2026-07-21
 

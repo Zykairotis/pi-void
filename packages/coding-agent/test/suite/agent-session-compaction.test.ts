@@ -175,6 +175,41 @@ describe("AgentSession compaction characterization", () => {
 		expect(getStreamCallCount()).toBe(1);
 	});
 
+	it("manually compacts with provider-resolved bearer auth", async () => {
+		const harness = await createHarness({ withConfiguredAuth: false });
+		harnesses.push(harness);
+		const model = harness.getModel();
+		harness.session.modelRuntime.registerNativeProvider({
+			id: model.provider,
+			name: "Faux bearer provider",
+			auth: {
+				apiKey: {
+					name: "Faux bearer token",
+					resolve: async () => ({
+						auth: { headers: { Authorization: "Bearer ambient-token" } },
+						source: "ambient bearer token",
+					}),
+				},
+			},
+			getModels: () => harness.models,
+			stream: () => createAssistantMessageEventStream(),
+			streamSimple: () => createAssistantMessageEventStream(),
+		});
+		seedCompactableSession(harness);
+		harness.setResponses([
+			(_context, options) => {
+				expect(options?.apiKey).toBeUndefined();
+				expect(options?.headers).toEqual({ Authorization: "Bearer ambient-token" });
+				return fauxAssistantMessage("summary with bearer auth");
+			},
+		]);
+
+		const result = await harness.session.compact();
+
+		expect(result.summary).toContain("summary with bearer auth");
+		expect(harness.faux.state.callCount).toBe(1);
+	});
+
 	it("persists usage from pi-generated manual compaction", async () => {
 		const harness = await createHarness({ withConfiguredAuth: false });
 		harnesses.push(harness);
@@ -205,6 +240,85 @@ describe("AgentSession compaction characterization", () => {
 		expect(compactionEntries).toHaveLength(1);
 		expect(compactionEnd?.result?.estimatedTokensAfter).toBeGreaterThan(0);
 		expect(getStreamCallCount()).toBe(1);
+	});
+
+	it("compacts and resumes after a length stop below the desired output limit", async () => {
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 1000, maxTokens: 100 }],
+			settings: { compaction: { keepRecentTokens: 1, reserveTokens: 0 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: "overflow compacted",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("partial response", { stopReason: "length" }),
+			fauxAssistantMessage("completed response"),
+		]);
+
+		await harness.session.prompt("x".repeat(5000));
+
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
+			reason: "overflow",
+			aborted: false,
+			willRetry: true,
+		});
+		expect(harness.session.getLastAssistantText()).toBe("completed response");
+	});
+
+	it("does not compact when a length stop reaches the desired output limit", async () => {
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 1_000_000, maxTokens: 100 }],
+		});
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("x".repeat(400), { stopReason: "length" })]);
+
+		await harness.session.prompt("hello");
+
+		expect(harness.faux.state.callCount).toBe(1);
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(0);
+	});
+
+	it("stops after one compact-and-retry when a second response is also truncated", async () => {
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 1_000_000, maxTokens: 100 }],
+			settings: { compaction: { keepRecentTokens: 1, reserveTokens: 0 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: "overflow compacted",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			() => fauxAssistantMessage("x".repeat(64), { stopReason: "length", timestamp: Date.now() + 10_000 }),
+			() => fauxAssistantMessage("y".repeat(64), { stopReason: "length", timestamp: Date.now() + 10_000 }),
+		]);
+
+		await harness.session.prompt("x".repeat(5000));
+
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(harness.eventsOfType("compaction_start").filter((event) => event.reason === "overflow")).toHaveLength(1);
+		expect(harness.eventsOfType("compaction_end").at(-1)?.errorMessage).toBe(
+			"Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.",
+		);
 	});
 
 	it("cancels in-progress manual compaction when abortCompaction is called", async () => {
