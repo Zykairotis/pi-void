@@ -9,6 +9,7 @@ import {
 	createPendingRemember,
 	createPivCogneeExtension,
 	enqueuePendingRemember,
+	loadPivCogneeConfig,
 	noteCircuitFailure,
 	readPendingRemember,
 	redactMemoryText,
@@ -154,20 +155,38 @@ describe("piv-cognee state helpers", () => {
 
 type Hook = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
 
-function extensionHookFixture(storageDir: string) {
+function extensionHookFixture(storageDir: string, hasUI = false) {
 	const handlers = new Map<string, Hook>();
+	const commands = new Map<string, (args: string, ctx: ExtensionContext) => Promise<void> | void>();
+	const tools = new Map<string, { execute: (...args: unknown[]) => Promise<unknown> }>();
+	const activeToolSets: string[][] = [];
 	const appended: Array<{ customType: string; data: unknown }> = [];
 	const notifications: string[] = [];
+	const currentTools = ["read", "grep", "cognee_search"];
 	const api = {
 		on(event: string, handler: Hook) {
 			handlers.set(event, handler);
+		},
+		registerCommand(
+			name: string,
+			command: { handler: (args: string, ctx: ExtensionContext) => Promise<void> | void },
+		) {
+			commands.set(name, command.handler);
+		},
+		registerTool(tool: { name: string; execute: (...args: unknown[]) => Promise<unknown> }) {
+			tools.set(tool.name, tool);
+		},
+		getActiveTools: () => [...currentTools],
+		setActiveTools(toolNames: string[]) {
+			activeToolSets.push([...toolNames]);
+			currentTools.splice(0, currentTools.length, ...toolNames);
 		},
 		appendEntry(customType: string, data: unknown) {
 			appended.push({ customType, data });
 		},
 	} as unknown as ExtensionAPI;
 	const ctx = {
-		hasUI: false,
+		hasUI,
 		signal: undefined,
 		ui: { notify: (message: string) => notifications.push(message) },
 		sessionManager: { getSessionId: () => "session-1" },
@@ -179,10 +198,10 @@ function extensionHookFixture(storageDir: string) {
 			if (String(input).endsWith("/recall")) {
 				return new Response(JSON.stringify([{ text: "remembered context" }]), { status: 200 });
 			}
-			throw new Error("offline");
+			return new Response(null, { status: 202 });
 		},
 	})(api);
-	return { handlers, appended, notifications, ctx };
+	return { handlers, commands, tools, activeToolSets, appended, notifications, ctx };
 }
 
 describe("piv-cognee extension hooks", () => {
@@ -215,6 +234,49 @@ describe("piv-cognee extension hooks", () => {
 			expect(records[0]?.text).toContain("We chose the queue.");
 			expect(runtime.appended[0]).toMatchObject({ customType: "piv-cognee" });
 			expect(runtime.appended[0]?.data).not.toHaveProperty("text");
+		} finally {
+			rmSync(storageDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("piv-cognee commands and search tool", () => {
+	it("toggles without clobbering unrelated tools and runs manual operations", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-commands-"));
+		try {
+			const runtime = extensionHookFixture(storageDir, true);
+			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
+			expect(runtime.commands.has("cognee")).toBe(true);
+			expect(runtime.tools.has("cognee_search")).toBe(true);
+
+			await runtime.commands.get("cognee")!("off", runtime.ctx);
+			expect((await loadPivCogneeConfig(join(storageDir, "config.json"), {})).enabled).toBe(false);
+			expect(runtime.activeToolSets.at(-1)).toEqual(["read", "grep"]);
+
+			await runtime.commands.get("cognee")!("on", runtime.ctx);
+			expect(runtime.activeToolSets.at(-1)).toEqual(["read", "grep", "cognee_search"]);
+			await runtime.commands.get("cognee")!("search remembered", runtime.ctx);
+			await runtime.commands.get("cognee")!("remember user_context explicit memory", runtime.ctx);
+			expect(runtime.notifications.join("\n")).toContain("remembered context");
+
+			const toolResult = await runtime.tools
+				.get("cognee_search")!
+				.execute("tool-1", { query: "remembered" }, undefined, undefined, runtime.ctx);
+			expect(toolResult).toMatchObject({ content: [{ text: expect.stringContaining("remembered context") }] });
+
+			await runtime.handlers.get("session_compact")?.(
+				{
+					type: "session_compact",
+					compactionEntry: { summary: "queued summary" },
+					reason: "manual",
+					fromExtension: false,
+					willRetry: false,
+				},
+				runtime.ctx,
+			);
+			expect(await readPendingRemember(join(storageDir, "pending"))).toHaveLength(1);
+			await runtime.commands.get("cognee")!("flush pending", runtime.ctx);
+			expect(await readPendingRemember(join(storageDir, "pending"))).toHaveLength(0);
 		} finally {
 			rmSync(storageDir, { recursive: true, force: true });
 		}

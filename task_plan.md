@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|--------|
 | Research | Complete |
-| Implementation | **Phase 3 complete** |
+| Implementation | **Phase 4 complete** |
 | Plan revision | 2026-08-07 — phased commits + dedicated branch |
 | Live Cognee API | Stopped (`127.0.0.1:8211`); do not assume health |
 
@@ -772,6 +772,7 @@ See Phase 8.
 | 2026-08-07 | Phase 1 complete on `void`: native fetch client and offline recall/remember contract tests pass; `npm run check` is clean. |
 | 2026-08-07 | Phase 2 complete on `void`: validated config, secret-safe key resolution, redaction, bounded queue, and circuit helpers pass offline tests; `npm run check` is clean. |
 | 2026-08-07 | Phase 3 complete on `void`: transient recall and post-save compaction queue hooks pass with soft-fail fake transport and secret-safe metadata. |
+| 2026-08-07 | Phase 4 complete on `void`: `/cognee` toggles, manual search/remember/flush/status, and read-only `cognee_search` pass offline tests without clobbering active tools. |
 
 ---
 
@@ -783,7 +784,7 @@ See Phase 8.
 [x] C1 client
 [x] C2 config/queue/redaction
 [x] C3 hooks
-[ ] C4 commands + search tool
+[x] C4 commands + search tool
 [ ] C5 piv wire-up
 [ ] C6 offline tests green
 [ ] C7 docs + changelog
