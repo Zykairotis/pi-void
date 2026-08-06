@@ -48,6 +48,7 @@ import type {
 	ProjectTrustEventResult,
 	ProviderConfig,
 	RegisteredCommand,
+	RegisteredSettings,
 	RegisteredTool,
 	ReplacedSessionContext,
 	ResolvedCommand,
@@ -281,6 +282,7 @@ export class ExtensionRunner {
 	private getSignalFn: () => AbortSignal | undefined = () => undefined;
 	private waitForIdleFn: () => Promise<void> = async () => {};
 	private abortFn: () => void = () => {};
+	private stopAfterTurnFn: () => void = () => {};
 	private hasPendingMessagesFn: () => boolean = () => false;
 	private getContextUsageFn: () => ContextUsage | undefined = () => undefined;
 	private compactFn: (options?: CompactOptions) => void = () => {};
@@ -343,6 +345,7 @@ export class ExtensionRunner {
 		this.isProjectTrustedFn = contextActions.isProjectTrusted;
 		this.getSignalFn = contextActions.getSignal;
 		this.abortFn = contextActions.abort;
+		this.stopAfterTurnFn = contextActions.stopAfterTurn ?? (() => {});
 		this.hasPendingMessagesFn = contextActions.hasPendingMessages;
 		this.shutdownHandler = contextActions.shutdown;
 		this.getContextUsageFn = contextActions.getContextUsage;
@@ -653,6 +656,10 @@ export class ExtensionRunner {
 		return this.resolveRegisteredCommands().find((command) => command.invocationName === name);
 	}
 
+	getRegisteredSettings(): RegisteredSettings[] {
+		return this.extensions.flatMap((extension) => Array.from(extension.settings?.values() ?? []));
+	}
+
 	/**
 	 * Request a graceful shutdown. Called by extension tools and event handlers.
 	 * The actual shutdown behavior is provided by the mode via bindExtensions().
@@ -726,6 +733,10 @@ export class ExtensionRunner {
 			abort: () => {
 				runner.assertActive();
 				runner.abortFn();
+			},
+			stopAfterTurn: () => {
+				runner.assertActive();
+				runner.stopAfterTurnFn();
 			},
 			hasPendingMessages: () => {
 				runner.assertActive();

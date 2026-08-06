@@ -28,6 +28,14 @@ describe("getEffortThinkingLevelMap", () => {
 		});
 	});
 
+	it("preserves an explicitly advertised ultra effort", () => {
+		expect(getEffortThinkingLevelMap([{ type: "effort", values: ["high", "max", "ultra"] }])).toMatchObject({
+			high: "high",
+			max: "max",
+			ultra: "ultra",
+		});
+	});
+
 	it("leaves toggle and budget controls for their adapter-specific implementations", () => {
 		expect(getEffortThinkingLevelMap([{ type: "toggle" }])).toBeUndefined();
 		expect(getEffortThinkingLevelMap([{ type: "budget_tokens", min: 1024, max: 32000 }])).toBeUndefined();

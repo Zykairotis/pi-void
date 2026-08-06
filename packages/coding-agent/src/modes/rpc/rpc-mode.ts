@@ -135,8 +135,17 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 	 */
 	const createExtensionUIContext = (): ExtensionUIContext => ({
 		select: (title, options, opts) =>
-			createDialogPromise(opts, undefined, { method: "select", title, options, timeout: opts?.timeout }, (r) =>
-				"cancelled" in r && r.cancelled ? undefined : "value" in r ? r.value : undefined,
+			createDialogPromise(
+				opts,
+				undefined,
+				{
+					method: "select",
+					title,
+					options,
+					...(opts?.timeout === undefined ? {} : { timeout: opts.timeout }),
+					...(opts?.content === undefined ? {} : { content: opts.content }),
+				},
+				(r) => ("cancelled" in r && r.cancelled ? undefined : "value" in r ? r.value : undefined),
 			),
 
 		confirm: (title, message, opts) =>
@@ -447,6 +456,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				const state: RpcSessionState = {
 					model: session.model,
 					thinkingLevel: session.thinkingLevel,
+					fastMode: session.getFastMode(),
+					fastModeAvailable: session.supportsFastMode(),
 					isStreaming: session.isStreaming,
 					isCompacting: session.isCompacting,
 					steeringMode: session.steeringMode,
@@ -495,6 +506,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			case "set_thinking_level": {
 				session.setThinkingLevel(command.level);
 				return success(id, "set_thinking_level");
+			}
+
+			case "set_fast_mode": {
+				session.setFastMode(command.enabled);
+				return success(id, "set_fast_mode");
 			}
 
 			case "cycle_thinking_level": {

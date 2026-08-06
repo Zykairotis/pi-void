@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
+import { ExtensionSelectorComponent } from "../src/modes/interactive/components/extension-selector.ts";
+import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import pivSafeVerify, {
 	createPivSafeVerify,
 	parsePivMode,
@@ -28,6 +30,21 @@ function fixture(): { root: string; outside: string } {
 afterEach(() => {
 	process.exitCode = undefined;
 	while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
+});
+
+describe("Pi Void plan review UI", () => {
+	it("renders the supplied plan content before approval choices", () => {
+		initTheme("dark");
+		const selector = new ExtensionSelectorComponent(
+			"Pi Void plan",
+			["approve", "refine", "cancel"],
+			() => {},
+			() => {},
+			{ content: "# Add guard\n\n1. Add tests" },
+		);
+
+		expect(selector.render(100).join("\n")).toContain("Add tests");
+	});
 });
 
 describe("Pi Void launcher isolation and startup parsing", () => {
@@ -55,6 +72,8 @@ describe("Pi Void launcher isolation and startup parsing", () => {
 		expect(guarded.status).toBe(0);
 		expect(`${guarded.stdout}${guarded.stderr}`).toContain("--piv-mode");
 		expect(`${guarded.stdout}${guarded.stderr}`).toContain("--piv-verify");
+		expect(`${guarded.stdout}${guarded.stderr}`).toContain("--piv-plan-model");
+		expect(`${guarded.stdout}${guarded.stderr}`).toContain("--piv-build-model");
 	});
 
 	it("accepts only exact plan and build modes", () => {
@@ -63,6 +82,7 @@ describe("Pi Void launcher isolation and startup parsing", () => {
 		expect(parsePivMode("build")).toBe("build");
 		expect(() => parsePivMode("read-only")).toThrow(/Invalid --piv-mode/);
 		expect(() => validatePivStartupArgs(["--piv-mode"])).toThrow(/requires plan or build/);
+		expect(() => validatePivStartupArgs(["--piv-plan-model="])).toThrow(/requires a nonempty model/);
 	});
 
 	it("accepts bounded JSON argv and rejects shell strings or unsafe values", () => {
@@ -121,8 +141,14 @@ function extensionFixture(
 		onModeChange?: (mode: "plan" | "build", ctx: ExtensionContext) => Promise<void>;
 		hasUI?: boolean;
 		planChoice?: string;
-		planRefinement?: string;
+		planChoices?: string[];
+		confirm?: boolean;
+		model?: { provider: string; id: string; name?: string };
+		scopedModels?: Array<{ model: { provider: string; id: string; name?: string } }>;
+		onSelect?: (title: string, options: string[], opts?: { content?: string }) => void;
 		abort?: () => void;
+		stopAfterTurn?: () => void;
+		idle?: boolean;
 	} = {},
 ) {
 	const { root } = fixture();
@@ -134,6 +160,10 @@ function extensionFixture(
 	const notifications: string[] = [];
 	const sentMessages: string[] = [];
 	const steeredMessages: string[] = [];
+	const sentMessageOptions: unknown[] = [];
+	const compactCalls: Array<{ customInstructions?: string }> = [];
+	const selectedModels: Array<{ provider: string; id: string }> = [];
+	const planChoices = [...(options.planChoices ?? [])];
 	const entries = options.entries ?? [];
 	const verifierExec = vi.fn(
 		async (_command: string, _args: string[], _execOptions?: unknown) =>
@@ -156,8 +186,9 @@ function extensionFixture(
 		getFlag(name: string) {
 			return options.flags?.[name];
 		},
-		sendMessage(message: { content: string }) {
+		sendMessage(message: { content: string }, sendOptions?: unknown) {
 			steeredMessages.push(message.content);
+			sentMessageOptions.push(sendOptions);
 		},
 		sendUserMessage(content: string) {
 			sentMessages.push(content);
@@ -169,6 +200,11 @@ function extensionFixture(
 			appended.push({ customType, data });
 			entries.push({ type: "custom", customType, data });
 		},
+		setModel: async (model: { provider: string; id: string }) => {
+			selectedModels.push(model);
+			return true;
+		},
+		setThinkingLevel: vi.fn(),
 		exec: async (command: string, args: string[], execOptions?: unknown) => {
 			if (command !== "git") return verifierExec(command, args, execOptions);
 			if (args[0] === "rev-parse" && args[1] === "--show-toplevel")
@@ -183,14 +219,34 @@ function extensionFixture(
 		mode: options.hasUI ? "tui" : "print",
 		hasUI: options.hasUI ?? false,
 		isProjectTrusted: () => options.trusted ?? true,
+		isIdle: () => options.idle ?? false,
 		abort: options.abort ?? vi.fn(),
+		stopAfterTurn: options.stopAfterTurn ?? vi.fn(),
 		signal: undefined,
+		model: options.model,
+		scopedModels: options.scopedModels ?? [],
+		thinkingLevel: "high",
+		modelRegistry: {
+			getAvailable: () => (options.scopedModels ?? []).map((entry) => entry.model),
+		},
+		compact: (compactOptions?: {
+			customInstructions?: string;
+			onComplete?: (result: unknown) => void;
+			onError?: (error: Error) => void;
+		}) => {
+			compactCalls.push({ customInstructions: compactOptions?.customInstructions });
+			compactOptions?.onComplete?.({ summary: "compacted" });
+		},
 		sessionManager: { getBranch: () => entries },
 		ui: {
 			notify: (message: string) => notifications.push(message),
 			setStatus: vi.fn(),
-			select: async () => options.planChoice,
-			input: async () => options.planRefinement,
+			select: async (title: string, selectOptions: string[], opts?: { content?: string }) => {
+				options.onSelect?.(title, selectOptions, opts);
+				return planChoices.shift() ?? options.planChoice;
+			},
+			confirm: async () => options.confirm ?? true,
+			input: async () => undefined,
 		},
 	} as unknown as ExtensionContext;
 	(options.onModeChange ? createPivSafeVerify({ onModeChange: options.onModeChange }) : pivSafeVerify)(api);
@@ -201,8 +257,11 @@ function extensionFixture(
 		commands,
 		ctx,
 		notifications,
+		compactCalls,
+		selectedModels,
 		sentMessages,
 		steeredMessages,
+		sentMessageOptions,
 		verifierExec,
 		async emit(event: string, value: Record<string, unknown> = {}) {
 			const handler = handlers.get(event);
@@ -258,12 +317,13 @@ describe("Pi Void guarded extension", () => {
 	});
 
 	it("injects approved-plan execution instructions in build mode", async () => {
-		const runtime = extensionFixture({ hasUI: true, planChoice: "approve" });
+		const runtime = extensionFixture({ hasUI: true, planChoice: "Approve and execute" });
 		await runtime.emit("session_start");
 		await draftPlan(runtime);
 		await runtime.tools
 			.get("propose_plan")!
 			.execute("plan-1", { title: "Add guard" }, undefined, undefined, runtime.ctx);
+		await runtime.emit("agent_settled");
 		const result = await runtime.emit("before_agent_start", { prompt: "Continue" });
 		expect(result).toMatchObject({
 			message: { customType: "piv-approved-plan-context", display: false },
@@ -275,7 +335,7 @@ describe("Pi Void guarded extension", () => {
 	it("applies the default plan tool set and independently denies unknown calls", async () => {
 		const plan = extensionFixture();
 		await plan.emit("session_start");
-		expect(plan.activeTools.at(-1)).toEqual(["read", "grep", "find", "ls", "draft_plan", "propose_plan"]);
+		expect(plan.activeTools.at(-1)).toEqual(["read", "grep", "find", "ls", "ask", "draft_plan", "propose_plan"]);
 		expect(await plan.emit("tool_call", { toolCallId: "1", toolName: "edit", input: { path: "x" } })).toMatchObject({
 			block: true,
 		});
@@ -295,6 +355,32 @@ describe("Pi Void guarded extension", () => {
 		expect(build.notifications).toContain(
 			"Bash is enabled for this process. Direct path guards do not contain shell commands.",
 		);
+	});
+
+	it("exposes saved plan reading only after a draft exists", async () => {
+		const runtime = extensionFixture();
+		await runtime.emit("session_start");
+		expect(runtime.activeTools.at(-1)).not.toContain("read_plan");
+
+		await draftPlan(runtime, "Add guard", "# Add guard");
+		expect(runtime.activeTools.at(-1)).toContain("read_plan");
+		const draft = await runtime.tools.get("read_plan")!.execute("draft-read", {}, undefined, undefined, runtime.ctx);
+		expect(draft).toMatchObject({
+			content: [{ type: "text", text: "# Add guard" }],
+			details: { status: "draft", title: "Add guard" },
+		});
+
+		await runtime.tools
+			.get("propose_plan")!
+			.execute("pending-plan", { title: "Add guard" }, undefined, undefined, runtime.ctx);
+		expect(runtime.activeTools.at(-1)).toContain("read_plan");
+		const pending = await runtime.tools
+			.get("read_plan")!
+			.execute("pending-read", {}, undefined, undefined, runtime.ctx);
+		expect(pending).toMatchObject({
+			content: [{ type: "text", text: "# Add guard" }],
+			details: { status: "pending", title: "Add guard" },
+		});
 	});
 
 	it("drafts a plan before proposing it for approval", async () => {
@@ -329,6 +415,61 @@ describe("Pi Void guarded extension", () => {
 		});
 	});
 
+	it("asks load-bearing planning questions interactively and fails closed headlessly", async () => {
+		const interactive = extensionFixture({
+			hasUI: true,
+			planChoice: "Safe (Recommended) — Preserve deterministic enforcement",
+		});
+		await interactive.emit("session_start");
+		const result = await interactive.tools.get("ask")!.execute(
+			"ask-1",
+			{
+				questions: [
+					{
+						id: "policy",
+						header: "Policy",
+						question: "Which enforcement should remain?",
+						options: [
+							{ label: "Safe", description: "Preserve deterministic enforcement", recommended: true },
+							{ label: "Ambient", description: "Retain ambient tools" },
+						],
+					},
+				],
+			},
+			undefined,
+			undefined,
+			interactive.ctx,
+		);
+		expect(result).toMatchObject({
+			content: [{ type: "text", text: "policy: Safe" }],
+			details: { cancelled: false, answers: [{ id: "policy", answer: "Safe" }] },
+		});
+
+		const headless = extensionFixture();
+		await headless.emit("session_start");
+		expect(
+			await headless.tools.get("ask")!.execute(
+				"ask-2",
+				{
+					questions: [
+						{
+							id: "x",
+							header: "X",
+							question: "Choose",
+							options: [
+								{ label: "A", description: "A" },
+								{ label: "B", description: "B" },
+							],
+						},
+					],
+				},
+				undefined,
+				undefined,
+				headless.ctx,
+			),
+		).toMatchObject({ isError: true, details: { cancelled: true } });
+	});
+
 	it("does not auto-approve plans in headless mode", async () => {
 		const runtime = extensionFixture();
 		await runtime.emit("session_start");
@@ -342,16 +483,34 @@ describe("Pi Void guarded extension", () => {
 
 	it("approves a pending plan in interactive mode and gates first mutation on read_plan", async () => {
 		const onModeChange = vi.fn(async () => {});
-		const runtime = extensionFixture({ hasUI: true, planChoice: "approve", onModeChange });
+		const onSelect = vi.fn();
+		const runtime = extensionFixture({
+			hasUI: true,
+			planChoice: "Approve and execute",
+			onModeChange,
+			onSelect,
+		});
 		await runtime.emit("session_start");
-		await draftPlan(runtime);
-		await runtime.tools
+		await draftPlan(runtime, "Add guard", "# Add guard\n\n1. Add tests\n2. Run checks");
+		const proposalResult = await runtime.tools
 			.get("propose_plan")!
 			.execute("plan-1", { title: "Add guard" }, undefined, undefined, runtime.ctx);
+		expect(proposalResult).toMatchObject({
+			content: [{ type: "text", text: expect.stringContaining("Plan approved: Add guard") }],
+			details: { status: "approved", title: "Add guard" },
+		});
+		expect(onSelect).toHaveBeenCalledWith(
+			"Plan mode - next step",
+			["Approve and execute", "Approve and compact context", "Approve and keep context", "Refine plan"],
+			{ content: "# Add guard\n\n1. Add tests\n2. Run checks" },
+		);
+		expect(runtime.ctx.stopAfterTurn).toHaveBeenCalledOnce();
+		expect(runtime.ctx.abort).not.toHaveBeenCalled();
+		await runtime.emit("agent_settled");
 		expect(onModeChange).toHaveBeenLastCalledWith("build", runtime.ctx);
 		expect(runtime.steeredMessages).toHaveLength(1);
-		expect(runtime.ctx.abort).toHaveBeenCalledOnce();
 		expect(runtime.steeredMessages[0]).toContain("MUST call read_plan");
+		expect(runtime.sentMessageOptions[0]).toEqual({ deliverAs: "followUp", triggerTurn: true });
 		expect(
 			await runtime.emit("tool_call", { toolCallId: "write-1", toolName: "write", input: { path: "x" } }),
 		).toMatchObject({
@@ -364,33 +523,140 @@ describe("Pi Void guarded extension", () => {
 		).toBeUndefined();
 	});
 
-	it("refines or cancels a pending plan without entering build mode", async () => {
-		const refinement = extensionFixture({ hasUI: true, planChoice: "refine", planRefinement: "Add rollback step" });
+	it("supports compact and keep-context approval handoffs", async () => {
+		const compact = extensionFixture({ hasUI: true, planChoice: "Approve and compact context" });
+		await compact.emit("session_start");
+		await draftPlan(compact);
+		await compact.tools
+			.get("propose_plan")!
+			.execute("compact-plan", { title: "Add guard" }, undefined, undefined, compact.ctx);
+		await compact.emit("agent_settled");
+		expect(compact.compactCalls).toHaveLength(1);
+		expect(compact.compactCalls[0]?.customInstructions).toContain("approved Pi Void plan");
+		expect(compact.steeredMessages.at(-1)).toContain("MUST call read_plan");
+		expect(compact.appended.at(-1)?.data).toMatchObject({
+			mode: "build",
+			plan: { status: "approved", approvalMode: "compact" },
+		});
+
+		const keep = extensionFixture({ hasUI: true, planChoice: "Approve and keep context" });
+		await keep.emit("session_start");
+		await draftPlan(keep);
+		await keep.tools
+			.get("propose_plan")!
+			.execute("keep-plan", { title: "Add guard" }, undefined, undefined, keep.ctx);
+		await keep.emit("agent_settled");
+		expect(keep.compactCalls).toHaveLength(0);
+		expect(keep.appended.at(-1)?.data).toMatchObject({
+			mode: "build",
+			plan: { status: "approved", approvalMode: "keep" },
+		});
+		expect(
+			await keep.emit("context", {
+				messages: [{ role: "user", content: "planning history", timestamp: 1 }],
+			}),
+		).toBeUndefined();
+	});
+
+	it("gives fresh execution a durable context cutoff without orphaned tool results", async () => {
+		const runtime = extensionFixture({ hasUI: true, planChoice: "Approve and execute" });
+		await runtime.emit("session_start");
+		await draftPlan(runtime);
+		await runtime.tools
+			.get("propose_plan")!
+			.execute("fresh-plan", { title: "Add guard" }, undefined, undefined, runtime.ctx);
+		await runtime.emit("agent_settled");
+		const afterApproval = Date.now() + 10;
+		const result = (await runtime.emit("context", {
+			messages: [
+				{ role: "user", content: "old planning history", timestamp: 1 },
+				{
+					role: "custom",
+					customType: "piv-plan-execution-start",
+					content: "execute approved plan",
+					timestamp: afterApproval,
+				},
+				{
+					role: "toolResult",
+					toolCallId: "old-proposal",
+					toolName: "propose_plan",
+					content: [],
+					isError: false,
+					timestamp: afterApproval,
+				},
+				{
+					role: "assistant",
+					content: [{ type: "toolCall", id: "read-1", name: "read_plan", arguments: {} }],
+					timestamp: afterApproval,
+				},
+				{
+					role: "toolResult",
+					toolCallId: "read-1",
+					toolName: "read_plan",
+					content: [],
+					isError: false,
+					timestamp: afterApproval,
+				},
+			],
+		})) as { messages: Array<{ role: string; toolCallId?: string }> };
+		expect(result.messages).toHaveLength(3);
+		expect(result.messages.some((message) => message.toolCallId === "old-proposal")).toBe(false);
+		expect(result.messages.some((message) => message.toolCallId === "read-1")).toBe(true);
+	});
+
+	it("closes refinement review without editing or changing the pending plan", async () => {
+		const refinement = extensionFixture({
+			hasUI: true,
+			planChoice: "Refine plan",
+		});
 		await refinement.emit("session_start");
 		await draftPlan(refinement);
 		await refinement.tools
 			.get("propose_plan")!
 			.execute("plan-1", { title: "Add guard" }, undefined, undefined, refinement.ctx);
-		expect(refinement.sentMessages).toHaveLength(1);
-		expect(refinement.sentMessages[0]).toContain("Add rollback step");
-		expect(refinement.appended.at(-1)?.data).toMatchObject({ mode: "plan", plan: { status: "pending" } });
+		expect(refinement.sentMessages).toHaveLength(0);
+		expect(refinement.appended.at(-1)?.data).toMatchObject({
+			mode: "plan",
+			plan: { status: "pending", markdown: "1. Add tests" },
+		});
+		expect(refinement.notifications).toContain("Pi Void plan remains pending approval.");
 
-		const cancelled = extensionFixture({ hasUI: true, planChoice: "cancel" });
+		const cancelled = extensionFixture({ hasUI: true });
 		await cancelled.emit("session_start");
 		await draftPlan(cancelled);
 		await cancelled.tools
 			.get("propose_plan")!
 			.execute("plan-1", { title: "Add guard" }, undefined, undefined, cancelled.ctx);
-		expect(cancelled.appended.at(-1)?.data).toMatchObject({ plan: { status: "none", readInBuild: false } });
+		expect(cancelled.appended.at(-1)?.data).toMatchObject({ plan: { status: "pending", readInBuild: false } });
+	});
+
+	it("reopens a dismissed review", async () => {
+		const reopened = extensionFixture({
+			hasUI: true,
+			planChoices: ["", "Approve and keep context"],
+			idle: true,
+		});
+		await reopened.emit("session_start");
+		await draftPlan(reopened);
+		await reopened.tools
+			.get("propose_plan")!
+			.execute("dismiss-plan", { title: "Add guard" }, undefined, undefined, reopened.ctx);
+		expect(reopened.appended.at(-1)?.data).toMatchObject({ plan: { status: "pending" } });
+		await reopened.commands.get("piv-plan-review")!("", reopened.ctx);
+		expect(reopened.appended.at(-1)?.data).toMatchObject({
+			mode: "build",
+			plan: { status: "approved", approvalMode: "keep" },
+		});
 	});
 
 	it("requires rereading approved plan after leaving and reentering build mode", async () => {
-		const runtime = extensionFixture({ hasUI: true, planChoice: "approve" });
+		const runtime = extensionFixture({ hasUI: true, planChoice: "Approve and execute" });
 		await runtime.emit("session_start");
 		await draftPlan(runtime);
 		await runtime.tools
 			.get("propose_plan")!
 			.execute("plan-1", { title: "Add guard" }, undefined, undefined, runtime.ctx);
+		await runtime.emit("agent_settled");
 		await runtime.tools.get("read_plan")!.execute("plan-read", {}, undefined, undefined, runtime.ctx);
 		await runtime.commands.get("plan")!("", runtime.ctx);
 		await runtime.commands.get("build")!("", runtime.ctx);
@@ -401,6 +667,56 @@ describe("Pi Void guarded extension", () => {
 				input: { path: "x" },
 			}),
 		).toMatchObject({ block: true, reason: expect.stringContaining("read_plan") });
+	});
+
+	it("requires confirmation before manually bypassing an unfinished plan", async () => {
+		const runtime = extensionFixture({ hasUI: true, confirm: false });
+		await runtime.emit("session_start");
+		await draftPlan(runtime);
+		const toolsBefore = runtime.activeTools.at(-1);
+		await runtime.commands.get("build")!("", runtime.ctx);
+		expect(runtime.activeTools.at(-1)).toEqual(toolsBefore);
+		expect(runtime.appended.at(-1)?.data).toMatchObject({ mode: "plan", plan: { status: "draft" } });
+	});
+
+	it("bounds prose-only plan convergence reminders at three continuations", async () => {
+		const runtime = extensionFixture();
+		await runtime.emit("session_start");
+		for (let attempt = 0; attempt < 4; attempt++) {
+			await runtime.emit("agent_start");
+			await runtime.emit("turn_end", {
+				message: { role: "assistant", content: [{ type: "text", text: "Still thinking" }] },
+			});
+			await runtime.emit("agent_settled");
+		}
+		expect(runtime.steeredMessages.filter((message) => message.includes("PLAN MODE DECISION REQUIRED"))).toHaveLength(
+			3,
+		);
+		expect(runtime.appended.at(-1)?.data).toMatchObject({ plan: { decisionReminderCount: 3 } });
+	});
+
+	it("switches to configured planning and user-selected execution models", async () => {
+		const defaultModel = { provider: "local", id: "default" };
+		const planModel = { provider: "local", id: "planner" };
+		const buildModel = { provider: "local", id: "builder" };
+		const runtime = extensionFixture({
+			flags: { "piv-plan-model": "local/planner" },
+			hasUI: true,
+			model: defaultModel,
+			scopedModels: [{ model: defaultModel }, { model: planModel }, { model: buildModel }],
+			planChoices: ["Approve and keep context", "local/builder"],
+		});
+		await runtime.emit("session_start");
+		expect(runtime.selectedModels[0]).toMatchObject(planModel);
+		await draftPlan(runtime);
+		await runtime.tools
+			.get("propose_plan")!
+			.execute("model-plan", { title: "Add guard" }, undefined, undefined, runtime.ctx);
+		await runtime.emit("agent_settled");
+		expect(runtime.selectedModels.at(-1)).toMatchObject(buildModel);
+		expect(runtime.appended.at(-1)?.data).toMatchObject({
+			plan: { prePlanModel: "local/default", executionModel: "local/builder" },
+		});
 	});
 
 	it("migrates version 1 guarded state without losing mode or generations", async () => {
@@ -418,7 +734,7 @@ describe("Pi Void guarded extension", () => {
 		(saved.data as { baseline: { root: string } }).baseline.root = resumed.ctx.cwd;
 		await resumed.emit("session_start");
 		expect(resumed.appended.at(-1)?.data).toMatchObject({
-			version: 2,
+			version: 3,
 			mode: "build",
 			mutationGeneration: 1,
 			plan: { status: "none", readInBuild: false },
@@ -426,12 +742,13 @@ describe("Pi Void guarded extension", () => {
 	});
 
 	it("restores approved plan outside model context and requires reread after compaction", async () => {
-		const initial = extensionFixture({ hasUI: true, planChoice: "approve" });
+		const initial = extensionFixture({ hasUI: true, planChoice: "Approve and execute" });
 		await initial.emit("session_start");
 		await draftPlan(initial);
 		await initial.tools
 			.get("propose_plan")!
 			.execute("plan-1", { title: "Add guard" }, undefined, undefined, initial.ctx);
+		await initial.emit("agent_settled");
 		await initial.tools.get("read_plan")!.execute("plan-read", {}, undefined, undefined, initial.ctx);
 		const saved = structuredClone(initial.appended.at(-1)!);
 		const resumed = extensionFixture({

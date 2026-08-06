@@ -17,6 +17,7 @@ export interface Args {
 	systemPrompt?: string;
 	appendSystemPrompt?: string[];
 	thinking?: ThinkingLevel;
+	fastMode?: boolean;
 	continue?: boolean;
 	resume?: boolean;
 	help?: boolean;
@@ -56,7 +57,7 @@ export interface Args {
 	diagnostics: Array<{ type: "warning" | "error"; message: string }>;
 }
 
-const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 
 export function isValidThinkingLevel(level: string): level is ThinkingLevel {
 	return VALID_THINKING_LEVELS.includes(level as ThinkingLevel);
@@ -139,6 +140,10 @@ export function parseArgs(args: string[]): Args {
 					message: `Invalid thinking level "${level}". Valid values: ${VALID_THINKING_LEVELS.join(", ")}`,
 				});
 			}
+		} else if (arg === "--fast") {
+			result.fastMode = true;
+		} else if (arg === "--no-fast") {
+			result.fastMode = false;
 		} else if (arg === "--print" || arg === "-p") {
 			result.print = true;
 			const next = args[i + 1];
@@ -275,7 +280,9 @@ ${chalk.bold("Options:")}
                                  Applies to built-in, extension, and custom tools
   --exclude-tools, -xt <tools>   Comma-separated denylist of tool names to disable
                                  Applies to built-in, extension, and custom tools
-  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max
+  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max, ultra
+  --fast                         Enable priority service tier for capable models
+  --no-fast                      Disable priority service tier for this run
   --extension, -e <path>         Load an extension file (can be used multiple times)
   --no-extensions, -ne           Disable extension discovery (explicit -e paths still work)
   --skill <path>                 Load a skill file or directory (can be used multiple times)

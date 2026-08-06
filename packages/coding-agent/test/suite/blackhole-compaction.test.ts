@@ -1,0 +1,237 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { type AssistantMessage, type Context, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import piBlackholeExtension from "../../examples/extensions/pi-blackhole/index.ts";
+import { loadConfig } from "../../examples/extensions/pi-blackhole/src/core/unified-config.ts";
+import { createHarness, type Harness } from "./harness.ts";
+
+const harnesses: Harness[] = [];
+const configDirs: string[] = [];
+
+afterEach(() => {
+	for (const harness of harnesses.splice(0)) harness.cleanup();
+	for (const directory of configDirs.splice(0)) rmSync(directory, { recursive: true, force: true });
+	delete process.env.PI_CODING_AGENT_DIR;
+});
+
+function configureBlackhole(midRunCompaction: "resume" | "pause" = "resume"): void {
+	const directory = mkdtempSync(join(tmpdir(), "pi-blackhole-suite-"));
+	configDirs.push(directory);
+	mkdirSync(join(directory, "pi-blackhole"));
+	writeFileSync(
+		join(directory, "pi-blackhole", "pi-blackhole-config.json"),
+		JSON.stringify({
+			compaction: "auto",
+			compactionEngine: "blackhole",
+			midRunCompaction,
+			compactAfterPercent: 20,
+			tailBehavior: "pi-default",
+			memory: false,
+		}),
+	);
+	process.env.PI_CODING_AGENT_DIR = directory;
+}
+
+describe("optional Blackhole compaction extension", () => {
+	it("registers all Blackhole settings and persists changes", async () => {
+		configureBlackhole();
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 3000, maxTokens: 100 }],
+			extensionFactories: [piBlackholeExtension],
+		});
+		harnesses.push(harness);
+
+		const settings = harness.session.extensionRunner
+			.getRegisteredSettings()
+			.find((entry) => entry.name === "blackhole");
+		expect(settings?.items.map((item) => item.id)).toEqual([
+			"compaction",
+			"compaction-engine",
+			"mid-run-compaction",
+			"threshold",
+			"tail-behavior",
+			"memory",
+		]);
+		const threshold = settings?.items.find((item) => item.id === "threshold");
+		expect(threshold?.label).toBe("Blackhole token threshold");
+		expect(threshold?.values).toContain("25%");
+		settings?.onChange("threshold", "25%");
+		expect(loadConfig().compactAfterPercent).toBe(25);
+		expect(loadConfig().midRunCompaction).toBe("resume");
+	});
+
+	it("compacts at a percentage threshold and resumes before a later request", async () => {
+		configureBlackhole();
+		expect(loadConfig().compactionEngine).toBe("blackhole");
+		expect(loadConfig().midRunCompaction).toBe("resume");
+		let sawResume = false;
+		const bulkTool: AgentTool = {
+			name: "bulk",
+			label: "Bulk",
+			description: "Return a large result",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "x".repeat(10000) }], details: {} }),
+		};
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 3000, maxTokens: 100 }],
+			settings: {
+				compaction: {
+					enabled: true,
+					thresholdPercent: 99,
+					midRunCompaction: "off",
+					reserveTokens: 0,
+					keepRecentTokens: 500,
+				},
+			},
+			tools: [bulkTool],
+			extensionFactories: [piBlackholeExtension],
+		});
+		harnesses.push(harness);
+
+		const toolResponses: Array<(context: Context) => AssistantMessage> = Array.from(
+			{ length: 8 },
+			() => (context: Context) => {
+				if (JSON.stringify(context.messages).includes("Context was auto-compacted mid-task")) sawResume = true;
+				return fauxAssistantMessage(fauxToolCall("bulk", {}), { stopReason: "toolUse" });
+			},
+		);
+		harness.setResponses([
+			...toolResponses,
+			(context: Context) => {
+				if (JSON.stringify(context.messages).includes("Context was auto-compacted mid-task")) sawResume = true;
+				return fauxAssistantMessage("continued");
+			},
+		]);
+
+		await harness.session.prompt("start");
+		await vi.waitFor(
+			() => {
+				expect(sawResume).toBe(true);
+			},
+			{ timeout: 1000, interval: 10 },
+		);
+
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction").length).toBeGreaterThan(
+			0,
+		);
+	});
+
+	it("does not resume after a completed response without a tool turn", async () => {
+		configureBlackhole();
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 3000, maxTokens: 100 }],
+			settings: {
+				compaction: {
+					enabled: true,
+					thresholdPercent: 99,
+					midRunCompaction: "off",
+					reserveTokens: 0,
+					keepRecentTokens: 500,
+				},
+			},
+			extensionFactories: [piBlackholeExtension],
+		});
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage("done")]);
+
+		await harness.session.prompt("x".repeat(10000));
+		await new Promise((resolve) => setTimeout(resolve, 100));
+
+		expect(harness.faux.state.callCount).toBe(1);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
+	});
+
+	it("suspends retries after a failed compaction and allows one resume turn", async () => {
+		configureBlackhole();
+		let compactionAttempts = 0;
+		const cancelCompaction = (pi: ExtensionAPI): void => {
+			pi.on("session_before_compact", () => {
+				compactionAttempts++;
+				return { cancel: true };
+			});
+		};
+		const bulkTool: AgentTool = {
+			name: "bulk",
+			label: "Bulk",
+			description: "Return a large result",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "x".repeat(10000) }], details: {} }),
+		};
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 3000, maxTokens: 100 }],
+			settings: {
+				compaction: {
+					enabled: false,
+					thresholdPercent: 99,
+					midRunCompaction: "off",
+					reserveTokens: 0,
+					keepRecentTokens: 500,
+				},
+			},
+			tools: [bulkTool],
+			extensionFactories: [piBlackholeExtension, cancelCompaction],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("bulk", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("bulk", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("continued"),
+		]);
+
+		await harness.session.prompt("start");
+		await vi.waitFor(
+			() => {
+				expect(harness.faux.state.callCount).toBeGreaterThanOrEqual(2);
+			},
+			{ timeout: 1000, interval: 10 },
+		);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+
+		expect(compactionAttempts).toBe(1);
+	});
+
+	it("pauses after compaction without injecting a resume request", async () => {
+		configureBlackhole("pause");
+		const bulkTool: AgentTool = {
+			name: "bulk",
+			label: "Bulk",
+			description: "Return a large result",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "x".repeat(10000) }], details: {} }),
+		};
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 3000, maxTokens: 100 }],
+			settings: {
+				compaction: {
+					enabled: true,
+					thresholdPercent: 99,
+					midRunCompaction: "off",
+					reserveTokens: 0,
+					keepRecentTokens: 500,
+				},
+			},
+			tools: [bulkTool],
+			extensionFactories: [piBlackholeExtension],
+		});
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage(fauxToolCall("bulk", {}), { stopReason: "toolUse" })]);
+
+		await harness.session.prompt("start");
+		await vi.waitFor(
+			() => {
+				expect(
+					harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction").length,
+				).toBeGreaterThan(0);
+			},
+			{ timeout: 1000, interval: 10 },
+		);
+
+		expect(harness.faux.state.callCount).toBeGreaterThanOrEqual(1);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "custom_message")).toHaveLength(0);
+	});
+});

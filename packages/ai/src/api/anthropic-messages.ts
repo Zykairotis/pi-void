@@ -163,7 +163,7 @@ function convertContentBlocks(content: (TextContent | ImageContent)[]):
 	return blocks;
 }
 
-export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
 export type AnthropicThinkingDisplay = "summarized" | "omitted";
 
@@ -1036,7 +1036,7 @@ function buildParams(
 				if (options.effort) {
 					// The Anthropic SDK types can lag newly supported effort values such as "xhigh".
 					params.output_config =
-						options.effort === "xhigh"
+						options.effort === "xhigh" || options.effort === "ultra"
 							? ({ effort: options.effort } as unknown as NonNullable<
 									MessageCreateParamsStreaming["output_config"]
 								>)

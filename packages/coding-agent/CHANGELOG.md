@@ -72,7 +72,14 @@
 
 ### Added
 
-- Added Pi Void guarded execution through the `piv` launcher: exact plan/build tool modes, OMP-style draft/refine/propose plan workflow with session-native Markdown state and explicit interactive approval, approved-plan execution handoff and reread gating before mutation, Bash default-off, canonical direct edit/write path protection, durable session state, and a project-trusted settled verifier with bounded output and headless failure status. This is not a sandbox; opted-in Bash and filesystem TOCTOU can bypass direct-tool checks.
+- Added capability-gated fast mode for local Codex/Luna Responses models, with persisted, CLI, interactive, and RPC controls for the priority service tier.
+- Added `/fast` interactive command with toggle, explicit on/off, and status controls.
+- Added model-specific `ultra` thinking selection and preserved local endpoint thinking metadata for explicit provider mappings.
+- Added extension `ctx.stopAfterTurn()` for graceful post-tool-turn handoffs without rendering a false abort error.
+- Added opt-in mid-run compaction after tool turns, with `off`, `pause`, and `resume` modes.
+- Added an optional deterministic Blackhole compaction extension with resume/pause triggers and percentage or absolute token thresholds.
+- Added extension-contributed settings to `/settings`, including all current Blackhole compaction fields.
+- Added Pi Void guarded execution through the `piv` launcher: exact plan/build tool modes, OMP-equivalent repository-grounded questions and draft/refine/propose planning, scrollable Markdown review with fresh/compact/keep-context approval, optional planning/execution model routing, bounded convergence, reopenable durable session-native plan state, approved-plan reread gating before mutation, Bash default-off, canonical direct edit/write path protection, and a project-trusted settled verifier with bounded output and headless failure status. This is not a sandbox; opted-in Bash and filesystem TOCTOU can bypass direct-tool checks.
 - Added built-in Baseten provider support with `BASETEN_API_KEY` authentication and `zai-org/GLM-5.2` as the default model.
 - Added `CredentialSynchronizationError` for credential changes that commit successfully but fail to synchronize local model state.
 - Added chainable `pi.registerMarkdownTransformer()` hooks for display-only transformation of user and assistant Markdown.
@@ -85,6 +92,7 @@
 
 ### Fixed
 
+- Fixed extension selectors dropping supplied Markdown review content before mounting, which hid the Pi Void plan body from the approval menu, and kept selector controls visible when the review viewport shrinks.
 - Fixed project-level nested provider retry settings replacing unmodified global provider retry settings ([#7572](https://github.com/earendil-works/pi/issues/7572)).
 - Fixed inherited GitHub Copilot Grok 4.5 requests to use the supported Responses API ([#7560](https://github.com/earendil-works/pi/issues/7560)).
 - Fixed fullscreen shutdown leaking terminal capability-query replies into the parent shell prompt.

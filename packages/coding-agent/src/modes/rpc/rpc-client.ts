@@ -273,6 +273,10 @@ export class RpcClient {
 		await this.send({ type: "set_thinking_level", level });
 	}
 
+	async setFastMode(enabled: boolean): Promise<void> {
+		await this.send({ type: "set_fast_mode", enabled });
+	}
+
 	/**
 	 * Cycle thinking level.
 	 */

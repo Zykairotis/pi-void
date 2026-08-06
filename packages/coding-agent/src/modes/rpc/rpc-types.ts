@@ -27,6 +27,7 @@ export type RpcCommand =
 
 	// State
 	| { id?: string; type: "get_state" }
+	| { id?: string; type: "set_fast_mode"; enabled: boolean }
 
 	// Model
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
@@ -95,6 +96,8 @@ export interface RpcSlashCommand {
 export interface RpcSessionState {
 	model?: Model<any>;
 	thinkingLevel: ThinkingLevel;
+	fastMode: boolean;
+	fastModeAvailable: boolean;
 	isStreaming: boolean;
 	isCompacting: boolean;
 	steeringMode: "all" | "one-at-a-time";
@@ -148,6 +151,7 @@ export type RpcResponse =
 
 	// Thinking
 	| { id?: string; type: "response"; command: "set_thinking_level"; success: true }
+	| { id?: string; type: "response"; command: "set_fast_mode"; success: true }
 	| {
 			id?: string;
 			type: "response";
@@ -236,7 +240,15 @@ export type RpcResponse =
 
 /** Emitted when an extension needs user input */
 export type RpcExtensionUIRequest =
-	| { type: "extension_ui_request"; id: string; method: "select"; title: string; options: string[]; timeout?: number }
+	| {
+			type: "extension_ui_request";
+			id: string;
+			method: "select";
+			title: string;
+			options: string[];
+			timeout?: number;
+			content?: string;
+	  }
 	| { type: "extension_ui_request"; id: string; method: "confirm"; title: string; message: string; timeout?: number }
 	| {
 			type: "extension_ui_request";

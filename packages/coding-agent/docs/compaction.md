@@ -29,12 +29,35 @@ Both use the same structured summary format and track file operations cumulative
 Auto-compaction triggers when:
 
 ```
-contextTokens > contextWindow - reserveTokens
+contextTokens > floor(contextWindow * thresholdPercent / 100)
 ```
 
-By default, `reserveTokens` is 16384 tokens (configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`). This leaves room for the LLM's response.
+`thresholdPercent` defaults to `85` and can be changed through `/settings` or `compaction.thresholdPercent` in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`. The comparison is strict, so compaction starts after the floored threshold is exceeded. `reserveTokens` remains the response budget for generating the compaction summary; it no longer controls the automatic trigger.
 
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
+
+### Optional Blackhole Compaction
+
+Pi Void includes an optional deterministic Blackhole compaction extension. Load it explicitly with `--extension` or install the local package through Pi's package settings. It uses `turn_end` after tool execution, compacts before the next model request, and resumes the task when configured with `midRunCompaction: "resume"`.
+
+Keep native `compaction.enabled` set to `true` for overflow recovery, but set native `compaction.midRunCompaction` to `"off"` when Blackhole owns the mid-run trigger. Blackhole's default is `memory: false`; no observer, reflector, dropper, or recall workers run unless separately added.
+
+Blackhole supports one automatic threshold at a time:
+
+```json
+{
+  "compaction": "auto",
+  "compactionEngine": "blackhole",
+  "midRunCompaction": "resume",
+  "compactAfterPercent": 20,
+  "tailBehavior": "pi-default",
+  "memory": false
+}
+```
+
+Use `/settings` to tune all Blackhole fields while the extension is loaded, or use `/blackhole percent 20` and `/blackhole tokens 54400` for direct threshold commands. Percentage mode resolves against the active model on every turn, so `272000 * 20% = 54400` for a 272k context model. `compactAfterPercent` and `compactAfterTokens` are mutually exclusive. `tailBehavior: "pi-default"` preserves Pi's normal retained tail.
+
+If both native and Blackhole mid-run triggers are enabled, Blackhole yields to native Pi Void and displays a warning. This prevents duplicate compaction and abort races.
 
 ### How It Works
 
@@ -386,6 +409,7 @@ Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settin
 {
   "compaction": {
     "enabled": true,
+    "thresholdPercent": 85,
     "reserveTokens": 16384,
     "keepRecentTokens": 20000
   }
@@ -395,7 +419,8 @@ Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settin
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `enabled` | `true` | Enable auto-compaction |
-| `reserveTokens` | `16384` | Tokens to reserve for LLM response |
+| `thresholdPercent` | `85` | Context percentage that triggers automatic compaction |
+| `reserveTokens` | `16384` | Tokens reserved for the compaction summary response |
 | `keepRecentTokens` | `20000` | Recent tokens to keep (not summarized) |
 
 Disable auto-compaction with `"enabled": false`. You can still compact manually with `/compact`.

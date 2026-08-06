@@ -90,7 +90,7 @@ function generateThinkingCatalog(cwd, catalogPath, outputDir) {
 	});
 }
 
-const THINKING_LEVEL_ORDER = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const THINKING_LEVEL_ORDER = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 const THINKING_LEVEL_RANKS = new Map(THINKING_LEVEL_ORDER.map((key, index) => [key, index]));
 
 function sortJsonKeys(keys, parentKey) {

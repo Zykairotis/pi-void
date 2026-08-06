@@ -7,12 +7,15 @@ import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
+import { DEFAULT_COMPACTION_THRESHOLD_PERCENT, type MidRunCompaction } from "./compaction/compaction.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
+	thresholdPercent?: number; // default: 85
 	reserveTokens?: number; // default: 16384
 	keepRecentTokens?: number; // default: 20000
+	midRunCompaction?: MidRunCompaction; // default: off
 }
 
 export interface BranchSummarySettings {
@@ -88,6 +91,7 @@ export interface Settings {
 	defaultProvider?: string;
 	defaultModel?: string;
 	defaultThinkingLevel?: ThinkingLevel;
+	fastMode?: boolean; // default: false; requests priority service tier for capable Responses models
 	transport?: TransportSetting; // default: "auto"
 	steeringMode?: "all" | "one-at-a-time";
 	followUpMode?: "all" | "one-at-a-time";
@@ -749,6 +753,16 @@ export class SettingsManager {
 		this.save();
 	}
 
+	getFastMode(): boolean {
+		return this.settings.fastMode ?? false;
+	}
+
+	setFastMode(enabled: boolean): void {
+		this.globalSettings.fastMode = enabled;
+		this.markModified("fastMode");
+		this.save();
+	}
+
 	getTransport(): TransportSetting {
 		return this.settings.transport ?? "auto";
 	}
@@ -784,11 +798,53 @@ export class SettingsManager {
 		return this.settings.compaction?.keepRecentTokens ?? 20000;
 	}
 
-	getCompactionSettings(): { enabled: boolean; reserveTokens: number; keepRecentTokens: number } {
+	getCompactionThresholdPercent(): number {
+		const thresholdPercent = this.settings.compaction?.thresholdPercent;
+		if (typeof thresholdPercent !== "number" || !Number.isFinite(thresholdPercent) || thresholdPercent <= 0) {
+			return DEFAULT_COMPACTION_THRESHOLD_PERCENT;
+		}
+		return Math.min(99, Math.max(1, thresholdPercent));
+	}
+
+	setCompactionThresholdPercent(thresholdPercent: number): void {
+		if (!Number.isFinite(thresholdPercent) || thresholdPercent <= 0) {
+			throw new Error(`Invalid compaction threshold percent: ${String(thresholdPercent)}`);
+		}
+		if (!this.globalSettings.compaction) {
+			this.globalSettings.compaction = {};
+		}
+		this.globalSettings.compaction.thresholdPercent = Math.min(99, Math.max(1, thresholdPercent));
+		this.markModified("compaction", "thresholdPercent");
+		this.save();
+	}
+
+	getMidRunCompaction(): MidRunCompaction {
+		const mode = this.settings.compaction?.midRunCompaction;
+		return mode === "pause" || mode === "resume" ? mode : "off";
+	}
+
+	setMidRunCompaction(mode: MidRunCompaction): void {
+		if (!this.globalSettings.compaction) {
+			this.globalSettings.compaction = {};
+		}
+		this.globalSettings.compaction.midRunCompaction = mode;
+		this.markModified("compaction", "midRunCompaction");
+		this.save();
+	}
+
+	getCompactionSettings(): {
+		enabled: boolean;
+		thresholdPercent: number;
+		reserveTokens: number;
+		keepRecentTokens: number;
+		midRunCompaction: MidRunCompaction;
+	} {
 		return {
 			enabled: this.getCompactionEnabled(),
+			thresholdPercent: this.getCompactionThresholdPercent(),
 			reserveTokens: this.getCompactionReserveTokens(),
 			keepRecentTokens: this.getCompactionKeepRecentTokens(),
+			midRunCompaction: this.getMidRunCompaction(),
 		};
 	}
 

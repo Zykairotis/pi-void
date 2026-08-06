@@ -47,6 +47,7 @@ describe("createAgentSession stream options", () => {
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow: 128000,
 			maxTokens: 4096,
+			serviceTiers: api === "openai-responses" ? ["priority"] : undefined,
 			headers: { "x-model": "model" },
 		};
 	}
@@ -127,6 +128,22 @@ describe("createAgentSession stream options", () => {
 		const options = await captureStreamOptions("openai-codex-responses", { httpIdleTimeoutMs: 1234 });
 
 		expect(options?.timeoutMs).toBe(1234);
+	});
+
+	it("sends priority only when fast mode is enabled for a capable Responses model", async () => {
+		const enabled = await captureStreamOptions("openai-responses", { fastMode: true });
+		expect(enabled?.serviceTier).toBe("priority");
+
+		const disabled = await captureStreamOptions("openai-responses", { fastMode: false });
+		expect(disabled?.serviceTier).toBeUndefined();
+
+		const completions = await captureStreamOptions("openai-completions", { fastMode: true });
+		expect(completions?.serviceTier).toBeUndefined();
+	});
+
+	it("preserves an explicit service tier when fast mode is off", async () => {
+		const options = await captureStreamOptions("openai-responses", { fastMode: false }, { serviceTier: "default" });
+		expect(options?.serviceTier).toBe("default");
 	});
 
 	it("defaults timeoutMs from httpIdleTimeoutMs for all providers", async () => {

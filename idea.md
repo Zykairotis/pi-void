@@ -20,9 +20,11 @@ Implemented today:
 - Endpoint model metadata drives model selection and limits.
 - Last valid model catalog remains usable if endpoint is unavailable.
 - API credentials remain in user configuration and never enter Git.
-- Auto-compaction reserves space using selected model's advertised maximum output, capped at half its context window.
+- Auto-compaction triggers at a configurable percentage of the selected model's context window, defaulting to 85%; compaction summary budgeting remains configured separately.
+- An optional deterministic Blackhole compaction extension can own mid-run triggering with resume/pause behavior and percentage or absolute token thresholds; observational memory remains opt-in and is not part of the default profile.
 - The interactive theme picker includes all 98 themes from OhMyPi's pinned catalog alongside Pi's native dark and light themes.
-- `piv` bundles Guarded Build v0: exact plan/build tool modes, OMP-style draft/refine/propose workflow, session-native bounded Markdown plan state, explicit interactive approval, approved-plan execution handoff and reread gating before mutation, Bash default-off, canonical direct edit/write checks, durable session state, and one project-trusted settled verifier.
+- `piv` bundles Guarded Build v0 with OMP-equivalent plan behavior through Pi-native seams: exact plan/build tool modes; repository-grounded planning questions; incremental draft/refine/propose state; scrollable Markdown review; fresh, compact, or preserved-context approval; optional planning/execution model routing; bounded convergence reminders; reopenable durable approval; mandatory approved-plan reread gating; Bash default-off; canonical direct edit/write checks; and one project-trusted settled verifier.
+- Plan state remains bounded and session-native rather than introducing OMP's `local://` or `xd://` artifact protocols. Fresh execution uses a durable context boundary, compact execution uses Pi's native compaction, and headless proposals remain pending until an approval-capable client acts.
 - Guarded Build v0 is guarded execution, not a sandbox: opted-in Bash, custom external effects, and filesystem TOCTOU remain outside its direct-tool boundary.
 
 Current endpoint:
@@ -183,13 +185,7 @@ Per-role routing may select different models for primary work, planning, compact
 
 ### 4. Context safety
 
-Compaction should happen before a model loses space required for its answer. Default reserve derives from model metadata:
-
-```text
-reserve = min(maxOutput, floor(contextWindow / 2))
-```
-
-Explicit user configuration overrides derived reserve. Summary generation keeps its own smaller budget; advertised maximum output must not automatically become summary size.
+Compaction should happen before a model loses space required for its answer. The automatic trigger defaults to 85% of the selected model's context window and is user-configurable. `reserveTokens` controls the compaction summary response budget; advertised maximum output must not automatically become summary size.
 
 Structured compaction must preserve goal, constraints, decisions, changed files, verifier failures, unresolved risks, and next steps. Compaction changes active context, not durable session history.
 
@@ -399,6 +395,7 @@ Small shared changes currently support:
 - model-aware compaction reserve
 - detection of explicit user compaction reserve
 - discovery and packaging of curated built-in themes
+- extension-requested graceful stop after the current tool turn
 
 Keep this list current when fork-specific files change.
 

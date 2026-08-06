@@ -61,7 +61,6 @@ import {
 	estimateContextTokens,
 	estimateTokens,
 	generateBranchSummary,
-	modelAwareReserveTokens,
 	prepareCompaction,
 	shouldCompact,
 } from "./compaction/index.ts";
@@ -316,6 +315,8 @@ export class AgentSession {
 	private _isAgentRunActive = false;
 	private _idleWaitPromise: Promise<void> | undefined;
 	private _resolveIdleWait: (() => void) | undefined;
+	private _extensionStopAfterTurnRequested = false;
+	private _resumeAfterMidRunCompaction = false;
 
 	/** Tracks pending steering messages for UI display. Removed when delivered. */
 	private _steeringMessages: string[] = [];
@@ -534,6 +535,14 @@ export class AgentSession {
 	}
 
 	private _installAgentNextTurnRefresh(): void {
+		const previousShouldStopAfterTurn = this.agent.shouldStopAfterTurn;
+		this.agent.shouldStopAfterTurn = async (turn, signal) => {
+			const stopRequested = this._extensionStopAfterTurnRequested;
+			this._extensionStopAfterTurnRequested = false;
+			if (stopRequested) return true;
+			if ((await previousShouldStopAfterTurn?.(turn, signal)) ?? false) return true;
+			return this._compactBeforeNextTurn(turn.context.messages, turn.toolResults.length, signal);
+		};
 		const previousPrepareNextTurnWithContext =
 			this.agent.prepareNextTurnWithContext ??
 			(this.agent.prepareNextTurn
@@ -1069,6 +1078,7 @@ export class AgentSession {
 				await this.agent.continue();
 			}
 		} finally {
+			this._resumeAfterMidRunCompaction = false;
 			this._systemPromptOverride = undefined;
 			this._flushPendingBashMessages();
 			await this._emitAgentSettled();
@@ -1097,6 +1107,11 @@ export class AgentSession {
 		}
 
 		if (await this._checkCompaction(msg)) {
+			return true;
+		}
+
+		if (this._resumeAfterMidRunCompaction) {
+			this._resumeAfterMidRunCompaction = false;
 			return true;
 		}
 
@@ -1731,6 +1746,22 @@ export class AgentSession {
 		return getSupportedThinkingLevels(this.model) as ThinkingLevel[];
 	}
 
+	/** Whether the current model advertises the verified priority service tier. */
+	supportsFastMode(): boolean {
+		return (
+			(this.model?.api === "openai-responses" || this.model?.api === "openai-codex-responses") &&
+			this.model.serviceTiers?.includes("priority") === true
+		);
+	}
+
+	getFastMode(): boolean {
+		return this.settingsManager.getFastMode();
+	}
+
+	setFastMode(enabled: boolean): void {
+		this.settingsManager.setFastMode(enabled);
+	}
+
 	/**
 	 * Check if current model supports thinking/reasoning.
 	 */
@@ -1946,6 +1977,45 @@ export class AgentSession {
 	}
 
 	/**
+	 * Compact at a clean tool-turn boundary before the agent loop starts another provider request.
+	 * Returns true only when a compaction entry was written, so failed/cancelled compactions do not
+	 * stop the loop without a continuation path.
+	 */
+	private async _compactBeforeNextTurn(
+		messages: AgentMessage[],
+		toolResultCount: number,
+		signal?: AbortSignal,
+	): Promise<boolean> {
+		const settings = this.settingsManager.getCompactionSettings();
+		if (
+			toolResultCount === 0 ||
+			settings.midRunCompaction === "off" ||
+			!settings.enabled ||
+			!this.model ||
+			signal?.aborted ||
+			this._autoCompactionAbortController !== undefined ||
+			this._compactionAbortController !== undefined
+		) {
+			return false;
+		}
+
+		const contextTokens = estimateContextTokens(messages).tokens;
+		if (!shouldCompact(contextTokens, this.model.contextWindow, settings)) {
+			return false;
+		}
+
+		const previousCompactionId = getLatestCompactionEntry(this.sessionManager.getBranch())?.id;
+		await this._runAutoCompaction("threshold", false);
+		const currentCompactionId = getLatestCompactionEntry(this.sessionManager.getBranch())?.id;
+		if (currentCompactionId === previousCompactionId) {
+			return false;
+		}
+
+		this._resumeAfterMidRunCompaction = settings.midRunCompaction === "resume";
+		return true;
+	}
+
+	/**
 	 * Check if compaction is needed and run it.
 	 * Called after agent_end and before prompt submission.
 	 *
@@ -1965,9 +2035,6 @@ export class AgentSession {
 		if (skipAbortedCheck && assistantMessage.stopReason === "aborted") return false;
 
 		const contextWindow = this.model?.contextWindow ?? 0;
-		if (!this.settingsManager.hasExplicitCompactionReserveTokens() && this.model) {
-			settings.reserveTokens = modelAwareReserveTokens(contextWindow, this.model.maxTokens);
-		}
 
 		// Skip overflow check if the message came from a different model.
 		// This handles the case where user switched from a smaller-context model (e.g. opus)
@@ -2230,6 +2297,11 @@ export class AgentSession {
 		this.settingsManager.setCompactionEnabled(enabled);
 	}
 
+	/** Request a normal agent-loop stop after the current tool turn completes. */
+	requestStopAfterTurn(): void {
+		this._extensionStopAfterTurnRequested = true;
+	}
+
 	/** Whether auto-compaction is enabled */
 	get autoCompactionEnabled(): boolean {
 		return this.settingsManager.getCompactionEnabled();
@@ -2424,6 +2496,9 @@ export class AgentSession {
 						return;
 					}
 					void this.abort();
+				},
+				stopAfterTurn: () => {
+					this.requestStopAfterTurn();
 				},
 				hasPendingMessages: () => this.pendingMessageCount > 0,
 				shutdown: () => {

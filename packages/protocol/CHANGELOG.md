@@ -8,4 +8,5 @@
 
 ### Added
 
+- Added `ultra` to the protocol thinking-level schema.
 - Added transport-neutral CBOR protocol schemas, codecs, and length-prefixed framing for remote pi sessions.

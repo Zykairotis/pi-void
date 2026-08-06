@@ -29,7 +29,7 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 |---------|------|---------|-------------|
 | `defaultProvider` | string | - | Default provider (e.g., `"anthropic"`, `"openai"`) |
 | `defaultModel` | string | - | Default model ID |
-| `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"` |
+| `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"ultra"` |
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in output |
 | `showCacheMissNotices` | boolean | `false` | Show transcript notices for significant prompt-cache misses |
 | `thinkingBudgets` | object | - | Custom token budgets per thinking level |
@@ -113,18 +113,37 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `compaction.enabled` | boolean | `true` | Enable auto-compaction |
-| `compaction.reserveTokens` | number | `16384` | Tokens reserved for LLM response |
+| `compaction.thresholdPercent` | number | `85` | Context percentage that triggers automatic compaction |
+| `compaction.reserveTokens` | number | `16384` | Tokens reserved for the compaction summary response |
 | `compaction.keepRecentTokens` | number | `20000` | Recent tokens to keep (not summarized) |
+| `compaction.midRunCompaction` | string | `"off"` | Native mid-tool-loop mode: `"off"`, `"pause"`, or `"resume"` |
 
 ```json
 {
   "compaction": {
     "enabled": true,
+    "thresholdPercent": 85,
     "reserveTokens": 16384,
-    "keepRecentTokens": 20000
+    "keepRecentTokens": 20000,
+    "midRunCompaction": "off"
   }
 }
 ```
+
+### Optional Blackhole Extension
+
+Load the optional extension with `--extension packages/coding-agent/examples/extensions/pi-blackhole/index.ts` or install the package through Pi's package settings. It stores configuration at `~/.pi/agent/pi-blackhole/pi-blackhole-config.json`.
+
+```text
+/blackhole percent 20
+/blackhole tokens 54400
+/blackhole resume
+/blackhole pause
+/blackhole off
+/blackhole status
+```
+
+The loaded extension also exposes all Blackhole fields in `/settings`: compaction mode, engine, mid-run mode, threshold mode and value, tail behavior, and memory. Changes persist to the Blackhole config file immediately. Set `memory: false` to keep deterministic compaction without observational-memory workers. Keep native `compaction.enabled` set to `true` for overflow recovery and native `compaction.midRunCompaction` set to `"off"` when Blackhole owns the mid-run trigger.
 
 ### Branch Summary
 
@@ -282,6 +301,7 @@ See [packages.md](packages.md) for package management details.
   "theme": "dark",
   "compaction": {
     "enabled": true,
+    "thresholdPercent": 85,
     "reserveTokens": 16384,
     "keepRecentTokens": 20000
   },

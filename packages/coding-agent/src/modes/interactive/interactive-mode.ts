@@ -387,7 +387,7 @@ export class InteractiveMode {
 	private autocompleteProvider: AutocompleteProvider | undefined;
 	private autocompleteProviderWrappers: AutocompleteProviderFactory[] = [];
 	private fdPath: string | undefined;
-	private editorContainer: Container;
+	private editorContainer: TuiLayouts.VStack;
 	private activeSelectorToken?: object;
 	private activeSelectorDispose?: () => void;
 	private footer: FooterComponent;
@@ -544,7 +544,7 @@ export class InteractiveMode {
 			autocompleteMaxVisible,
 		});
 		this.editor = this.defaultEditor;
-		this.editorContainer = new Container();
+		this.editorContainer = new TuiLayouts.VStack();
 		this.editorContainer.addChild(this.editor as Component);
 		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
 		this.footer = new FooterComponent(this.session, this.footerDataProvider);
@@ -616,7 +616,9 @@ export class InteractiveMode {
 
 	private createBaseAutocompleteProvider(): AutocompleteProvider {
 		// Define commands for autocomplete
-		const slashCommands: SlashCommand[] = BUILTIN_SLASH_COMMANDS.map((command) => ({
+		const slashCommands: SlashCommand[] = BUILTIN_SLASH_COMMANDS.filter(
+			(command) => command.name !== "fast" || this.session.supportsFastMode(),
+		).map((command) => ({
 			name: command.name,
 			description: command.description,
 			...(command.argumentHint && { argumentHint: command.argumentHint }),
@@ -1978,6 +1980,9 @@ export class InteractiveMode {
 			abort: () => {
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			},
+			stopAfterTurn: () => {
+				this.session.requestStopAfterTurn();
+			},
 			hasPendingMessages: () => this.session.pendingMessageCount > 0,
 			shutdown: () => {
 				this.shutdownRequested = true;
@@ -2406,7 +2411,12 @@ export class InteractiveMode {
 					this.hideExtensionSelector();
 					resolve(undefined);
 				},
-				{ tui: this.ui, timeout: opts?.timeout, onToggleToolsExpanded: () => this.toggleToolOutputExpansion() },
+				{
+					tui: this.ui,
+					timeout: opts?.timeout,
+					content: opts?.content,
+					onToggleToolsExpanded: () => this.toggleToolOutputExpansion(),
+				},
 			);
 
 			this.disposeActiveSelector();
@@ -2837,6 +2847,11 @@ export class InteractiveMode {
 			if (!text) return;
 
 			// Handle commands
+			if (text === "/fast" || text.startsWith("/fast ")) {
+				this.handleFastCommand(text.slice(5).trim());
+				this.editor.setText("");
+				return;
+			}
 			if (text === "/settings") {
 				this.showSettingsSelector();
 				this.editor.setText("");
@@ -3977,6 +3992,7 @@ export class InteractiveMode {
 				const msg = this.session.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available";
 				this.showStatus(msg);
 			} else {
+				this.setupAutocompleteProvider();
 				this.footer.invalidate();
 				this.updateEditorBorderColor();
 				const thinkingStr =
@@ -4343,6 +4359,8 @@ export class InteractiveMode {
 			selector = new SettingsSelectorComponent(
 				{
 					autoCompact: this.session.autoCompactionEnabled,
+					compactionThresholdPercent: this.settingsManager.getCompactionThresholdPercent(),
+					midRunCompaction: this.settingsManager.getMidRunCompaction(),
 					showImages: this.settingsManager.getShowImages(),
 					imageWidthCells: this.settingsManager.getImageWidthCells(),
 					autoResizeImages: this.settingsManager.getImageAutoResize(),
@@ -4354,6 +4372,8 @@ export class InteractiveMode {
 					httpIdleTimeoutMs: this.settingsManager.getHttpIdleTimeoutMs(),
 					thinkingLevel: this.session.thinkingLevel,
 					availableThinkingLevels: this.session.getAvailableThinkingLevels(),
+					fastMode: this.session.getFastMode(),
+					fastModeAvailable: this.session.supportsFastMode(),
 					currentTheme: this.settingsManager.getThemeSetting() || "dark",
 					terminalTheme: this.themeController.getTerminalTheme(),
 					availableThemes: getAvailableThemes(),
@@ -4374,11 +4394,18 @@ export class InteractiveMode {
 					uiMode: this.ui.mode,
 					fullscreenScrollbar: this.settingsManager.getFullscreenScrollbar(),
 					warnings: this.settingsManager.getWarnings(),
+					extensionSettings: this.session.extensionRunner.getRegisteredSettings(),
 				},
 				{
 					onAutoCompactChange: (enabled) => {
 						this.session.setAutoCompactionEnabled(enabled);
 						this.footer.setAutoCompactEnabled(enabled);
+					},
+					onCompactionThresholdPercentChange: (thresholdPercent) => {
+						this.settingsManager.setCompactionThresholdPercent(thresholdPercent);
+					},
+					onMidRunCompactionChange: (mode) => {
+						this.settingsManager.setMidRunCompaction(mode);
 					},
 					onShowImagesChange: (enabled) => {
 						this.settingsManager.setShowImages(enabled);
@@ -4425,6 +4452,9 @@ export class InteractiveMode {
 						this.session.setThinkingLevel(level);
 						this.footer.invalidate();
 						this.updateEditorBorderColor();
+					},
+					onFastModeChange: (enabled) => {
+						this.session.setFastMode(enabled);
 					},
 					onThemeChange: (themeSetting) => {
 						this.settingsManager.setTheme(themeSetting);
@@ -4550,6 +4580,7 @@ export class InteractiveMode {
 		if (model) {
 			try {
 				await this.session.setModel(model);
+				this.setupAutocompleteProvider();
 				this.footer.invalidate();
 				this.updateEditorBorderColor();
 				this.showStatus(`Model: ${model.id}`);
@@ -4700,6 +4731,7 @@ export class InteractiveMode {
 				async (model) => {
 					try {
 						await this.session.setModel(model);
+						this.setupAutocompleteProvider();
 						this.footer.invalidate();
 						this.updateEditorBorderColor();
 						done();
@@ -4880,6 +4912,31 @@ export class InteractiveMode {
 			);
 			return { component: selector, focus: selector.getMessageList() };
 		});
+	}
+
+	private handleFastCommand(argument: string): void {
+		const normalized = argument.toLowerCase();
+		if (normalized === "status") {
+			this.showStatus(
+				this.session.supportsFastMode()
+					? `Fast mode: ${this.session.getFastMode() ? "on" : "off"}`
+					: "Fast mode unavailable for the current model",
+			);
+			return;
+		}
+
+		const enabled = normalized === "on" ? true : normalized === "off" ? false : !this.session.getFastMode();
+		if (normalized !== "" && normalized !== "on" && normalized !== "off") {
+			this.showError("Usage: /fast [on|off|status]");
+			return;
+		}
+
+		if (enabled && !this.session.supportsFastMode()) {
+			this.showWarning("Fast mode is unavailable for the current model.");
+			return;
+		}
+		this.session.setFastMode(enabled);
+		this.showStatus(`Fast mode: ${enabled ? "on" : "off"}`);
 	}
 
 	private async handleCloneCommand(): Promise<void> {

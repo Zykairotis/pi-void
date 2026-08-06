@@ -449,10 +449,12 @@ describe("ModelRegistry", () => {
 							thinkingLevelMap: {
 								minimal: null,
 								high: "max",
+								ultra: "native-ultra",
 							},
 							compat: {
 								supportsStrictMode: false,
 								cacheControlFormat: "anthropic",
+								thinkingCanDisable: false,
 							},
 						},
 					],
@@ -464,9 +466,10 @@ describe("ModelRegistry", () => {
 			const compat = model?.compat as OpenAICompletionsCompat | undefined;
 
 			expect(registry.getError()).toBeUndefined();
-			expect(model?.thinkingLevelMap).toEqual({ minimal: null, high: "max" });
+			expect(model?.thinkingLevelMap).toEqual({ minimal: null, high: "max", ultra: "native-ultra" });
 			expect(compat?.supportsStrictMode).toBe(false);
 			expect(compat?.cacheControlFormat).toBe("anthropic");
+			expect(compat?.thinkingCanDisable).toBe(false);
 		});
 
 		test("compat schema accepts chat template thinking configuration", async () => {

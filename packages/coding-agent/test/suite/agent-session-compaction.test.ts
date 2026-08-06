@@ -1,9 +1,13 @@
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import {
 	type AssistantMessage,
+	type Context,
 	createAssistantMessageEventStream,
 	fauxAssistantMessage,
+	fauxToolCall,
 	type Model,
 } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens } from "../../src/core/compaction/index.ts";
 import { createHarness, type Harness } from "./harness.ts";
@@ -240,6 +244,71 @@ describe("AgentSession compaction characterization", () => {
 		expect(compactionEntries).toHaveLength(1);
 		expect(compactionEnd?.result?.estimatedTokensAfter).toBeGreaterThan(0);
 		expect(getStreamCallCount()).toBe(1);
+	});
+
+	it("compacts before the next tool-loop request when mid-run compaction is enabled", async () => {
+		const bulkTool: AgentTool = {
+			name: "bulk",
+			label: "Bulk",
+			description: "Return a large result",
+			parameters: Type.Object({}),
+			execute: async () => ({
+				content: [{ type: "text", text: "x".repeat(1000) }],
+				details: {},
+			}),
+		};
+		let sawCompactionBeforeNextRequest = false;
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 3000, maxTokens: 100 }],
+			settings: {
+				compaction: {
+					thresholdPercent: 50,
+					keepRecentTokens: 500,
+					reserveTokens: 0,
+					midRunCompaction: "resume",
+				},
+			},
+			tools: [bulkTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("session_before_compact", async (event) => ({
+						compaction: {
+							summary: "mid-run summary",
+							firstKeptEntryId: event.preparation.firstKeptEntryId,
+							tokensBefore: event.preparation.tokensBefore,
+							details: {},
+						},
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+
+		const toolResponses: Array<(context: Context) => AssistantMessage> = Array.from(
+			{ length: 12 },
+			() => (context: Context) => {
+				if (JSON.stringify(context.messages).includes("mid-run summary")) {
+					sawCompactionBeforeNextRequest = true;
+				}
+				return fauxAssistantMessage(fauxToolCall("bulk", {}), { stopReason: "toolUse" });
+			},
+		);
+		harness.setResponses([
+			...toolResponses,
+			(context: Context) => {
+				if (JSON.stringify(context.messages).includes("mid-run summary")) {
+					sawCompactionBeforeNextRequest = true;
+				}
+				return fauxAssistantMessage("continued");
+			},
+		]);
+
+		await harness.session.prompt("start");
+
+		expect(sawCompactionBeforeNextRequest).toBe(true);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction").length).toBeGreaterThan(
+			0,
+		);
 	});
 
 	it("compacts and resumes after a length stop below the desired output limit", async () => {

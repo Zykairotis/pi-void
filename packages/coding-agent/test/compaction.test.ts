@@ -9,10 +9,12 @@ import {
 	calculateContextTokens,
 	compact,
 	DEFAULT_COMPACTION_SETTINGS,
+	DEFAULT_COMPACTION_THRESHOLD_PERCENT,
 	estimateContextTokens,
 	findCutPoint,
 	getLastAssistantUsage,
 	prepareCompaction,
+	resolveThresholdTokens,
 	shouldCompact,
 } from "../src/core/compaction/index.ts";
 import {
@@ -272,15 +274,43 @@ describe("estimateContextTokens", () => {
 });
 
 describe("shouldCompact", () => {
-	it("should return true when context exceeds threshold", () => {
+	it("uses the default 85 percent threshold with a strict boundary", () => {
 		const settings: CompactionSettings = {
 			enabled: true,
 			reserveTokens: 10000,
 			keepRecentTokens: 20000,
 		};
 
-		expect(shouldCompact(95000, 100000, settings)).toBe(true);
-		expect(shouldCompact(89000, 100000, settings)).toBe(false);
+		expect(DEFAULT_COMPACTION_THRESHOLD_PERCENT).toBe(85);
+		expect(resolveThresholdTokens(100000, settings)).toBe(85000);
+		expect(shouldCompact(85000, 100000, settings)).toBe(false);
+		expect(shouldCompact(85001, 100000, settings)).toBe(true);
+	});
+
+	it("uses a configured percentage instead of reserve tokens", () => {
+		const settings: CompactionSettings = {
+			enabled: true,
+			thresholdPercent: 70,
+			reserveTokens: 10000,
+			keepRecentTokens: 20000,
+		};
+
+		expect(resolveThresholdTokens(100000, settings)).toBe(70000);
+		expect(shouldCompact(70000, 100000, settings)).toBe(false);
+		expect(shouldCompact(70001, 100000, settings)).toBe(true);
+	});
+
+	it("falls back to the default for invalid percentages", () => {
+		for (const thresholdPercent of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+			const settings: CompactionSettings = {
+				enabled: true,
+				thresholdPercent,
+				reserveTokens: 10000,
+				keepRecentTokens: 20000,
+			};
+
+			expect(resolveThresholdTokens(100000, settings)).toBe(85000);
+		}
 	});
 
 	it("should return false when disabled", () => {

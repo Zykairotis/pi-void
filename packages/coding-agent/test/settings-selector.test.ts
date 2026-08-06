@@ -34,4 +34,23 @@ describe("SettingsSelectorComponent", () => {
 
 		expect(onChange.mock.calls.flat()).toEqual(["always", "hidden", "auto"]);
 	});
+
+	it("changes the compaction threshold percentage", () => {
+		const onChange = vi.fn();
+		const selector = new SettingsSelectorComponent(
+			{
+				compactionThresholdPercent: 85,
+				warnings: {},
+				availableThinkingLevels: [],
+				availableThemes: [],
+			} as unknown as SettingsConfig,
+			{ onCompactionThresholdPercentChange: onChange } as unknown as SettingsCallbacks,
+		);
+		const settingsList = selector.getSettingsList();
+
+		for (const character of "Compaction threshold") settingsList.handleInput(character);
+		settingsList.handleInput("\r");
+
+		expect(onChange).toHaveBeenCalledWith(90);
+	});
 });

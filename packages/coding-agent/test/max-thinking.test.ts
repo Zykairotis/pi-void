@@ -18,11 +18,30 @@ afterEach(() => {
 describe("max thinking level", () => {
 	it("is accepted by CLI and settings", async () => {
 		expect(isValidThinkingLevel("max")).toBe(true);
+		expect(isValidThinkingLevel("ultra")).toBe(true);
 
 		const settings = SettingsManager.inMemory();
 		settings.setDefaultThinkingLevel("max");
 		await settings.flush();
 		expect(settings.getDefaultThinkingLevel()).toBe("max");
+	});
+
+	it("falls back to thinkingMax for legacy themes without ultra", () => {
+		const testDir = mkdtempSync(join(tmpdir(), "pi-ultra-theme-"));
+		tempDirs.push(testDir);
+		const currentDir = dirname(fileURLToPath(import.meta.url));
+		const darkTheme = JSON.parse(
+			readFileSync(join(currentDir, "../src/modes/interactive/theme/dark.json"), "utf8"),
+		) as { name: string; colors: Record<string, unknown> };
+		darkTheme.name = "legacy-ultra-theme";
+		delete darkTheme.colors.thinkingUltra;
+		const themePath = join(testDir, "legacy-ultra-theme.json");
+		writeFileSync(themePath, JSON.stringify(darkTheme));
+
+		const legacyTheme = loadThemeFromPath(themePath);
+		expect(legacyTheme.getThinkingBorderColor("ultra")("border")).toBe(
+			legacyTheme.getThinkingBorderColor("max")("border"),
+		);
 	});
 
 	it("falls back to thinkingXhigh for legacy themes", () => {
