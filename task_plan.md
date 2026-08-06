@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|--------|
 | Research | Complete |
-| Implementation | **Phase 2 complete** |
+| Implementation | **Phase 3 complete** |
 | Plan revision | 2026-08-07 — phased commits + dedicated branch |
 | Live Cognee API | Stopped (`127.0.0.1:8211`); do not assume health |
 
@@ -771,6 +771,7 @@ See Phase 8.
 | 2026-08-07 | Explicit ops rule: **use API keys + model from `~/.claude/settings.json` env** (LLM_API_KEY, openai/ag/gemini-3.6-flash-medium, Voyage keys) when filling Zykairotis Cognee `.env` — do not invent new credentials. |
 | 2026-08-07 | Phase 1 complete on `void`: native fetch client and offline recall/remember contract tests pass; `npm run check` is clean. |
 | 2026-08-07 | Phase 2 complete on `void`: validated config, secret-safe key resolution, redaction, bounded queue, and circuit helpers pass offline tests; `npm run check` is clean. |
+| 2026-08-07 | Phase 3 complete on `void`: transient recall and post-save compaction queue hooks pass with soft-fail fake transport and secret-safe metadata. |
 
 ---
 
@@ -781,7 +782,7 @@ See Phase 8.
 [ ] No Blackhole/unrelated files staged
 [x] C1 client
 [x] C2 config/queue/redaction
-[ ] C3 hooks
+[x] C3 hooks
 [ ] C4 commands + search tool
 [ ] C5 piv wire-up
 [ ] C6 offline tests green

@@ -2,10 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
 import {
 	canAttemptCircuit,
 	createCircuitState,
 	createPendingRemember,
+	createPivCogneeExtension,
 	enqueuePendingRemember,
 	noteCircuitFailure,
 	readPendingRemember,
@@ -147,5 +149,74 @@ describe("piv-cognee state helpers", () => {
 		state = noteCircuitFailure(state, "unreachable", 102);
 		expect(canAttemptCircuit(state, 103)).toBe(false);
 		expect(canAttemptCircuit(state, 30_103)).toBe(true);
+	});
+});
+
+type Hook = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
+
+function extensionHookFixture(storageDir: string) {
+	const handlers = new Map<string, Hook>();
+	const appended: Array<{ customType: string; data: unknown }> = [];
+	const notifications: string[] = [];
+	const api = {
+		on(event: string, handler: Hook) {
+			handlers.set(event, handler);
+		},
+		appendEntry(customType: string, data: unknown) {
+			appended.push({ customType, data });
+		},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		hasUI: false,
+		signal: undefined,
+		ui: { notify: (message: string) => notifications.push(message) },
+		sessionManager: { getSessionId: () => "session-1" },
+	} as unknown as ExtensionContext;
+	createPivCogneeExtension({
+		storageDir,
+		env: {},
+		fetch: async (input) => {
+			if (String(input).endsWith("/recall")) {
+				return new Response(JSON.stringify([{ text: "remembered context" }]), { status: 200 });
+			}
+			throw new Error("offline");
+		},
+	})(api);
+	return { handlers, appended, notifications, ctx };
+}
+
+describe("piv-cognee extension hooks", () => {
+	it("injects transient recall and queues a redacted compaction summary", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-extension-"));
+		try {
+			const runtime = extensionHookFixture(storageDir);
+			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
+			const recall = await runtime.handlers.get("before_agent_start")?.(
+				{ type: "before_agent_start", prompt: "What did we decide?" },
+				runtime.ctx,
+			);
+			expect(recall).toMatchObject({ message: { customType: "piv-cognee-recall", display: false } });
+			expect((recall as { message: { content: string } }).message.content).toContain("remembered context");
+			expect(runtime.appended).toHaveLength(0);
+
+			await runtime.handlers.get("session_compact")?.(
+				{
+					type: "session_compact",
+					compactionEntry: { summary: "API_KEY=secret-value\nWe chose the queue." },
+					reason: "manual",
+					fromExtension: false,
+					willRetry: false,
+				},
+				runtime.ctx,
+			);
+			const records = await readPendingRemember(join(storageDir, "pending"));
+			expect(records).toHaveLength(1);
+			expect(records[0]?.text).not.toContain("secret-value");
+			expect(records[0]?.text).toContain("We chose the queue.");
+			expect(runtime.appended[0]).toMatchObject({ customType: "piv-cognee" });
+			expect(runtime.appended[0]?.data).not.toHaveProperty("text");
+		} finally {
+			rmSync(storageDir, { recursive: true, force: true });
+		}
 	});
 });
