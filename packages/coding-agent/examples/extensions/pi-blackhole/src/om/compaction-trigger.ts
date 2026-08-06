@@ -1,12 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-	type ExtensionAPI,
-	type ExtensionContext,
-	estimateTokens,
-	getAgentDir,
-	type SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { loadConfig, resolveCompactAfterTokens } from "../core/unified-config.ts";
 
 export const MID_RUN_RESUME_CUSTOM_TYPE = "blackhole-resume";
@@ -19,22 +13,6 @@ interface TriggerState {
 	midRunCompactionSuspended: boolean;
 	resumeTurnPending: boolean;
 	nativeTriggerConflictWarned: boolean;
-}
-
-function tokensSinceLastCompaction(entries: readonly SessionEntry[]): number {
-	let start = 0;
-	for (let index = entries.length - 1; index >= 0; index--) {
-		if (entries[index]?.type === "compaction") {
-			start = index + 1;
-			break;
-		}
-	}
-
-	let tokens = 0;
-	for (const entry of entries.slice(start)) {
-		if (entry.type === "message") tokens += estimateTokens(entry.message);
-	}
-	return tokens;
 }
 
 function notify(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error"): void {
@@ -100,7 +78,8 @@ function maybeCompact(pi: ExtensionAPI, ctx: ExtensionContext, state: TriggerSta
 	const threshold = resolveCompactAfterTokens(config, contextWindow, (message) => notify(ctx, message, "warning"));
 	if (threshold === undefined) return;
 
-	const tokens = tokensSinceLastCompaction(ctx.sessionManager.getBranch());
+	const tokens = ctx.getContextUsage()?.tokens;
+	if (tokens == null) return;
 	if (tokens <= threshold) {
 		state.midRunCompactionSuspended = false;
 		return;
@@ -152,5 +131,3 @@ export function registerCompactionTrigger(pi: ExtensionAPI): void {
 		maybeCompact(pi, ctx, state);
 	});
 }
-
-export { tokensSinceLastCompaction };

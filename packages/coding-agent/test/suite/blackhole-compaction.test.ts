@@ -121,6 +121,46 @@ describe("optional Blackhole compaction extension", () => {
 		);
 	});
 
+	it("uses provider context usage for the Blackhole threshold", async () => {
+		configureBlackhole();
+		const bulkTool: AgentTool = {
+			name: "bulk",
+			label: "Bulk",
+			description: `Return a small result ${"schema ".repeat(1000)}`,
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "x".repeat(2000) }], details: {} }),
+		};
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 3000, maxTokens: 100 }],
+			settings: {
+				compaction: {
+					enabled: true,
+					thresholdPercent: 99,
+					midRunCompaction: "off",
+					reserveTokens: 0,
+					keepRecentTokens: 100,
+				},
+			},
+			tools: [bulkTool],
+			extensionFactories: [piBlackholeExtension],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("bulk", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("continued"),
+		]);
+
+		await harness.session.prompt("start");
+		await vi.waitFor(
+			() => {
+				expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).not.toHaveLength(
+					0,
+				);
+			},
+			{ timeout: 1000, interval: 10 },
+		);
+	});
+
 	it("does not resume after a completed response without a tool turn", async () => {
 		configureBlackhole();
 		const harness = await createHarness({
