@@ -17,6 +17,15 @@ interface LocalBashMessage {
 	exitCode: number | undefined;
 }
 
+function isLocalBashMessage(value: Message): value is Message & LocalBashMessage {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"role" in value &&
+		value.role === "bashExecution"
+	);
+}
+
 const normalizeOne = (msg: Message, msgIndex: number): NormalizedBlock[] => {
 	if (msg.role === "user") {
 		const blocks: NormalizedBlock[] = [];
@@ -36,8 +45,8 @@ const normalizeOne = (msg: Message, msgIndex: number): NormalizedBlock[] => {
 		return blocks.length > 0 ? blocks : [{ kind: "user", text: "", sourceIndex: msgIndex }];
 	}
 
-	if ((msg as any).role === "bashExecution") {
-		const bashMsg = msg as unknown as LocalBashMessage;
+	if (isLocalBashMessage(msg)) {
+		const bashMsg = msg;
 		return [
 			{
 				kind: "bash",
