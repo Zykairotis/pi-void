@@ -776,6 +776,7 @@ See Phase 8.
 | 2026-08-07 | Phase 5 complete on `void`: `piv` loads hidden `piv-cognee` beside `piv-safe-verify`; stock `pi` remains unchanged. |
 | 2026-08-07 | Phase 6 complete on `void`: 12 offline client/extension tests cover disabled recall, uncertain writes, queueing, toggles, hooks, and read-only search; `npm run check` is clean. |
 | 2026-08-07 | Phase 7 complete on `void`: `idea.md`, compaction boundaries, and the coding-agent Unreleased changelog document shipped Slice 1 without claiming deferred improve or shared-memory features. |
+| 2026-08-07 | Phase 8 live smoke verified: synchronized Layer A key auth, `/cognee status`, remember queue recovery, dataset-scoped remember/search, and `/cognee off` passed; local API stopped afterward. Default 1.5s recall timed out against a 3.8s graph query, while stored `recallBudgetMs: 10000` passed. |
 
 ---
 
@@ -792,6 +793,6 @@ See Phase 8.
 [x] C6 offline tests green
 [x] C7 docs + changelog
 [x] npm run check green
-[ ] Live smoke only if API intentionally up
+[x] Live smoke verified; API stopped after the intentional test
 [ ] Do not push / PR unless asked
 ```
