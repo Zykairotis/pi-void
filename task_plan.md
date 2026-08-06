@@ -32,8 +32,10 @@ Success means: better cross-session answers when Cognee is up, **zero hard depen
 ### Branch name
 
 ```text
-feat/piv-cognee-memory
+void
 ```
+
+Execution override: work directly on the user-approved `void` customization branch. Keep `main` untouched and do not create or switch to a feature branch.
 
 ### Create (do this first, before any implementation commit)
 
@@ -43,18 +45,16 @@ cd /home/mewtwo/ZSSD/pi-void
 # Leave unrelated work alone (Blackhole edits, review branch, etc.)
 git status -sb
 
-# Prefer branching from the active product line (void), not a review/PR branch.
-# Adjust base if maintainers specify otherwise.
-git fetch origin void 2>/dev/null || true
-git checkout -B feat/piv-cognee-memory origin/void   # or: void / main if local is current
+# The user explicitly approved direct work on the local customization branch.
+git switch void
 
 # Confirm clean intent: only Cognee plan + later Cognee commits on this branch
-git branch --show-current   # must be feat/piv-cognee-memory
+git branch --show-current   # must be void
 ```
 
 ### Rules for this branch
 
-1. **Only Cognee / piv-cognee work** on `feat/piv-cognee-memory`.
+1. **Only Cognee / piv-cognee work** on `void`.
 2. **Do not** commit or overwrite pre-existing Blackhole worktree changes
    (`examples/extensions/pi-blackhole/**`, `test/suite/blackhole-compaction.test.ts`) unless they are on a different branch/commit already merged.
 3. **Commit after every completed phase** (see below). One logical phase → one commit (or a small intentional pair if tests must land with code).
@@ -420,13 +420,13 @@ Optional later (not slice 1 unless needed): split helpers under `src/piv-cognee/
 
 ## Phases (implement → verify → commit)
 
-Work **only** on `feat/piv-cognee-memory`. After each phase: targeted tests for that phase when they exist, then commit.
+Work **only** on `void`. After each phase: targeted tests for that phase when they exist, then commit.
 
 ### Phase 0 — Branch and plan baseline
 
 **Do:**
 
-1. Create/checkout `feat/piv-cognee-memory` from agreed base (`origin/void` preferred).
+1. Confirm the working branch is the user-approved `void` customization branch; do not switch to a feature branch.
 2. Ensure this `task_plan.md` is the source of truth on the branch.
 3. Confirm dirty Blackhole (or other) files are **not** staged.
 
@@ -436,10 +436,10 @@ Work **only** on `feat/piv-cognee-memory`. After each phase: targeted tests for 
 docs: add piv-cognee memory task plan
 
 Capture the first-class piv Cognee memory design, phase gates,
-and branch feat/piv-cognee-memory workflow.
+and direct `void` branch workflow.
 ```
 
-**Gate:** `git branch --show-current` is `feat/piv-cognee-memory`; plan present.
+**Gate:** `git branch --show-current` is `void`; plan present.
 
 ---
 
@@ -694,7 +694,7 @@ Manual checklist (unique non-secret marker, dataset **`pi-void`** only):
 6. `/cognee off` → no network on subsequent prompts.
 7. Optional negative: stop `:20128` only — server remember may degrade; Pi must soft-fail/queue, not hang.
 
-**If smoke finds bugs:** fix on `feat/piv-cognee-memory` with a focused commit:
+**If smoke finds bugs:** fix on `void` with a focused commit:
 
 ```text
 fix(piv-cognee): <short symptom>
@@ -730,7 +730,7 @@ See Phase 8.
 - [ ] Uncertain writes are not blindly replayed.
 - [ ] Offline tests + `npm run check` pass with no unresolved diagnostics.
 - [ ] Blackhole worktree / extension code left intact.
-- [ ] All work landed on **`feat/piv-cognee-memory`** with phase commits C1–C7 (C0 optional).
+- [ ] All work landed on **`void`** with phase commits C1–C7 (C0 optional).
 
 ---
 
@@ -766,7 +766,7 @@ See Phase 8.
 
 | Date | Note |
 |------|------|
-| 2026-08-07 | Plan expanded: branch `feat/piv-cognee-memory`, phases 0–8, commit gates C0–C7, ops context, acceptance checklist. Implementation not started. |
+| 2026-08-07 | Plan expanded: direct `void` branch execution, phases 0–8, commit gates C0–C7, ops context, acceptance checklist. Implementation not started. |
 | 2026-08-07 | Documented two-layer config: Layer A (Pi needs only COGNEE API key/URL) vs Layer B (server needs 9router `:20128` Gemini flash + Voyage embeddings). |
 | 2026-08-07 | Explicit ops rule: **use API keys + model from `~/.claude/settings.json` env** (LLM_API_KEY, openai/ag/gemini-3.6-flash-medium, Voyage keys) when filling Zykairotis Cognee `.env` — do not invent new credentials. |
 | | |
@@ -776,7 +776,7 @@ See Phase 8.
 ## Executor checklist (copy when implementing)
 
 ```text
-[ ] On branch feat/piv-cognee-memory
+[ ] On branch void
 [ ] No Blackhole/unrelated files staged
 [ ] C1 client
 [ ] C2 config/queue/redaction
