@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|--------|
 | Research | Complete |
-| Implementation | **Not started** |
+| Implementation | **Phase 1 complete** |
 | Plan revision | 2026-08-07 — phased commits + dedicated branch |
 | Live Cognee API | Stopped (`127.0.0.1:8211`); do not assume health |
 
@@ -769,7 +769,7 @@ See Phase 8.
 | 2026-08-07 | Plan expanded: direct `void` branch execution, phases 0–8, commit gates C0–C7, ops context, acceptance checklist. Implementation not started. |
 | 2026-08-07 | Documented two-layer config: Layer A (Pi needs only COGNEE API key/URL) vs Layer B (server needs 9router `:20128` Gemini flash + Voyage embeddings). |
 | 2026-08-07 | Explicit ops rule: **use API keys + model from `~/.claude/settings.json` env** (LLM_API_KEY, openai/ag/gemini-3.6-flash-medium, Voyage keys) when filling Zykairotis Cognee `.env` — do not invent new credentials. |
-| | |
+| 2026-08-07 | Phase 1 complete on `void`: native fetch client and offline recall/remember contract tests pass; `npm run check` is clean. |
 
 ---
 
@@ -778,7 +778,7 @@ See Phase 8.
 ```text
 [ ] On branch void
 [ ] No Blackhole/unrelated files staged
-[ ] C1 client
+[x] C1 client
 [ ] C2 config/queue/redaction
 [ ] C3 hooks
 [ ] C4 commands + search tool
