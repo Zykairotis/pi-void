@@ -68,8 +68,8 @@
 
 ### Added
 
-- Added service-tier request metadata so capable callers can select provider priority tiers independently of reasoning level.
-- Added model-specific `ultra` thinking support through `thinkingLevelMap`, preserving provider-native values without enabling it for models that do not advertise the level.
+- Added service-tier request metadata so capable callers can select provider priority tiers independently of reasoning level. ([#5](https://github.com/earendil-works/pi-mono/pull/5) by [@Zykairotis](https://github.com/Zykairotis))
+- Added model-specific `ultra` thinking support through `thinkingLevelMap`, preserving provider-native values without enabling it for models that do not advertise the level. ([#5](https://github.com/earendil-works/pi-mono/pull/5) by [@Zykairotis](https://github.com/Zykairotis))
 - Added deferred provider request contracts, durable response handles, authenticated fetch/cancel dispatch, and faux-provider support for pending, ready, failed, and cancelled responses ([#7339](https://github.com/earendil-works/pi/pull/7339) by [@davidbrai](https://github.com/davidbrai)).
 - Added Baseten as a built-in OpenAI-compatible provider with models.dev catalog generation and native `chat_template_args` reasoning controls.
 

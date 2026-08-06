@@ -72,10 +72,10 @@
 
 ### Added
 
-- Added capability-gated fast mode for local Codex/Luna Responses models, with persisted, CLI, interactive, and RPC controls for the priority service tier.
-- Added `/fast` interactive command with toggle, explicit on/off, and status controls.
-- Added model-specific `ultra` thinking selection and preserved local endpoint thinking metadata for explicit provider mappings.
-- Added extension `ctx.stopAfterTurn()` for graceful post-tool-turn handoffs without rendering a false abort error.
+- Added capability-gated fast mode for local Codex/Luna Responses models, with persisted, CLI, interactive, and RPC controls for the priority service tier. ([#5](https://github.com/earendil-works/pi-mono/pull/5) by [@Zykairotis](https://github.com/Zykairotis))
+- Added `/fast` interactive command with toggle, explicit on/off, and status controls. ([#5](https://github.com/earendil-works/pi-mono/pull/5) by [@Zykairotis](https://github.com/Zykairotis))
+- Added model-specific `ultra` thinking selection and preserved local endpoint thinking metadata for explicit provider mappings. ([#5](https://github.com/earendil-works/pi-mono/pull/5) by [@Zykairotis](https://github.com/Zykairotis))
+- Added extension `ctx.stopAfterTurn()` for graceful post-tool-turn handoffs without rendering a false abort error. ([#5](https://github.com/earendil-works/pi-mono/pull/5) by [@Zykairotis](https://github.com/Zykairotis))
 - Added opt-in mid-run compaction after tool turns, with `off`, `pause`, and `resume` modes.
 - Added an optional deterministic Blackhole compaction extension with resume/pause triggers and percentage or absolute token thresholds.
 - Added extension-contributed settings to `/settings`, including all current Blackhole compaction fields.
