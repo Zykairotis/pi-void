@@ -22,6 +22,8 @@ Implemented today:
 - API credentials remain in user configuration and never enter Git.
 - Auto-compaction triggers at a configurable percentage of the selected model's context window, defaulting to 85%; compaction summary budgeting remains configured separately.
 - An optional deterministic Blackhole compaction extension can own mid-run triggering with resume/pause behavior and percentage or absolute token thresholds; observational memory remains opt-in and is not part of the default profile.
+- `piv` loads the hidden `piv-cognee` extension by default. It uses the `pi-void` dataset, bounded transient recall, and compaction-linked remember with `/cognee` runtime toggles; the local API may be unavailable without breaking the Pi loop.
+- Cognee is a bounded derived-memory adapter, not a second session history store: recall is untrusted transient context, and automatic writes happen only from saved, redacted compaction summaries. No model-facing write tool or always-on improve worker is shipped.
 - The interactive theme picker includes all 98 themes from OhMyPi's pinned catalog alongside Pi's native dark and light themes.
 - `piv` bundles Guarded Build v0 with OMP-equivalent plan behavior through Pi-native seams: exact plan/build tool modes; repository-grounded planning questions; incremental draft/refine/propose state; scrollable Markdown review; fresh, compact, or preserved-context approval; optional planning/execution model routing; bounded convergence reminders; reopenable durable approval; mandatory approved-plan reread gating; Bash default-off; canonical direct edit/write checks; and one project-trusted settled verifier.
 - Plan state remains bounded and session-native rather than introducing OMP's `local://` or `xd://` artifact protocols. Fresh execution uses a durable context boundary, compact execution uses Pi's native compaction, and headless proposals remain pending until an approval-capable client acts.
@@ -134,6 +136,7 @@ Build outside upstream-owned source paths where stable seams permit:
 - workspace adapters and sandbox launchers
 - durable task state, budgets, recovery, and background-job tracking
 - optional worktree-isolated delegation
+- bounded derived-memory adapters such as `piv-cognee`
 - headless task orchestration and evidence reports
 
 ### Optional external mechanisms
@@ -383,7 +386,10 @@ Primary implementation files:
 packages/coding-agent/src/piv.ts
 packages/coding-agent/src/piv-provider.ts
 packages/coding-agent/src/piv-safe-verify.ts
+packages/coding-agent/src/piv-cognee.ts
+packages/coding-agent/src/piv-cognee-client.ts
 packages/coding-agent/test/piv-provider.test.ts
+packages/coding-agent/test/piv-cognee.test.ts
 packages/coding-agent/test/piv-safe-verify.test.ts
 packages/coding-agent/src/modes/interactive/theme/*.json
 packages/coding-agent/docs/theme-sources.md
@@ -421,7 +427,7 @@ Keep this list current when fork-specific files change.
 - Automatic push, merge, release, or production deployment
 - Cloud-only state or telemetry
 - Vector storage before retrieval benchmarks justify it
-- Silent permanent memory generated from model summaries
+- Unbounded or unredacted permanent memory generated from arbitrary model output; the shipped adapter only queues bounded, redacted saved-compaction summaries when enabled
 - Self-modifying tools, policies, prompts, or harness code without review and held-out regression gates
 - Dozens of always-visible tools
 - Heavy task databases while append-only session and filesystem journals suffice

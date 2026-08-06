@@ -72,6 +72,7 @@
 
 ### Added
 
+- Added first-class `piv` Cognee memory with bounded transient recall, redacted compaction-linked remember queueing, `/cognee` controls, and a read-only `cognee_search` tool; the stock `pi` launcher is unchanged.
 - Added capability-gated fast mode for local Codex/Luna Responses models, with persisted, CLI, interactive, and RPC controls for the priority service tier ([#5](https://github.com/Zykairotis/pi-void/pull/5)).
 - Added `/fast` interactive command with toggle, explicit on/off, and status controls ([#5](https://github.com/Zykairotis/pi-void/pull/5)).
 - Added model-specific `ultra` thinking selection and preserved local endpoint thinking metadata for explicit provider mappings ([#5](https://github.com/Zykairotis/pi-void/pull/5)).

@@ -59,6 +59,18 @@ Use `/settings` to tune all Blackhole fields while the extension is loaded, or u
 
 If both native and Blackhole mid-run triggers are enabled, Blackhole yields to native Pi Void and displays a warning. This prevents duplicate compaction and abort races.
 
+### Derived Cognee Memory
+
+When running through `piv`, the hidden `piv-cognee` extension provides bounded cross-session memory through the local Cognee API. It does not replace Pi's session tree or compaction history.
+
+- `before_agent_start` may add a capped recall result to the current provider request as a hidden custom message. The result is untrusted reference data and is not persisted as a durable session message.
+- `session_compact` runs after Pi saves the native `CompactionEntry`. When `autoRemember` is `compaction`, the extension redacts and caps the saved summary, then queues a dataset-scoped remember operation under `~/.pi/agent/pi-cognee/pending/`.
+- Queue writes are bounded and use `pending` or `uncertain` states. Uncertain operations are never retried automatically; `/cognee flush uncertain` is an explicit retry.
+- The model receives only the read-only `cognee_search` tool. Manual `/cognee remember ...` is the user-controlled write path.
+- The default dataset is `pi-void`, the default API is `http://127.0.0.1:8211`, and `/cognee on|off`, `/cognee recall on|off`, and `/cognee remember on|off` persist runtime settings. Network, auth, timeout, and malformed-response failures soft-fail and preserve Pi operation.
+
+Blackhole is independent of Cognee. Native Pi compaction and a saved Blackhole compaction both produce valid remember sources; Cognee does not trigger or implement compaction.
+
 ### How It Works
 
 1. **Find cut point**: Walk backwards from newest message, accumulating token estimates until `keepRecentTokens` (default 20k, configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`) is reached

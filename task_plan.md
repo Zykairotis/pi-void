@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|--------|
 | Research | Complete |
-| Implementation | **Phase 6 complete** |
+| Implementation | **Implemented (slice 1)** |
 | Plan revision | 2026-08-07 — phased commits + dedicated branch |
 | Live Cognee API | Stopped (`127.0.0.1:8211`); do not assume health |
 
@@ -775,6 +775,7 @@ See Phase 8.
 | 2026-08-07 | Phase 4 complete on `void`: `/cognee` toggles, manual search/remember/flush/status, and read-only `cognee_search` pass offline tests without clobbering active tools. |
 | 2026-08-07 | Phase 5 complete on `void`: `piv` loads hidden `piv-cognee` beside `piv-safe-verify`; stock `pi` remains unchanged. |
 | 2026-08-07 | Phase 6 complete on `void`: 12 offline client/extension tests cover disabled recall, uncertain writes, queueing, toggles, hooks, and read-only search; `npm run check` is clean. |
+| 2026-08-07 | Phase 7 complete on `void`: `idea.md`, compaction boundaries, and the coding-agent Unreleased changelog document shipped Slice 1 without claiming deferred improve or shared-memory features. |
 
 ---
 
@@ -789,8 +790,8 @@ See Phase 8.
 [x] C4 commands + search tool
 [x] C5 piv wire-up
 [x] C6 offline tests green
-[ ] C7 docs + changelog
-[ ] npm run check green
+[x] C7 docs + changelog
+[x] npm run check green
 [ ] Live smoke only if API intentionally up
 [ ] Do not push / PR unless asked
 ```
