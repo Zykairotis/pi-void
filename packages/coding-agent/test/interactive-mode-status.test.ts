@@ -211,7 +211,7 @@ describe("InteractiveMode.showExtensionSelector", () => {
 		const editor = new TestFocusableComponent("EDITOR");
 		const editorContainer = new Container();
 		const hideExtensionSelector = vi.fn();
-		const fakeThis: any = {
+		const fakeThis = {
 			editor,
 			editorContainer,
 			extensionSelector: undefined,
@@ -221,7 +221,11 @@ describe("InteractiveMode.showExtensionSelector", () => {
 			hideExtensionSelector,
 		};
 
-		const selection = (InteractiveMode as any).prototype.showExtensionSelector.call(
+		const selection = (
+			InteractiveMode as unknown as {
+				prototype: { showExtensionSelector: { call: (thisArg: unknown, ...args: unknown[]) => unknown } };
+			}
+		).prototype.showExtensionSelector.call(
 			fakeThis,
 			"Plan mode - next step",
 			["Approve and execute", "Approve and compact context", "Approve and keep context", "Refine plan"],
