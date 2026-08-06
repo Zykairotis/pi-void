@@ -211,35 +211,38 @@ describe("InteractiveMode.showExtensionSelector", () => {
 		const editor = new TestFocusableComponent("EDITOR");
 		const editorContainer = new Container();
 		const hideExtensionSelector = vi.fn();
-		const fakeThis: any = {
+		const fakeThis = {
 			editor,
 			editorContainer,
-			extensionSelector: undefined,
+			extensionSelector: undefined as (Component & { handleInput(data: string): void }) | undefined,
 			ui: { setFocus: vi.fn(), requestRender: vi.fn() },
 			disposeActiveSelector: vi.fn(),
 			toggleToolOutputExpansion: vi.fn(),
 			hideExtensionSelector,
 		};
+		const showExtensionSelector = Reflect.get(InteractiveMode.prototype, "showExtensionSelector");
+		if (typeof showExtensionSelector !== "function") throw new Error("showExtensionSelector method not found");
 
-		const selection = (InteractiveMode as any).prototype.showExtensionSelector.call(
-			fakeThis,
+		const selection = Reflect.apply(showExtensionSelector, fakeThis, [
 			"Plan mode - next step",
 			["Approve and execute", "Approve and compact context", "Approve and keep context", "Refine plan"],
 			{
 				content:
 					"# Visible plan\n\n## Context\nRepository context.\n\n## Approach\n1. Read the repository\n2. Implement the change\n3. Verify it\n\n## Assumptions\nNone.",
 			},
-		) as Promise<string | undefined>;
+		]) as Promise<string | undefined>;
 
 		expect(renderAll(editorContainer)).toContain("Visible plan");
 		expect(renderAll(editorContainer)).toContain("Implement the change");
-		const constrained = renderLayoutFrame(fakeThis.extensionSelector, 100, 18, () => {}).lines.join("\n");
+		const extensionSelector = fakeThis.extensionSelector;
+		if (!extensionSelector) throw new Error("extension selector was not mounted");
+		const constrained = renderLayoutFrame(extensionSelector, 100, 18, () => {}).lines.join("\n");
 		expect(constrained).toContain("Visible plan");
 		expect(constrained).toContain("Approve and execute");
 		expect(constrained).toContain("Approve and compact context");
 		expect(constrained).toContain("Approve and keep context");
 		expect(constrained).toContain("Refine plan");
-		fakeThis.extensionSelector.handleInput("\u001b");
+		extensionSelector.handleInput("\u001b");
 		await expect(selection).resolves.toBeUndefined();
 		expect(hideExtensionSelector).toHaveBeenCalledOnce();
 	});

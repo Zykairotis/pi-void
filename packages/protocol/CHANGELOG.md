@@ -8,5 +8,5 @@
 
 ### Added
 
-- Added `ultra` to the protocol thinking-level schema.
+- Added `ultra` to the protocol thinking-level schema ([#5](https://github.com/Zykairotis/pi-void/pull/5)).
 - Added transport-neutral CBOR protocol schemas, codecs, and length-prefixed framing for remote pi sessions.

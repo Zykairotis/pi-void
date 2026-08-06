@@ -61,6 +61,7 @@ import {
 	estimateContextTokens,
 	estimateTokens,
 	generateBranchSummary,
+	modelAwareReserveTokens,
 	prepareCompaction,
 	shouldCompact,
 } from "./compaction/index.ts";
@@ -1814,6 +1815,14 @@ export class AgentSession {
 	// Compaction
 	// =========================================================================
 
+	private getCompactionSettingsForModel() {
+		const settings = this.settingsManager.getCompactionSettings();
+		if (!this.settingsManager.hasExplicitCompactionReserveTokens() && this.model) {
+			settings.reserveTokens = modelAwareReserveTokens(this.model.contextWindow, this.model.maxTokens);
+		}
+		return settings;
+	}
+
 	/**
 	 * Manually compact the session context.
 	 * Aborts current agent operation first.
@@ -1832,7 +1841,7 @@ export class AgentSession {
 			const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(this.model);
 
 			const pathEntries = this.sessionManager.getBranch();
-			const settings = this.settingsManager.getCompactionSettings();
+			const settings = this.getCompactionSettingsForModel();
 
 			const preparation = prepareCompaction(pathEntries, settings);
 			if (!preparation) {
@@ -2028,7 +2037,7 @@ export class AgentSession {
 	 * @param skipAbortedCheck If false, include aborted messages (for pre-prompt check). Default: true
 	 */
 	private async _checkCompaction(assistantMessage: AssistantMessage, skipAbortedCheck = true): Promise<boolean> {
-		const settings = this.settingsManager.getCompactionSettings();
+		const settings = this.getCompactionSettingsForModel();
 		if (!settings.enabled) return false;
 
 		// Skip if message was aborted (user cancelled) - unless skipAbortedCheck is false
@@ -2124,7 +2133,7 @@ export class AgentSession {
 	 * Internal: Run auto-compaction with events.
 	 */
 	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<boolean> {
-		const settings = this.settingsManager.getCompactionSettings();
+		const settings = this.getCompactionSettingsForModel();
 		let started = false;
 
 		try {

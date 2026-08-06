@@ -9,7 +9,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { estimateTokens } from "../../src/core/compaction/index.ts";
+import { estimateTokens, modelAwareReserveTokens } from "../../src/core/compaction/index.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 type SessionWithCompactionInternals = {
@@ -177,6 +177,44 @@ describe("AgentSession compaction characterization", () => {
 
 		expect(result.summary).toContain("summary from custom stream");
 		expect(getStreamCallCount()).toBe(1);
+	});
+
+	it("uses model-aware reserve tokens for generated compaction summaries", async () => {
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 1000, maxTokens: 100 }],
+			settings: { compaction: { keepRecentTokens: 1 } },
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		expect(harness.session.model).toMatchObject({ contextWindow: 1000, maxTokens: 100 });
+
+		const observedMaxTokens: number[] = [];
+		let observedModel: Model<string> | undefined;
+		harness.session.agent.streamFunction = (model, _context, options) => {
+			observedModel = model;
+			observedMaxTokens.push(options?.maxTokens ?? -1);
+			const stream = createAssistantMessageEventStream();
+			queueMicrotask(() => {
+				stream.push({
+					type: "done",
+					reason: "stop",
+					message: {
+						...fauxAssistantMessage("model-aware summary"),
+						api: model.api,
+						provider: model.provider,
+						model: model.id,
+						usage: createUsage(10),
+					},
+				});
+			});
+			return stream;
+		};
+
+		await harness.session.compact();
+
+		expect(observedModel).toBeDefined();
+		const reserveTokens = modelAwareReserveTokens(observedModel!.contextWindow, observedModel!.maxTokens);
+		expect(observedMaxTokens).toEqual([Math.floor(0.5 * reserveTokens)]);
 	});
 
 	it("manually compacts with provider-resolved bearer auth", async () => {
