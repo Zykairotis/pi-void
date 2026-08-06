@@ -8,6 +8,17 @@ export { type PrintModeOptions, runPrintMode } from "./print-mode.ts";
 export { type ModelInfo, RpcClient, type RpcClientOptions, type RpcEventListener } from "./rpc/rpc-client.ts";
 export { runRpcMode } from "./rpc/rpc-mode.ts";
 export type {
+	RpcSettingsConstraints,
+	RpcSettingsDiagnostic,
+	RpcSettingsErrorCode,
+	RpcSettingsField,
+	RpcSettingsFieldKind,
+	RpcSettingsFieldScope,
+	RpcSettingsSnapshot,
+	RpcSettingsValue,
+	RpcSettingUpdate,
+} from "./rpc/rpc-settings.ts";
+export type {
 	RpcCommand,
 	RpcExtensionUIRequest,
 	RpcExtensionUIResponse,

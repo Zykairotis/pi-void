@@ -12,6 +12,7 @@ import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
 import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
+import type { RpcSettingsSnapshot, RpcSettingUpdate } from "./rpc-settings.ts";
 
 // ============================================================================
 // RPC Commands (stdin)
@@ -28,6 +29,11 @@ export type RpcCommand =
 	// State
 	| { id?: string; type: "get_state" }
 	| { id?: string; type: "set_fast_mode"; enabled: boolean }
+
+	// Settings
+	| { id?: string; type: "get_settings" }
+	| ({ id?: string; type: "set_setting" } & RpcSettingUpdate)
+	| { id?: string; type: "set_setting"; data: RpcSettingUpdate }
 
 	// Model
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
@@ -125,6 +131,10 @@ export type RpcResponse =
 
 	// State
 	| { id?: string; type: "response"; command: "get_state"; success: true; data: RpcSessionState }
+
+	// Settings
+	| { id?: string; type: "response"; command: "get_settings"; success: true; data: RpcSettingsSnapshot }
+	| { id?: string; type: "response"; command: "set_setting"; success: true; data: RpcSettingsSnapshot }
 
 	// Model
 	| {
@@ -232,7 +242,15 @@ export type RpcResponse =
 	  }
 
 	// Error response (any command can fail)
-	| { id?: string; type: "response"; command: string; success: false; error: string };
+	| {
+			id?: string;
+			type: "response";
+			command: string;
+			success: false;
+			error: string;
+			errorCode?: string;
+			errorDetails?: { key?: string; scope?: string };
+	  };
 
 // ============================================================================
 // Extension UI Events (stdout)

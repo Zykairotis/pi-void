@@ -453,6 +453,39 @@ export class SettingsManager {
 		return structuredClone(this.projectSettings);
 	}
 
+	/** Set a validated RPC setting through the normal scoped persistence path. */
+	setSettingValue(scope: SettingsScope, key: string, value: unknown): void {
+		const parts = key.split(".");
+		if (parts.length === 0 || parts.length > 2 || parts.some((part) => part.length === 0)) {
+			throw new Error(`Invalid settings key: ${key}`);
+		}
+
+		const field = parts[0] as keyof Settings;
+		const setValue = (settings: Settings): void => {
+			const target = settings as unknown as Record<string, unknown>;
+			if (parts.length === 1) {
+				target[field] = structuredClone(value);
+				return;
+			}
+
+			const nested = isMergeableObject(target[field]) ? structuredClone(target[field]) : {};
+			nested[parts[1]] = structuredClone(value);
+			target[field] = nested;
+		};
+
+		if (scope === "project") {
+			this.updateProjectSettings(field, setValue);
+			return;
+		}
+		if (scope !== "global") {
+			throw new Error(`Unsupported settings scope: ${scope}`);
+		}
+
+		setValue(this.globalSettings);
+		this.markModified(field, parts.length === 2 ? parts[1] : undefined);
+		this.save();
+	}
+
 	isProjectTrusted(): boolean {
 		return this.projectTrusted;
 	}

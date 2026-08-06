@@ -1793,6 +1793,25 @@ export class AgentSession {
 		this.agent.followUpMode = this.settingsManager.getFollowUpMode();
 	}
 
+	/** Apply settings changes that the active agent loop already supports. */
+	syncSettingsFromManager(): void {
+		this.syncQueueModesFromSettings();
+		this.agent.transport = this.settingsManager.getTransport();
+
+		const requestedLevel = this.settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL;
+		const effectiveLevel = this._clampThinkingLevel(requestedLevel, this.getAvailableThinkingLevels());
+		if (effectiveLevel !== this.agent.state.thinkingLevel) {
+			const previousLevel = this.agent.state.thinkingLevel;
+			this.agent.state.thinkingLevel = effectiveLevel;
+			this._emit({ type: "thinking_level_changed", level: effectiveLevel });
+			void this._extensionRunner.emit({
+				type: "thinking_level_select",
+				level: effectiveLevel,
+				previousLevel,
+			});
+		}
+	}
+
 	/**
 	 * Set steering message mode.
 	 * Saves to settings.
@@ -2696,7 +2715,7 @@ export class AgentSession {
 		const previousFlagValues = this._extensionRunner.getFlagValues();
 		await emitSessionShutdownEvent(this._extensionRunner, { type: "session_shutdown", reason: "reload" });
 		await this.settingsManager.reload();
-		this.syncQueueModesFromSettings();
+		this.syncSettingsFromManager();
 		resetApiProviders();
 		await this._resourceLoader.reload();
 		this._buildRuntime({
