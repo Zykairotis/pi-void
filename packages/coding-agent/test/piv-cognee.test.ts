@@ -15,6 +15,7 @@ import {
 	redactMemoryText,
 	resolveCogneeApiKey,
 	resolvePivCogneeConfig,
+	updatePendingRememberState,
 } from "../src/piv-cognee.ts";
 import { type CogneeClientConfig, CogneeError, createCogneeClient } from "../src/piv-cognee-client.ts";
 
@@ -155,13 +156,14 @@ describe("piv-cognee state helpers", () => {
 
 type Hook = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
 
-function extensionHookFixture(storageDir: string, hasUI = false) {
+function extensionHookFixture(storageDir: string, hasUI = false, env: NodeJS.ProcessEnv = {}) {
 	const handlers = new Map<string, Hook>();
 	const commands = new Map<string, (args: string, ctx: ExtensionContext) => Promise<void> | void>();
 	const tools = new Map<string, { execute: (...args: unknown[]) => Promise<unknown> }>();
 	const activeToolSets: string[][] = [];
 	const appended: Array<{ customType: string; data: unknown }> = [];
 	const notifications: string[] = [];
+	const requests: string[] = [];
 	const currentTools = ["read", "grep", "cognee_search"];
 	const api = {
 		on(event: string, handler: Hook) {
@@ -193,15 +195,16 @@ function extensionHookFixture(storageDir: string, hasUI = false) {
 	} as unknown as ExtensionContext;
 	createPivCogneeExtension({
 		storageDir,
-		env: {},
+		env,
 		fetch: async (input) => {
+			requests.push(String(input));
 			if (String(input).endsWith("/recall")) {
 				return new Response(JSON.stringify([{ text: "remembered context" }]), { status: 200 });
 			}
 			return new Response(null, { status: 202 });
 		},
 	})(api);
-	return { handlers, commands, tools, activeToolSets, appended, notifications, ctx };
+	return { handlers, commands, tools, activeToolSets, appended, notifications, requests, ctx };
 }
 
 describe("piv-cognee extension hooks", () => {
@@ -240,6 +243,47 @@ describe("piv-cognee extension hooks", () => {
 	});
 });
 
+describe("piv-cognee policy regressions", () => {
+	it("does not make recall requests when disabled", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-disabled-"));
+		try {
+			const runtime = extensionHookFixture(storageDir, false, { PI_COGNEE_ENABLED: "false" });
+			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
+			expect(runtime.activeToolSets.at(-1)).toEqual(["read", "grep"]);
+			expect(
+				await runtime.handlers.get("before_agent_start")?.(
+					{ type: "before_agent_start", prompt: "Should not recall" },
+					runtime.ctx,
+				),
+			).toBeUndefined();
+			expect(runtime.requests).toHaveLength(0);
+		} finally {
+			rmSync(storageDir, { recursive: true, force: true });
+		}
+	});
+
+	it("does not auto-replay uncertain writes but allows explicit retry", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-uncertain-"));
+		try {
+			const runtime = extensionHookFixture(storageDir, true);
+			const record = createPendingRemember("uncertain summary", "pi-void", "agent_actions", 200);
+			await enqueuePendingRemember(join(storageDir, "pending"), record, 4);
+			await updatePendingRememberState(join(storageDir, "pending"), record.operationId, "uncertain");
+			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			expect(runtime.requests).toHaveLength(0);
+			expect(await readPendingRemember(join(storageDir, "pending"))).toHaveLength(1);
+			await runtime.commands.get("cognee")!("flush pending", runtime.ctx);
+			expect(runtime.requests).toHaveLength(0);
+			await runtime.commands.get("cognee")!("flush uncertain", runtime.ctx);
+			expect(runtime.requests).toHaveLength(1);
+			expect(await readPendingRemember(join(storageDir, "pending"))).toHaveLength(0);
+		} finally {
+			rmSync(storageDir, { recursive: true, force: true });
+		}
+	});
+});
+
 describe("piv-cognee commands and search tool", () => {
 	it("toggles without clobbering unrelated tools and runs manual operations", async () => {
 		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-commands-"));
@@ -255,6 +299,14 @@ describe("piv-cognee commands and search tool", () => {
 
 			await runtime.commands.get("cognee")!("on", runtime.ctx);
 			expect(runtime.activeToolSets.at(-1)).toEqual(["read", "grep", "cognee_search"]);
+			await runtime.commands.get("cognee")!("recall off", runtime.ctx);
+			expect((await loadPivCogneeConfig(join(storageDir, "config.json"), {})).autoRecall).toBe(false);
+			await runtime.commands.get("cognee")!("remember off", runtime.ctx);
+			expect((await loadPivCogneeConfig(join(storageDir, "config.json"), {})).autoRemember).toBe("off");
+			await runtime.commands.get("cognee")!("recall on", runtime.ctx);
+			await runtime.commands.get("cognee")!("remember on", runtime.ctx);
+			await runtime.commands.get("cognee")!("status", runtime.ctx);
+			expect(runtime.notifications.join("\n")).toContain("dataset pi-void");
 			await runtime.commands.get("cognee")!("search remembered", runtime.ctx);
 			await runtime.commands.get("cognee")!("remember user_context explicit memory", runtime.ctx);
 			expect(runtime.notifications.join("\n")).toContain("remembered context");
