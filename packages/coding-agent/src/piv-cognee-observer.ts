@@ -1,6 +1,7 @@
 import { appendFile, chmod, mkdir, readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
+import { redactMemoryText } from "./piv-cognee.ts";
 
 export const COGNEE_OBSERVATION_FILE = "observations.jsonl";
 const MAX_EVENTS = 500;
@@ -64,7 +65,10 @@ function observationPath(storageDir: string): string {
 }
 
 export async function appendCogneeObservation(storageDir: string, observation: CogneeObservation): Promise<void> {
-	const safe = { ...observation, preview: observation.preview?.slice(0, MAX_PREVIEW_CHARS) };
+	const safe = {
+		...observation,
+		preview: observation.preview === undefined ? undefined : redactMemoryText(observation.preview, MAX_PREVIEW_CHARS),
+	};
 	try {
 		await mkdir(storageDir, { recursive: true, mode: 0o700 });
 		const path = observationPath(storageDir);
@@ -142,8 +146,16 @@ async function streamEvents(res: ServerResponse, storageDir: string): Promise<vo
 		}
 	};
 	await send();
-	const timer = setInterval(() => void send().catch(() => {}), POLL_MS);
-	res.once("close", () => clearInterval(timer));
+	let closed = false;
+	res.once("close", () => {
+		closed = true;
+	});
+	const tick = async (): Promise<void> => {
+		if (closed) return;
+		await send().catch(() => {});
+		if (!closed) setTimeout(() => void tick(), POLL_MS);
+	};
+	setTimeout(() => void tick(), POLL_MS);
 }
 
 export async function startCogneeObserver(options: CogneeObserverOptions): Promise<CogneeObserverHandle> {

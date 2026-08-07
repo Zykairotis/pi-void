@@ -127,6 +127,41 @@ export function shouldOwnCompactionSummary(
 	return !blackholeActive;
 }
 
+/**
+ * Cheap pre-compact anchor from Pi preparation only (no network).
+ * Used when deferring the Pi summary to Blackhole so compact stays fast and
+ * we still record what was about to leave context.
+ */
+export function buildLocalPrecompactAnchor(
+	preparation: {
+		previousSummary?: string;
+		messagesToSummarize?: unknown[];
+		turnPrefixMessages?: unknown[];
+		fileOps?: { read?: string[]; edited?: string[]; written?: string[] };
+		tokensBefore?: number;
+	},
+	reason: string,
+): string {
+	const lines: string[] = [
+		`Pre-compact local anchor (${reason})`,
+		`messagesToSummarize=${preparation.messagesToSummarize?.length ?? 0}`,
+		`turnPrefix=${preparation.turnPrefixMessages?.length ?? 0}`,
+	];
+	if (typeof preparation.tokensBefore === "number") {
+		lines.push(`tokensBefore≈${preparation.tokensBefore}`);
+	}
+	const reads = preparation.fileOps?.read?.slice(0, 12) ?? [];
+	const edits = preparation.fileOps?.edited?.slice(0, 12) ?? [];
+	const writes = preparation.fileOps?.written?.slice(0, 12) ?? [];
+	if (reads.length) lines.push(`read: ${reads.join(", ")}`);
+	if (edits.length) lines.push(`edited: ${edits.join(", ")}`);
+	if (writes.length) lines.push(`written: ${writes.join(", ")}`);
+	if (preparation.previousSummary?.trim()) {
+		lines.push("previousSummary:", preparation.previousSummary.trim().slice(0, 2000));
+	}
+	return lines.join("\n");
+}
+
 /** Claude-compatible Cognee session id: piv_<hostSessionId>. */
 export function cogneeSessionId(hostSessionId: string): string {
 	const cleaned = hostSessionId
@@ -542,6 +577,9 @@ export interface DoctorReport {
 	autoRecall: boolean;
 	autoRemember: string;
 	autoImprove: boolean;
+	compactionSummaryMode: CompactionSummaryMode;
+	blackholeActive: boolean;
+	ownCompactionSummary: boolean;
 	circuit: "closed" | "open";
 	lastError?: string;
 	saves: { prompt: number; trace: number; answer: number };
@@ -926,6 +964,9 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 		const records = await readPendingRemember(pendingDir);
 		const health = runtime.config.enabled ? await probeHealth() : { ok: false, detail: "disabled" };
 		runtime.connected = health.ok;
+		const agentDir = environment.PI_CODING_AGENT_DIR?.trim() || getAgentDir();
+		const blackholeActive = isBlackholeCompactionActive(agentDir);
+		const ownCompactionSummary = shouldOwnCompactionSummary(runtime.config.compactionSummaryMode, blackholeActive);
 		return {
 			enabled: runtime.config.enabled,
 			mode: "http",
@@ -940,6 +981,9 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 			autoRecall: runtime.config.autoRecall,
 			autoRemember: runtime.config.autoRemember,
 			autoImprove: runtime.config.autoImprove,
+			compactionSummaryMode: runtime.config.compactionSummaryMode,
+			blackholeActive,
+			ownCompactionSummary,
 			circuit: canAttemptCircuit(runtime.circuit) ? "closed" : "open",
 			lastError: runtime.lastError,
 			saves: { ...runtime.saves },
@@ -1188,7 +1232,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 					const report = await collectDoctor();
 					notify(
 						ctx,
-						`Cognee ${report.enabled ? "on" : "off"}; health ${report.health}; recall ${report.autoRecall ? "on" : "off"}; remember ${report.autoRemember}; capture ${report.captureSession ? "on" : "off"}; tools ${report.captureTools ? "on" : "off"}; improve ${report.autoImprove ? "on" : "off"}; endpoint ${report.baseUrl}; dataset ${report.dataset}; session ${report.sessionId ?? "none"}; key ${report.apiKeySource}; saves p/t/a=${report.saves.prompt}/${report.saves.trace}/${report.saves.answer}; lastRecall=${report.lastRecallHits}; queue pending=${report.queuePending} uncertain=${report.queueUncertain}; breaker ${report.circuit}; lastError=${report.lastError ?? "none"}`,
+						`Cognee ${report.enabled ? "on" : "off"}; health ${report.health}; recall ${report.autoRecall ? "on" : "off"}; remember ${report.autoRemember}; capture ${report.captureSession ? "on" : "off"}; tools ${report.captureTools ? "on" : "off"}; improve ${report.autoImprove ? "on" : "off"}; compact=${report.compactionSummaryMode}${report.blackholeActive ? "+blackhole" : ""}${report.ownCompactionSummary ? "(own-summary)" : "(defer-summary)"}; endpoint ${report.baseUrl}; dataset ${report.dataset}; session ${report.sessionId ?? "none"}; key ${report.apiKeySource}; saves p/t/a=${report.saves.prompt}/${report.saves.trace}/${report.saves.answer}; lastRecall=${report.lastRecallHits}; queue pending=${report.queuePending} uncertain=${report.queueUncertain}; breaker ${report.circuit}; lastError=${report.lastError ?? "none"}`,
 						"info",
 					);
 					updateStatusLine(ctx);
@@ -1208,12 +1252,24 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 							`capture=${report.captureSession}`,
 							`tools=${report.captureTools}`,
 							`improve=${report.autoImprove}`,
+							`compactMode=${report.compactionSummaryMode}`,
+							`blackhole=${report.blackholeActive}`,
+							`ownSummary=${report.ownCompactionSummary}`,
 							`breaker=${report.circuit}`,
 							`saves=${JSON.stringify(report.saves)}`,
 							`queue=${report.queuePending}/${report.queueUncertain}`,
 							`detail=${report.healthDetail ?? ""}`,
 						].join(" · "),
 						report.health === "healthy" ? "info" : "warning",
+					);
+					return;
+				}
+				if (command === "compact" && (value === "auto" || value === "defer" || value === "own")) {
+					await persistConfig({ ...runtime.config, compactionSummaryMode: value }, ctx);
+					notify(
+						ctx,
+						`Cognee compaction summary mode: ${value}${value === "auto" ? " (defer when Blackhole active)" : ""}`,
+						"info",
 					);
 					return;
 				}
@@ -1283,7 +1339,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 				}
 				notify(
 					ctx,
-					"Usage: /cognee status|watch|doctor|on|off|recall on|off|capture on|off|tools on|off|improve on|off|improve [now]|remember on|off|search <query>|remember [node_set] <text>|flush [pending|uncertain]",
+					"Usage: /cognee status|watch|doctor|on|off|recall on|off|capture on|off|tools on|off|improve on|off|improve [now]|compact auto|defer|own|remember on|off|search <query>|remember [node_set] <text>|flush [pending|uncertain]",
 					"warning",
 				);
 			},
@@ -1521,35 +1577,72 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 			const blackholeActive = isBlackholeCompactionActive(agentDir);
 			const ownSummary = shouldOwnCompactionSummary(runtime.config.compactionSummaryMode, blackholeActive);
 
-			// Always try to build a memory anchor for Cognee (even when deferring summary).
+			// Memory anchor for Cognee:
+			// - Deferring to Blackhole: local preparation only (fast; no extra recalls)
+			// - Owning Pi summary: multi-scope recall for a richer standalone summary
 			let answer = "";
-			if (runtime.config.captureSession || runtime.config.autoRemember === "compaction") {
-				const query =
-					truncateForCapture(event.preparation.previousSummary ?? event.reason, 400) || "session progress";
-				const sections: string[] = [];
-				try {
-					const [sessionHits, traceHits, graphHits] = await Promise.all([
-						runtime.client.recall(query, { sessionId, scope: ["session"], topK: 5, timeoutMs: 4_000 }),
-						runtime.client.recall(query, { sessionId, scope: ["trace"], topK: 8, timeoutMs: 4_000 }),
-						runtime.client.recall(query, {
-							sessionId,
-							scope: ["graph"],
-							topK: 3,
-							timeoutMs: 6_000,
-						}),
-					]);
-					if (sessionHits.length)
-						sections.push(`## Session\n${sessionHits.map((hit) => `- ${hit.text}`).join("\n")}`);
-					if (traceHits.length) sections.push(`## Traces\n${traceHits.map((hit) => `- ${hit.text}`).join("\n")}`);
-					if (graphHits.length) sections.push(`## Graph\n${graphHits.map((hit) => `- ${hit.text}`).join("\n")}`);
-				} catch (error) {
-					runtime.lastError = errorKind(error);
+			if (runtime.config.captureSession || runtime.config.autoRemember === "compaction" || ownSummary) {
+				if (!ownSummary) {
+					answer = redactMemoryText(
+						buildLocalPrecompactAnchor(
+							{
+								previousSummary: event.preparation.previousSummary,
+								messagesToSummarize: event.preparation.messagesToSummarize,
+								turnPrefixMessages: event.preparation.turnPrefixMessages,
+								fileOps: {
+									read: [...event.preparation.fileOps.read],
+									edited: [...event.preparation.fileOps.edited],
+									written: [...event.preparation.fileOps.written],
+								},
+								tokensBefore: event.preparation.tokensBefore,
+							},
+							event.reason,
+						),
+						runtime.config.captureMaxChars,
+					);
+				} else {
+					const query =
+						truncateForCapture(event.preparation.previousSummary ?? event.reason, 400) || "session progress";
+					const sections: string[] = [];
+					try {
+						const [sessionHits, traceHits, graphHits] = await Promise.all([
+							runtime.client.recall(query, { sessionId, scope: ["session"], topK: 5, timeoutMs: 4_000 }),
+							runtime.client.recall(query, { sessionId, scope: ["trace"], topK: 8, timeoutMs: 4_000 }),
+							runtime.client.recall(query, {
+								sessionId,
+								scope: ["graph"],
+								topK: 3,
+								timeoutMs: 6_000,
+							}),
+						]);
+						if (sessionHits.length)
+							sections.push(`## Session\n${sessionHits.map((hit) => `- ${hit.text}`).join("\n")}`);
+						if (traceHits.length)
+							sections.push(`## Traces\n${traceHits.map((hit) => `- ${hit.text}`).join("\n")}`);
+						if (graphHits.length)
+							sections.push(`## Graph\n${graphHits.map((hit) => `- ${hit.text}`).join("\n")}`);
+					} catch (error) {
+						runtime.lastError = errorKind(error);
+					}
+					answer = redactMemoryText(
+						sections.join("\n\n") ||
+							buildLocalPrecompactAnchor(
+								{
+									previousSummary: event.preparation.previousSummary,
+									messagesToSummarize: event.preparation.messagesToSummarize,
+									turnPrefixMessages: event.preparation.turnPrefixMessages,
+									fileOps: {
+										read: [...event.preparation.fileOps.read],
+										edited: [...event.preparation.fileOps.edited],
+										written: [...event.preparation.fileOps.written],
+									},
+									tokensBefore: event.preparation.tokensBefore,
+								},
+								event.reason,
+							),
+						runtime.config.captureMaxChars,
+					);
 				}
-				answer = redactMemoryText(
-					sections.join("\n\n") ||
-						`Compaction (${event.reason}) with ${event.preparation.messagesToSummarize.length} messages`,
-					runtime.config.captureMaxChars,
-				);
 				storeEntry(
 					{
 						type: "qa",
@@ -1566,7 +1659,14 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 
 			if (!answer) {
 				answer = redactMemoryText(
-					`Compaction (${event.reason}) with ${event.preparation.messagesToSummarize.length} messages`,
+					buildLocalPrecompactAnchor(
+						{
+							previousSummary: event.preparation.previousSummary,
+							messagesToSummarize: event.preparation.messagesToSummarize,
+							tokensBefore: event.preparation.tokensBefore,
+						},
+						event.reason,
+					),
 					runtime.config.captureMaxChars,
 				);
 			}

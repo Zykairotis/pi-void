@@ -790,14 +790,17 @@ function buildParams(
 			}
 		}
 	} else if (compat.thinkingFormat === "deepseek" && model.reasoning) {
+		const deepSeekParams = params as Omit<typeof params, "thinking" | "reasoning_effort"> & {
+			thinking?: { type: "enabled" | "disabled" };
+			reasoning_effort?: string;
+		};
 		if (options?.reasoningEffort) {
-			(params as any).thinking = { type: "enabled" };
+			deepSeekParams.thinking = { type: "enabled" };
 		} else if (model.compat?.thinkingCanDisable !== false && model.thinkingLevelMap?.off !== null) {
-			(params as any).thinking = { type: "disabled" };
+			deepSeekParams.thinking = { type: "disabled" };
 		}
 		if (options?.reasoningEffort && compat.supportsReasoningEffort) {
-			(params as any).reasoning_effort =
-				model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort;
+			deepSeekParams.reasoning_effort = model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort;
 		}
 	} else if (compat.thinkingFormat === "openrouter" && model.reasoning) {
 		// OpenRouter normalizes reasoning across providers via a nested reasoning object.

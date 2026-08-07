@@ -145,7 +145,7 @@ function responseLimit(response: Response, maxChars: number): void {
 	}
 }
 
-async function readJson(response: Response, maxChars: number, transportMaxChars = maxChars): Promise<unknown> {
+async function readJson(response: Response, transportMaxChars: number): Promise<unknown> {
 	responseLimit(response, transportMaxChars);
 	const text = await response.text();
 	if (text.length > transportMaxChars) {
@@ -240,10 +240,17 @@ export function createCogneeClient(
 				options.timeoutMs,
 			);
 			await assertOk(response, "recall");
-			return normalizeRecall(await readJson(response, config.maxResponseChars, MAX_RECALL_RESPONSE_CHARS)).slice(
+			const results = normalizeRecall(await readJson(response, MAX_RECALL_RESPONSE_CHARS)).slice(
 				0,
 				options.topK ?? 5,
 			);
+			let remaining = config.maxResponseChars;
+			return results.flatMap((result) => {
+				if (remaining <= 0) return [];
+				const text = result.text.slice(0, remaining);
+				remaining -= text.length;
+				return text ? [{ ...result, text }] : [];
+			});
 		},
 
 		async remember(input, options = {}) {

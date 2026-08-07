@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
 import {
+	buildLocalPrecompactAnchor,
 	canAttemptCircuit,
 	cogneeSessionId,
 	createCircuitState,
@@ -80,6 +81,14 @@ describe("piv-cognee HTTP client", () => {
 		});
 
 		await expect(client.recall("query", { topK: 1 })).resolves.toEqual([{ text: "first memory" }]);
+	});
+
+	it("bounds normalized recall text by the configured response limit", async () => {
+		const client = createCogneeClient(config({ maxResponseChars: 8 }), {
+			fetch: async () => new Response(JSON.stringify([{ text: "1234567890" }, { text: "second" }]), { status: 200 }),
+		});
+
+		await expect(client.recall("query", { topK: 2 })).resolves.toEqual([{ text: "12345678" }]);
 	});
 
 	it("stores session cache entries via remember/entry", async () => {
@@ -430,13 +439,24 @@ describe("piv-cognee extension hooks", () => {
 		expect(shouldOwnCompactionSummary("own", true)).toBe(true);
 		expect(shouldOwnCompactionSummary("auto", true)).toBe(false);
 		expect(shouldOwnCompactionSummary("auto", false)).toBe(true);
+		const local = buildLocalPrecompactAnchor(
+			{
+				previousSummary: "prior",
+				messagesToSummarize: [{}, {}],
+				fileOps: { read: ["a.ts"], edited: ["b.ts"], written: [] },
+				tokensBefore: 99,
+			},
+			"threshold",
+		);
+		expect(local).toContain("messagesToSummarize=2");
+		expect(local).toContain("read: a.ts");
+		expect(local).toContain("prior");
 	});
 
 	it("stores a pre-compact anchor without overriding Blackhole/native summary by default", async () => {
 		const agentRoot = mkdtempSync(join(tmpdir(), "piv-cognee-agent-"));
 		const storageDir = join(agentRoot, "pi-cognee");
 		// Simulate Blackhole owning compact
-		const { mkdirSync, writeFileSync } = await import("node:fs");
 		mkdirSync(join(agentRoot, "pi-blackhole"), { recursive: true });
 		writeFileSync(
 			join(agentRoot, "pi-blackhole", "pi-blackhole-config.json"),
@@ -445,6 +465,7 @@ describe("piv-cognee extension hooks", () => {
 		try {
 			const runtime = extensionHookFixture(storageDir, false, { PI_CODING_AGENT_DIR: agentRoot });
 			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
+			const recallBefore = runtime.requests.filter((url) => url.includes("/recall")).length;
 			const result = await runtime.handlers.get("session_before_compact")?.(
 				{
 					type: "session_before_compact",
@@ -453,6 +474,8 @@ describe("piv-cognee extension hooks", () => {
 						tokensBefore: 42,
 						previousSummary: "What did we decide?",
 						messagesToSummarize: [{}],
+						turnPrefixMessages: [],
+						fileOps: { read: ["x.ts"], edited: [], written: [] },
 					},
 					reason: "manual",
 				},
@@ -460,6 +483,8 @@ describe("piv-cognee extension hooks", () => {
 			);
 			// Defer: no compaction result — Blackhole/native keeps the Pi summary
 			expect(result).toBeUndefined();
+			// Fast path: no multi-scope recall when deferring
+			expect(runtime.requests.filter((url) => url.includes("/recall")).length).toBe(recallBefore);
 			// Still captured to Cognee session cache
 			await new Promise((resolve) => setTimeout(resolve, 20));
 			expect(runtime.requests.some((url) => url.includes("/remember/entry"))).toBe(true);

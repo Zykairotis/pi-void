@@ -26,6 +26,11 @@ describe("piv-cognee observer", () => {
 			preview: "question=hello; Authorization: Bearer [REDACTED]",
 		};
 		await appendCogneeObservation(storageDir, observation);
+		await appendCogneeObservation(storageDir, {
+			...observation,
+			id: "obs-2",
+			preview: "Authorization: Bearer live-secret; token=token-secret",
+		});
 		const observer = await startCogneeObserver({ storageDir, port: 0 });
 		try {
 			const page = await fetch(observer.url).then((response) => response.text());
@@ -35,8 +40,16 @@ describe("piv-cognee observer", () => {
 			const state = (await fetch(`${observer.url}/api/state`).then((response) => response.json())) as {
 				events: CogneeObservation[];
 			};
-			expect(state.events).toEqual([observation]);
-			expect(JSON.stringify(state)).not.toContain("secret");
+			expect(state.events).toHaveLength(2);
+			expect(state.events[0]).toMatchObject({
+				id: observation.id,
+				operation: observation.operation,
+				phase: observation.phase,
+			});
+			expect(state.events[0]?.preview).toContain("[REDACTED]");
+			expect(state.events[1]?.preview).toContain("[REDACTED]");
+			expect(JSON.stringify(state)).not.toContain("live-secret");
+			expect(JSON.stringify(state)).not.toContain("token-secret");
 		} finally {
 			await observer.close();
 		}
