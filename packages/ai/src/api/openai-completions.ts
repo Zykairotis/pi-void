@@ -796,7 +796,7 @@ function buildParams(
 		};
 		if (options?.reasoningEffort) {
 			deepSeekParams.thinking = { type: "enabled" };
-		} else if (model.compat?.thinkingCanDisable !== false && model.thinkingLevelMap?.off !== null) {
+		} else if (compat.thinkingCanDisable !== false && model.thinkingLevelMap?.off !== null) {
 			deepSeekParams.thinking = { type: "disabled" };
 		}
 		if (options?.reasoningEffort && compat.supportsReasoningEffort) {
