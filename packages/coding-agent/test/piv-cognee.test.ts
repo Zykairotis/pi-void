@@ -202,8 +202,9 @@ describe("piv-cognee state helpers", () => {
 				'{"api_key":"cached-key","base_url":"http://127.0.0.1:8211"}',
 				"http://127.0.0.1:8211",
 				{}, // empty process env
+				'{"api_key":"pi-key","base_url":"http://127.0.0.1:8211"}',
 			),
-		).toBe("cached-key");
+		).toBe("pi-key");
 		expect(
 			resolveCogneeApiKey({ COGNEE_API_KEY: "stale-file-key" }, '{"api_key":"cached-key"}', undefined, {
 				COGNEE_API_KEY: " process-key ",

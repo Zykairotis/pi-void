@@ -37,7 +37,8 @@ Pi does not load Claude `hooks.json`. Parity is implemented with the **Pi extens
 ```
 
 Config: `~/.pi/agent/pi-cognee/config.json`
-Also reads `COGNEE_*` from env and `~/.cognee/.env` (Claude/Codex shared; process env wins).
+API key: `~/.pi/agent/pi-cognee/api_key.json` with mode `0600`; process `COGNEE_API_KEY` wins, then this file, then the mint cache and shared `~/.cognee/.env`.
+Also reads `COGNEE_*` from env and `~/.cognee/.env` (Claude/Codex shared).
 Does **not** auto-use `COGNEE_PLUGIN_DATASET=agent_sessions` — default dataset remains **`pi-void`**.
 
 ## Commands
@@ -59,7 +60,7 @@ Does **not** auto-use `COGNEE_PLUGIN_DATASET=agent_sessions` — default dataset
 
 1. Start API: `/home/mewtwo/Zykairotis/cognee/scripts/start-local-api.sh`
 2. Layer B LLM/Voyage keys from `~/.claude/settings.json` env into Zykairotis `.env`
-3. Layer A key: `COGNEE_API_KEY` or `mint-api-key.sh` → `~/.cognee-plugin/api_key.json`
+3. Layer A key: `~/.pi/agent/pi-cognee/api_key.json` (preferred), `COGNEE_API_KEY`, or `mint-api-key.sh` → `~/.cognee-plugin/api_key.json`
 4. Rebuild: `npm run build` in monorepo (or coding-agent package)
 
 ## Cost

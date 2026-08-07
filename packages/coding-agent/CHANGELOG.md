@@ -97,6 +97,7 @@
 
 - Fixed `piv-cognee` tool traces leaking credentials, pre-compaction anchors not reaching Pi compaction, shutdown improve racing unregister, concurrent pending drains duplicating writes, and unsupported `/improve` routes reporting success.
 - Fixed Cognee v1 recall and improve payloads to match the server's camelCase fields, preserving session and graph recall.
+- Fixed `piv-cognee` API-key resolution to prefer the `~/.pi/agent/pi-cognee/api_key.json` key file over stale shared Cognee env files.
 - Fixed extension selectors dropping supplied Markdown review content before mounting, which hid the Pi Void plan body from the approval menu, and kept selector controls visible when the review viewport shrinks ([#5](https://github.com/Zykairotis/pi-void/pull/5)).
 - Fixed project-level nested provider retry settings replacing unmodified global provider retry settings ([#7572](https://github.com/earendil-works/pi/issues/7572)).
 - Fixed inherited GitHub Copilot Grok 4.5 requests to use the supported Responses API ([#7560](https://github.com/earendil-works/pi/issues/7560)).

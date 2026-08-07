@@ -223,37 +223,42 @@ export function resolvePivCogneeConfig(stored: unknown, env: NodeJS.ProcessEnv =
 	};
 }
 
+function readCachedCogneeApiKey(text: string | undefined, expectedBaseUrl: string | undefined): string | undefined {
+	if (!text) return undefined;
+	try {
+		const parsed: unknown = JSON.parse(text);
+		if (!isRecord(parsed) || typeof parsed.api_key !== "string" || parsed.api_key.trim() === "") return undefined;
+		if (expectedBaseUrl && typeof parsed.base_url === "string") {
+			if (new URL(parsed.base_url).origin !== new URL(expectedBaseUrl).origin) return undefined;
+		}
+		return parsed.api_key.trim();
+	} catch {
+		return undefined;
+	}
+}
+
 /**
- * API key resolution (order matters — stale ~/.cognee/.env must not beat a fresh mint):
- * 1. process.env.COGNEE_API_KEY (explicit launch env)
- * 2. ~/.cognee-plugin/api_key.json when base_url matches (mint cache)
- * 3. merged env (includes ~/.cognee/.env) only as last resort
+ * API key resolution order:
+ * 1. explicit process env
+ * 2. ~/.pi/agent/pi-cognee/api_key.json
+ * 3. ~/.cognee-plugin/api_key.json
+ * 4. merged env, including ~/.cognee/.env
  */
 export function resolveCogneeApiKey(
 	env: NodeJS.ProcessEnv,
 	cachedText?: string,
 	expectedBaseUrl?: string,
 	processEnv: NodeJS.ProcessEnv = process.env,
+	piCachedText?: string,
 ): string | undefined {
 	const processKey = processEnv.COGNEE_API_KEY?.trim();
 	if (processKey) return processKey;
 
-	if (cachedText) {
-		try {
-			const parsed: unknown = JSON.parse(cachedText);
-			if (isRecord(parsed) && typeof parsed.api_key === "string" && parsed.api_key.trim() !== "") {
-				if (expectedBaseUrl && typeof parsed.base_url === "string") {
-					if (new URL(parsed.base_url).origin === new URL(expectedBaseUrl).origin) {
-						return parsed.api_key.trim();
-					}
-				} else {
-					return parsed.api_key.trim();
-				}
-			}
-		} catch {
-			// fall through to merged env
-		}
-	}
+	const fromPiCache = readCachedCogneeApiKey(piCachedText, expectedBaseUrl);
+	if (fromPiCache) return fromPiCache;
+
+	const fromCache = readCachedCogneeApiKey(cachedText, expectedBaseUrl);
+	if (fromCache) return fromCache;
 
 	const fileOrMergedKey = env.COGNEE_API_KEY?.trim();
 	if (fileOrMergedKey) return fileOrMergedKey;
@@ -712,11 +717,17 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 					runtime.lastError = "invalid_config";
 				}
 				let cachedKey: string | undefined;
+				let piCachedKey: string | undefined;
 				if (!options.apiKey) {
 					try {
 						cachedKey = await readFile(join(homedir(), ".cognee-plugin", "api_key.json"), "utf8");
 					} catch {
 						cachedKey = undefined;
+					}
+					try {
+						piCachedKey = await readFile(join(getAgentDir(), "pi-cognee", "api_key.json"), "utf8");
+					} catch {
+						piCachedKey = undefined;
 					}
 				}
 				if (options.apiKey) {
@@ -724,7 +735,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 					runtime.keySource = "env";
 				} else {
 					const processKey = process.env.COGNEE_API_KEY?.trim();
-					const fromCache = resolveCogneeApiKey({}, cachedKey, runtime.config.baseUrl, {});
+					const fromCache = resolveCogneeApiKey({}, cachedKey, runtime.config.baseUrl, {}, piCachedKey);
 					const fromMergedFile = environment.COGNEE_API_KEY?.trim();
 					if (processKey) {
 						runtime.apiKey = processKey;
