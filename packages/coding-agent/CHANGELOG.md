@@ -97,6 +97,8 @@
 
 ### Fixed
 
+- Fixed concurrent dynamic-provider cache restoration contending on the same model-store lock during startup by coalescing overlapping reads into one immutable snapshot.
+- Fixed `piv` startup waiting on cached local model refreshes and Cognee health probes while preserving cold-start catalog loading and all enabled memory behavior; explicit offline and metadata-only commands no longer start the local model request.
 - Fixed `piv-cognee` tool traces leaking credentials, pre-compaction anchors not reaching Pi compaction, shutdown improve racing unregister, concurrent pending drains duplicating writes, and unsupported `/improve` routes reporting success.
 - Fixed Cognee v1 recall and improve payloads to match the server's camelCase fields, preserving session and graph recall.
 - Fixed `piv-cognee` API-key resolution to prefer the `~/.pi/agent/pi-cognee/api_key.json` key file over stale shared Cognee env files.

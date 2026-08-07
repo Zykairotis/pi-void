@@ -32,6 +32,16 @@ interface ModelsFile {
 	providers?: Record<string, unknown>;
 }
 
+type LocalModelsRefreshResult = { updated: boolean; count?: number; error?: string };
+
+async function loadLocalApiKey(agentDir: string): Promise<string> {
+	const authPath = join(agentDir, "auth.json");
+	const auth = JSON.parse(await readFile(authPath, "utf8")) as AuthFile;
+	const apiKey = auth[PROVIDER]?.key;
+	if (!apiKey) throw new Error(`missing ${PROVIDER} API key in ${authPath}`);
+	return apiKey;
+}
+
 function positiveInteger(value: unknown, field: string, model: string): number {
 	if (!Number.isSafeInteger(value) || (value as number) <= 0) {
 		throw new Error(`${model}: invalid ${field}`);
@@ -153,15 +163,10 @@ export function mapEndpointModels(response: ModelsResponse) {
 	});
 }
 
-export async function refreshLocalModels(
-	agentDir: string,
-): Promise<{ updated: boolean; count?: number; error?: string }> {
+export async function refreshLocalModels(agentDir: string): Promise<LocalModelsRefreshResult> {
 	try {
-		const authPath = join(agentDir, "auth.json");
 		const modelsPath = join(agentDir, "models.json");
-		const auth = JSON.parse(await readFile(authPath, "utf8")) as AuthFile;
-		const apiKey = auth[PROVIDER]?.key;
-		if (!apiKey) throw new Error(`missing ${PROVIDER} API key in ${authPath}`);
+		const apiKey = await loadLocalApiKey(agentDir);
 
 		const response = await fetch(`${BASE_URL}/models`, {
 			headers: { Authorization: `Bearer ${apiKey}` },
@@ -193,4 +198,47 @@ export async function refreshLocalModels(
 	} catch (error) {
 		return { updated: false, error: error instanceof Error ? error.message : String(error) };
 	}
+}
+
+export async function refreshLocalModelsForStartup(
+	agentDir: string,
+	options: {
+		skip?: boolean;
+		refresh?: () => Promise<LocalModelsRefreshResult>;
+		onFailure: (error: string) => void;
+	},
+): Promise<void> {
+	try {
+		process.env.PIV_LOCAL_API_KEY = await loadLocalApiKey(agentDir);
+	} catch {}
+	if (options.skip) return;
+
+	let cached = false;
+	try {
+		const config = JSON.parse(await readFile(join(agentDir, "models.json"), "utf8")) as ModelsFile;
+		const local = config.providers?.[PROVIDER];
+		cached =
+			typeof local === "object" &&
+			local !== null &&
+			"models" in local &&
+			Array.isArray(local.models) &&
+			local.models.length > 0;
+	} catch {}
+
+	const refresh = options.refresh ?? (() => refreshLocalModels(agentDir));
+	const completion = (async () => {
+		let result: LocalModelsRefreshResult;
+		try {
+			result = await refresh();
+		} catch (error) {
+			options.onFailure(error instanceof Error ? error.message : String(error));
+			return;
+		}
+		if (!result.updated) options.onFailure(result.error ?? "unknown error");
+	})();
+	if (cached) {
+		void completion;
+		return;
+	}
+	await completion;
 }

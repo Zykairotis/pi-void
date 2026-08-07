@@ -16,13 +16,13 @@ Implemented today:
 
 - `pi` remains upstream-compatible Pi.
 - `piv` is Pi Void entry point.
-- `piv` refreshes models from an OpenAI-compatible local endpoint on every launch.
+- `piv` refreshes models from an OpenAI-compatible local endpoint on every normal launch. A valid cached catalog starts immediately while refreshing in the background; a cold launch waits once for its initial catalog, and explicit offline or metadata-only commands do not start network work.
 - Endpoint model metadata drives model selection and limits.
 - Last valid model catalog remains usable if endpoint is unavailable.
 - API credentials remain in user configuration and never enter Git.
 - Auto-compaction triggers at a configurable percentage of the selected model's context window, defaulting to 85%; compaction summary budgeting remains configured separately.
 - An optional deterministic Blackhole compaction extension can own mid-run triggering with resume/pause behavior and percentage or absolute token thresholds; observational memory remains opt-in and is not part of the default profile.
-- `piv` loads the hidden `piv-cognee` extension by default. It uses the `pi-void` dataset, bounded transient recall, redacted session capture, compaction-linked remember, and optional idle/shutdown improve with `/cognee` runtime toggles; the local API may be unavailable without breaking the Pi loop.
+- `piv` loads the hidden `piv-cognee` extension by default. It uses the `pi-void` dataset, bounded transient recall, redacted session capture, compaction-linked remember, and optional idle/shutdown improve with `/cognee` runtime toggles; startup health probing is asynchronous so an unavailable local API does not delay or break the Pi loop.
 - Cognee is a bounded derived-memory adapter, not a second session history store: recall is untrusted transient context, captured prompts, answers, and tool traces are redacted before remote storage, and compaction summaries are queued for permanent remember. Improve is an explicit extension capability, not part of Pi's core loop; unsupported server routes fail visibly without blocking Pi.
 - `/cognee watch` provides a loopback-only realtime observer over capped, redacted local events. It shows agent/session identity and Cognee lifecycle without adding a second memory or session store; prompt recall also reports immediate animated activity before Pi's model request.
 - The interactive theme picker includes all 98 themes from OhMyPi's pinned catalog alongside Pi's native dark and light themes.
@@ -136,7 +136,7 @@ Build outside upstream-owned source paths where stable seams permit:
 - verifier manifests, regression baselines, and bounded repair
 - workspace adapters and sandbox launchers
 - durable task state, budgets, recovery, and background-job tracking
-- optional worktree-isolated delegation
+- optional flat delegation through a Pi Void-owned tool, with native read-only child sessions first and worktree-isolated writers later
 - bounded derived-memory adapters such as `piv-cognee`
 - headless task orchestration and evidence reports
 
@@ -245,18 +245,41 @@ Detect repeated actions, repeated errors, alternating loops, no changed state, a
 
 ### 9. Controlled delegation
 
-Delegation is optional and read-heavy first.
+Delegation is optional, flat, and read-heavy first. Pi remains the authoritative parent loop; Pi Void adds delegation through a `piv`-only hidden `delegate` extension/tool rather than another planner/controller.
 
-- Parent supplies task, scope, constraints, output schema, budget, and stop condition.
-- Child gets separate context, transcript, permissions, and model route.
-- Explorers and reviewers are read-only by default.
-- Writers use isolated worktrees or workspaces.
+Target V1:
+
+```text
+Parent Pi AgentSession
+  -> `delegate`
+      -> Pi Void subagent manager
+          -> fresh native child AgentSession
+              -> SessionManager.inMemory()
+              -> bundled `explore` or `review` role
+              -> no extensions/skills/templates/themes/context-file discovery
+              -> effective tools = parent active tools ∩ {read, grep, find, ls}
+          -> typed bounded result/evidence
+  -> parent verifies and synthesizes
+```
+
+Rules:
+
+- `delegate` is loaded by `piv`, not stock `pi`.
+- Existing parent mode/tool policy remains authoritative; delegation observes `pi.getActiveTools()` rather than creating separate plan/build permissions.
+- V1 roles are bundled reviewed TypeScript definitions only. User/project role discovery is later and trust-gated.
+- Child gets separate context/history and only an explicit handoff packet; the parent transcript is not cloned.
+- V1 child resource discovery is off: no extensions, skills, prompt templates, themes, or context files. Relevant repository instructions must be passed deliberately when needed.
+- V1 explorers/reviewers are read-only and receive no Bash, edit/write, network/MCP, Cognee/Blackhole/guard extension, credential expansion, or recursive `delegate` capability.
+- Child result is typed, bounded evidence rather than trusted authority or an injected transcript.
 - Parent owns integration and verification.
-- Concurrency, tokens, cost, wall time, and recursion are bounded.
-- Cancellation propagates and successful partial results remain available.
-- No recursive delegation by default.
+- Cancellation and timeout propagate to the child and terminate the run deterministically.
+- Custom profiles/resource inheritance come after the stripped runner is proven.
+- Parallel read fan-out comes after single-child lifecycle and accounting are stable; use conservative bounded concurrency.
+- Writers require isolated worktrees/workspaces and return observed patches/branches for parent verification.
+- Background workers require durable owner-scoped job state, recovery, cancellation, retention, and completion delivery; do not model them as a boolean on the foreground runner.
+- No recursive delegation by default; hierarchical swarms are not a target architecture.
 
-Use delegation only when estimated benefit exceeds coordination, token, merge, and review cost.
+Use delegation only when estimated benefit exceeds coordination, token, merge, and review cost. Primary intended uses are repository exploration, independent investigation, adversarial review, and spending a separate context window on evidence gathering without bloating the parent session.
 
 ### 10. Evidence over feature count
 
@@ -352,7 +375,18 @@ Add goal tracker, durable checkpoints, pause/resume/cancel, failure taxonomy, st
 
 ### Stage 5: Delegation
 
-Only after single-agent evaluation, add read-only explorers/reviewers, per-role routing, typed handoffs, isolated writers, concurrency budgets, and parent-side integration.
+Start with the stripped foreground delegation slice defined above rather than a full multi-agent framework:
+
+1. `piv`-only hidden `delegate` tool integrated with existing guarded-build active-tool policy.
+2. Bundled TypeScript `explore` and `review` roles.
+3. Fresh native child `AgentSession` + `SessionManager.inMemory()`.
+4. Child resource discovery disabled (`noExtensions`, `noSkills`, `noPromptTemplates`, `noThemes`, `noContextFiles`).
+5. Child effective tools derived from parent active tools and capped to `read`/`grep`/`find`/`ls`.
+6. Typed handoff/result, lineage, timeout, cancellation, bounded progress, and parent verification.
+7. Controlled benchmark against Pi's subprocess example before deciding whether to maintain a second runner backend.
+8. Then, only with evidence: trusted configurable roles/resources, bounded parallel read workers, chain composition, worktree-isolated writers, durable background jobs, and optional scoped child memory.
+
+Do not wait for full autonomous-mode infrastructure merely to prove a read-only child, but do not let the read-only slice smuggle in writer/background/autonomous assumptions either.
 
 ## Branch and Sync Model
 
@@ -412,9 +446,12 @@ Keep this list current when fork-specific files change.
 2. Add endpoint refresh observability without exposing secrets.
 3. Add compatibility probes for chat completions, tools, streaming, images, reasoning, and structured output.
 4. Build Stage 0 same-model instrumentation and regression runner.
-5. Field-test Guarded Build v0 and session-native plan approval before extracting a `safe` profile or package boundary; automatic repair, generic policy rules, multi-verifier pipelines, sandboxing, subagents, rollback, and trace services remain deferred.
-6. Add isolated workspace only after host-mode policy and verification are measurable.
-7. Evaluate recovery before durable autonomy; evaluate single-agent baseline before delegation.
+5. Continue field-testing Guarded Build v0 and session-native plan approval before extracting a broader `safe` profile/package boundary.
+6. Prototype the narrow V1 delegation slice independently: `piv`-only `delegate`, bundled read-only roles, stripped native child resources, foreground execution, cancellation/timeout, typed bounded evidence, and parent verification. Keep it optional until controlled evaluation shows a benefit over single-agent Pi Void.
+7. After the single-child slice is stable, evaluate trusted configurable roles and low-concurrency parallel read workers. Do not enable shared-tree writers.
+8. Add isolated workspace/worktree support before any writer subagent; parent must verify observed patches before integration.
+9. Add durable/background subagent semantics only after owner-scoped task state, recovery, cancellation, retention, and completion delivery exist.
+10. Evaluate recovery before durable autonomy. Automatic repair, generic policy rules, multi-verifier pipelines, broad sandboxing, rollback, and trace services remain separate measured capabilities rather than prerequisites hidden inside delegation.
 
 ## Explicit Non-Goals
 
@@ -422,6 +459,7 @@ Keep this list current when fork-specific files change.
 - Creating a second provider SDK or model registry
 - Making OpenHands, MCP, browser automation, remote services, or subagents mandatory
 - Always-on planner or critic models
+- Hierarchical agent swarms, recursive delegation by default, or manager/worker trees as a core architecture
 - Unbounded reflection, retry, or repair loops
 - Shared-write multi-agent workspaces
 - Unrestricted host shell in autonomous mode

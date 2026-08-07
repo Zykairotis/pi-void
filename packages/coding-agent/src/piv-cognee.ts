@@ -1356,16 +1356,22 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 			applyToolState(pi);
 			const hostId = ctx.sessionManager.getSessionId();
 			const sessionId = await ensureSessionId(hostId);
-			const health = await probeHealth();
-			runtime.connected = health.ok;
+			runtime.connected = false;
 			updateStatusLine(ctx);
 			if (runtime.config.enabled) {
-				notify(
-					ctx,
-					health.ok
-						? `Cognee Memory Connected · ${runtime.config.dataset} · ${runtime.config.baseUrl}`
-						: `Cognee Memory offline · ${runtime.config.baseUrl} · ${health.detail}`,
-					health.ok ? "info" : "warning",
+				trackBackground(
+					probeHealth().then((health) => {
+						if (runtime.shuttingDown || runtime.sessionId !== sessionId) return;
+						runtime.connected = health.ok;
+						updateStatusLine(ctx);
+						notify(
+							ctx,
+							health.ok
+								? `Cognee Memory Connected · ${runtime.config.dataset} · ${runtime.config.baseUrl}`
+								: `Cognee Memory offline · ${runtime.config.baseUrl} · ${health.detail}`,
+							health.ok ? "info" : "warning",
+						);
+					}),
 				);
 			}
 			if (runtime.config.enabled && runtime.client && !runtime.agentRegistered) {

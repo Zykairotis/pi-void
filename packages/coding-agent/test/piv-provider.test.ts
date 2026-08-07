@@ -1,6 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { modelAwareReserveTokens } from "../src/core/compaction/compaction.ts";
-import { mapEndpointModels } from "../src/piv-provider.ts";
+import { mapEndpointModels, refreshLocalModelsForStartup } from "../src/piv-provider.ts";
+
+const tempDirs: string[] = [];
+const originalLocalApiKey = process.env.PIV_LOCAL_API_KEY;
+
+afterEach(() => {
+	for (const path of tempDirs.splice(0)) rmSync(path, { recursive: true, force: true });
+	if (originalLocalApiKey === undefined) delete process.env.PIV_LOCAL_API_KEY;
+	else process.env.PIV_LOCAL_API_KEY = originalLocalApiKey;
+});
 
 describe("piv provider model mapping", () => {
 	it("maps endpoint limits and capabilities exactly", () => {
@@ -192,6 +204,80 @@ describe("piv provider model mapping", () => {
 
 	it("rejects incomplete limits instead of guessing", () => {
 		expect(() => mapEndpointModels({ data: [{ id: "broken", capabilities: {} }] })).toThrow("contextWindow");
+	});
+});
+
+describe("piv startup model refresh", () => {
+	it("refreshes in the background when a cached local catalog exists", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "piv-provider-cached-"));
+		tempDirs.push(agentDir);
+		delete process.env.PIV_LOCAL_API_KEY;
+		writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ local: { type: "api_key", key: "cached-secret" } }));
+		writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { local: { models: [{}] } } }));
+		let resolveRefresh: ((result: { updated: boolean; count?: number; error?: string }) => void) | undefined;
+		const refresh = vi.fn(
+			() =>
+				new Promise<{ updated: boolean; count?: number; error?: string }>((resolve) => {
+					resolveRefresh = resolve;
+				}),
+		);
+		const onFailure = vi.fn();
+
+		await expect(refreshLocalModelsForStartup(agentDir, { refresh, onFailure })).resolves.toBeUndefined();
+		expect(refresh).toHaveBeenCalledOnce();
+		expect(process.env.PIV_LOCAL_API_KEY).toBe("cached-secret");
+		expect(onFailure).not.toHaveBeenCalled();
+
+		resolveRefresh?.({ updated: false, error: "endpoint unavailable" });
+		await vi.waitFor(() => expect(onFailure).toHaveBeenCalledWith("endpoint unavailable"));
+	});
+
+	it("waits for refresh when no cached local catalog exists", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "piv-provider-cold-"));
+		tempDirs.push(agentDir);
+		let resolveRefresh: ((result: { updated: boolean; count?: number; error?: string }) => void) | undefined;
+		const refresh = vi.fn(
+			() =>
+				new Promise<{ updated: boolean; count?: number; error?: string }>((resolve) => {
+					resolveRefresh = resolve;
+				}),
+		);
+		let ready = false;
+		const startup = refreshLocalModelsForStartup(agentDir, { refresh, onFailure: vi.fn() }).then(() => {
+			ready = true;
+		});
+
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		expect(ready).toBe(false);
+		resolveRefresh?.({ updated: true, count: 1 });
+		await startup;
+		expect(ready).toBe(true);
+	});
+
+	it("does not refresh in explicit offline mode but keeps cached auth usable", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "piv-provider-offline-"));
+		tempDirs.push(agentDir);
+		delete process.env.PIV_LOCAL_API_KEY;
+		writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ local: { type: "api_key", key: "offline-secret" } }));
+		const refresh = vi.fn(async () => ({ updated: true, count: 1 }));
+
+		await refreshLocalModelsForStartup(agentDir, { skip: true, refresh, onFailure: vi.fn() });
+
+		expect(refresh).not.toHaveBeenCalled();
+		expect(process.env.PIV_LOCAL_API_KEY).toBe("offline-secret");
+	});
+
+	it("reports unexpected refresh failures without rejecting startup", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "piv-provider-failure-"));
+		tempDirs.push(agentDir);
+		const onFailure = vi.fn();
+
+		await refreshLocalModelsForStartup(agentDir, {
+			refresh: () => Promise.reject(new Error("refresh crashed")),
+			onFailure,
+		});
+
+		expect(onFailure).toHaveBeenCalledWith("refresh crashed");
 	});
 });
 

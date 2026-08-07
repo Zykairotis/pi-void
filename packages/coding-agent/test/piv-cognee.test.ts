@@ -581,6 +581,38 @@ describe("piv-cognee extension hooks", () => {
 });
 
 describe("piv-cognee lifecycle regressions", () => {
+	it("does not block session startup on health and reports the eventual result", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-health-"));
+		let releaseHealth: (response: Response) => void = () => undefined;
+		const healthResponse = new Promise<Response>((resolve) => {
+			releaseHealth = resolve;
+		});
+		try {
+			const runtime = extensionHookFixture(storageDir, true, {}, async (input) => {
+				const url = String(input);
+				if (url.endsWith("/health")) return healthResponse;
+				return new Response(null, { status: 200 });
+			});
+			const startup = Promise.resolve(
+				runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx),
+			);
+			const outcome = await Promise.race([
+				startup.then(() => "started"),
+				new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 50)),
+			]);
+			if (outcome === "blocked") releaseHealth(new Response("ok", { status: 200 }));
+			await startup;
+			expect(outcome).toBe("started");
+			expect(runtime.statuses.at(-1)).toContain("cognee:pi-void …");
+
+			releaseHealth(new Response("ok", { status: 200 }));
+			await waitFor(() => runtime.notifications.some((message) => message.includes("Cognee Memory Connected")));
+			expect(runtime.statuses.at(-1)).toContain("cognee:pi-void ok");
+		} finally {
+			rmSync(storageDir, { recursive: true, force: true });
+		}
+	});
+
 	it("serializes pending queue drains", async () => {
 		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-drain-"));
 		let releaseRemember!: () => void;
@@ -686,8 +718,11 @@ describe("piv-cognee policy regressions", () => {
 					runtime.ctx,
 				),
 			).toBeUndefined();
-			// session_start may probe /health; disabled mode must not call recall/remember
-			expect(runtime.requests.filter((url) => url.includes("/recall") || url.includes("/remember"))).toHaveLength(0);
+			expect(
+				runtime.requests.filter(
+					(url) => url.includes("/health") || url.includes("/recall") || url.includes("/remember"),
+				),
+			).toHaveLength(0);
 		} finally {
 			rmSync(storageDir, { recursive: true, force: true });
 		}
