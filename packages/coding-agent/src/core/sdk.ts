@@ -315,17 +315,17 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			return modelRuntime.streamSimple(model, context, {
 				...options,
 				serviceTier:
-					options?.serviceTier === "priority" &&
-					!(
-						(model.api === "openai-responses" || model.api === "openai-codex-responses") &&
-						model.serviceTiers?.includes("priority")
-					)
-						? undefined
-						: ((fastModeOverride ?? settingsManager.getFastMode()) || options?.serviceTier === "priority") &&
-								(model.api === "openai-responses" || model.api === "openai-codex-responses") &&
-								model.serviceTiers?.includes("priority")
+					options?.serviceTier === "priority"
+						? (model.api === "openai-responses" || model.api === "openai-codex-responses") &&
+							model.serviceTiers?.includes("priority")
 							? "priority"
-							: options?.serviceTier,
+							: undefined
+						: options?.serviceTier ??
+							(((fastModeOverride ?? settingsManager.getFastMode()) &&
+								(model.api === "openai-responses" || model.api === "openai-codex-responses") &&
+								model.serviceTiers?.includes("priority"))
+								? "priority"
+								: undefined),
 				timeoutMs,
 				websocketConnectTimeoutMs,
 				maxRetries: options?.maxRetries ?? providerRetrySettings.maxRetries,
