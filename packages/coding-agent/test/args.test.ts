@@ -151,6 +151,12 @@ describe("parseArgs", () => {
 			expect(result.thinking).toBe("high");
 		});
 
+		test("parses fast mode overrides", () => {
+			expect(parseArgs(["--fast"]).fastMode).toBe(true);
+			expect(parseArgs(["--no-fast"]).fastMode).toBe(false);
+			expect(parseArgs(["--fast", "--no-fast"]).fastMode).toBe(false);
+		});
+
 		test("parses --models as comma-separated list", () => {
 			const result = parseArgs(["--models", "gpt-4o,claude-sonnet,gemini-pro"]);
 			expect(result.models).toEqual(["gpt-4o", "claude-sonnet", "gemini-pro"]);

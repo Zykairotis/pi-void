@@ -2,6 +2,7 @@
 import { getAgentDir } from "./config.ts";
 import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { main } from "./main.ts";
+import pivCogneeExtension from "./piv-cognee.ts";
 import { refreshLocalModels } from "./piv-provider.ts";
 import pivSafeVerify, { validatePivStartupArgs } from "./piv-safe-verify.ts";
 
@@ -23,5 +24,8 @@ if (!refresh.updated) {
 }
 
 await main(process.argv.slice(2), {
-	extensionFactories: [{ name: "piv-safe-verify", factory: pivSafeVerify, hidden: true, priority: "before-user" }],
+	extensionFactories: [
+		{ name: "piv-safe-verify", factory: pivSafeVerify, hidden: true, priority: "before-user" },
+		{ name: "piv-cognee", factory: pivCogneeExtension, hidden: true, priority: "before-user" },
+	],
 });

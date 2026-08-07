@@ -19,7 +19,7 @@ import {
 import { getModel } from "../src/compat.ts";
 import type { AssistantMessage, Context, Message, Model, Tool, ToolResultMessage, Transport } from "../src/types.ts";
 
-type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
 interface Args {
 	turns: number;

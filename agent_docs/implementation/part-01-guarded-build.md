@@ -10,9 +10,12 @@ The implementation provides guarded host execution rather than operating-system 
 
 - Modes are exactly `plan` and `build`.
 - The default mode is `plan`.
-- Plan tools are `read`, `grep`, `find`, `ls`, `draft_plan`, `propose_plan`, and `read_plan`.
+- Plan tools are `read`, `grep`, `find`, `ls`, `ask`, `draft_plan`, `propose_plan`, and `read_plan`.
 - Build tools include `read`, `grep`, `find`, `ls`, `read_plan`, `edit`, and `write`; draft and proposal tools remain plan-only.
-- Plan mode stores bounded session-native Markdown drafts, requires explicit interactive approval before build handoff, and keeps headless proposals pending.
+- Plan mode stores bounded session-native Markdown drafts, separates repository investigation from preference questions, requires explicit interactive approval before build handoff, and keeps headless proposals pending.
+- Plan review displays the full Markdown and supports direct editing, refinement feedback, reopening a dismissed proposal, and OMP-equivalent `fresh`, `compact`, or `keep` context handoffs.
+- Planning may use `--piv-plan-model`; execution may use `--piv-build-model` or an interactively selected scoped model. The pre-plan model and thinking level remain the fallback.
+- Prose-only planning endings receive at most three hidden continuation reminders before yielding to the user.
 - Approved build mode requires `read_plan` before mutation and after build-mode re-entry or compaction.
 - Bash is available only when all three conditions are true:
   - mode is `build`;
@@ -39,7 +42,8 @@ The implementation provides guarded host execution rather than operating-system 
 - `packages/coding-agent/src/core/resource-loader.ts`
   - places `before-user` inline guards ahead of discovered user extensions while preserving normal inline ordering.
 - `packages/coding-agent/src/piv-safe-verify.ts`
-  - mode parsing and transitions;
+  - mode parsing, planning/execution model transitions, and fresh/compact/keep context handoffs;
+  - interactive planning questions, bounded convergence, full-plan review, direct refinement, and durable review reopening;
   - active tool selection and runtime denial;
   - canonical direct mutation path protection;
   - read-only Git baseline capture;
@@ -104,11 +108,20 @@ State is stored in a versioned custom session entry and is not sent to the langu
 - mode and root identity;
 - Git baseline;
 - bounded plan status, title, Markdown, content hash, and build reread state;
+- approval context policy, durable fresh-context boundary, bounded reminder count, and planning/execution model references;
 - mutation and checked generations;
 - structured verifier status and bounded evidence;
 - whether Bash was effectively enabled in the recorded process.
 
 It does not persist raw verifier argv, environment values, tokens, authentication headers, tool inputs, or the process environment. Only the verifier command hash is retained.
+
+### Plan handoff
+
+`Approve and execute` preserves the session journal but installs a durable execution-start boundary in the model context, giving the executor a fresh effective context without adding an artifact protocol or replacing Pi's session engine. Orphaned tool results before that boundary are removed.
+
+All approval paths request a normal stop after the proposal tool turn and begin the build handoff from `agent_settled`, avoiding a false abort error and ensuring compaction starts only while Pi is idle. `Approve and compact context` asks Pi's native compactor to preserve execution-relevant rationale and preferences, then dispatches execution after the compaction callback. A compaction error falls back to the existing context with a visible warning.
+
+`Approve and keep context` retains the planning conversation. All three paths store the approved Markdown outside model context, switch to the guarded build tool set, and enforce `read_plan` before direct mutation.
 
 A restored `running` verifier is converted to `cancelled` with an interruption reason so a prior process crash cannot leave permanently stale running evidence. A changed current-process verifier command resets evidence to `pending`.
 
@@ -145,6 +158,14 @@ The focused suite validates:
 - strict mode and verifier argument parsing;
 - default plan mode;
 - exact plan/build tool sets;
+- interactive `ask` questions and headless fail-closed behavior;
+- full Markdown review with execute, compact, keep, and refine decisions;
+- fresh-context isolation, compact and keep handoffs, and orphan tool-result filtering;
+- graceful post-tool-turn approval without a user-visible abort error;
+- direct draft editing, dismissed-review reopening, and bounded convergence reminders;
+- plan/build model transitions and pre-plan model fallback;
+- confirmation before manually bypassing an unapproved draft;
+- approved-plan reread before every build mutation generation;
 - independent runtime denial of unknown tools;
 - Bash mode, process flag, and trust gating;
 - bundled `user_bash` guard precedence over discovered user handlers while normal inline ordering remains unchanged;
@@ -162,8 +183,8 @@ Validation commands and expected outcomes:
 
 ```text
 cd packages/coding-agent
-pnpm exec vitest run test/piv-safe-verify.test.ts test/suite/regressions/6260-inline-extension-naming.test.ts
-# 2 files passed; 22 tests passed
+node ../../node_modules/vitest/dist/cli.js --run test/piv-safe-verify.test.ts test/suite/regressions/6260-inline-extension-naming.test.ts
+# 2 files passed; 41 tests passed
 
 cd ../..
 npm run check
@@ -175,6 +196,8 @@ git diff --check
 git status --short -- agent_references
 # no output
 ```
+
+The real interactive smoke used the local `cx/gpt-5.6-luna` route in an isolated temporary Git repository. The model read `README.md`, saved a draft, proposed it, displayed all four review choices, and continued through the default fresh-context approval. The proposal tool turn stopped normally with no abort error; `agent_settled` then started a separate build turn. Build mode required `read_plan` before the first mutation, wrote `result.txt`, and read it back. `/piv-status` reported `Plan status: approved`, `Plan read in build: true`, `Plan approval mode: fresh`, and `Mutation generation: 1`. Independent host inspection confirmed a two-byte file with hexadecimal content `6f 6b`. The temporary repository and tmux session were removed afterward.
 
 CLI smoke coverage includes:
 
@@ -215,7 +238,7 @@ This is guarded execution, not a sandbox. The following remain outside Part 01 g
 
 ## Remaining integration limitation
 
-The real model-driven sequence could not be demonstrated against the configured model endpoint because that endpoint was unavailable. The focused lifecycle test covers the same extension path from successful authorized tool call/result through `agent_settled`, real child verifier execution, terminal state persistence, and generation deduplication. A live model-driven smoke remains useful integration evidence once the model endpoint is operational, but it is not a code or type-check blocker.
+The dynamic model-catalog refresh timed out during the interactive smoke, so Pi Void used its last valid exact catalog. The configured local model route remained operational and completed the full model-driven plan-to-build sequence. This fallback condition does not weaken the plan-mode evidence, but endpoint catalog freshness remains dependent on the local provider responding within its configured timeout.
 
 ## Repository and GitHub state
 

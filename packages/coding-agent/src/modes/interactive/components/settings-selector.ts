@@ -13,6 +13,8 @@ import {
 	Spacer,
 	Text,
 } from "@earendil-works/pi-tui";
+import type { MidRunCompaction } from "../../../core/compaction/compaction.ts";
+import type { RegisteredSettings } from "../../../core/extensions/types.ts";
 import { formatHttpIdleTimeoutMs, HTTP_IDLE_TIMEOUT_CHOICES } from "../../../core/http-dispatcher.ts";
 import type { DefaultProjectTrust, UiMode, WarningSettings } from "../../../core/settings-manager.ts";
 import {
@@ -38,6 +40,7 @@ const THINKING_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 	high: "Deep reasoning (~16k tokens)",
 	xhigh: "Extra-high reasoning (~32k tokens)",
 	max: "Maximum reasoning",
+	ultra: "Ultra reasoning (model-specific)",
 };
 
 const DEFAULT_PROJECT_TRUST_LABELS: Record<DefaultProjectTrust, string> = {
@@ -52,6 +55,8 @@ const DEFAULT_PROJECT_TRUST_BY_LABEL = new Map(
 
 export interface SettingsConfig {
 	autoCompact: boolean;
+	compactionThresholdPercent: number;
+	midRunCompaction: MidRunCompaction;
 	showImages: boolean;
 	imageWidthCells: number;
 	autoResizeImages: boolean;
@@ -63,6 +68,8 @@ export interface SettingsConfig {
 	httpIdleTimeoutMs: number;
 	thinkingLevel: ThinkingLevel;
 	availableThinkingLevels: ThinkingLevel[];
+	fastMode: boolean;
+	fastModeAvailable: boolean;
 	currentTheme: string;
 	terminalTheme: TerminalTheme;
 	availableThemes: string[];
@@ -83,10 +90,13 @@ export interface SettingsConfig {
 	uiMode: UiMode;
 	fullscreenScrollbar: ScrollViewScrollbar;
 	warnings: WarningSettings;
+	extensionSettings?: RegisteredSettings[];
 }
 
 export interface SettingsCallbacks {
 	onAutoCompactChange: (enabled: boolean) => void;
+	onCompactionThresholdPercentChange: (thresholdPercent: number) => void;
+	onMidRunCompactionChange: (mode: MidRunCompaction) => void;
 	onShowImagesChange: (enabled: boolean) => void;
 	onImageWidthCellsChange: (width: number) => void;
 	onAutoResizeImagesChange: (enabled: boolean) => void;
@@ -97,6 +107,7 @@ export interface SettingsCallbacks {
 	onTransportChange: (transport: Transport) => void;
 	onHttpIdleTimeoutMsChange: (timeoutMs: number) => void;
 	onThinkingLevelChange: (level: ThinkingLevel) => void;
+	onFastModeChange: (enabled: boolean) => void;
 	onThemeChange: (theme: string) => void;
 	onThemePreview?: (theme: string) => void;
 	onHideThinkingBlockChange: (hidden: boolean) => void;
@@ -483,6 +494,14 @@ export class SettingsSelectorComponent extends Container {
 		const supportsImages = getCapabilities().images;
 		const followUpKey = keyDisplayText("app.message.followUp");
 		let currentWarnings = { ...config.warnings };
+		const extensionSettingCallbacks = new Map<string, (value: string) => void>();
+		const extensionItems = (config.extensionSettings ?? []).flatMap((settings) =>
+			settings.items.map((item) => {
+				const id = `${settings.name}:${item.id}`;
+				extensionSettingCallbacks.set(id, (value) => settings.onChange(item.id, value));
+				return { ...item, id };
+			}),
+		);
 
 		const items: SettingItem[] = [
 			{
@@ -492,6 +511,21 @@ export class SettingsSelectorComponent extends Container {
 				currentValue: config.autoCompact ? "true" : "false",
 				values: ["true", "false"],
 			},
+			{
+				id: "compaction-threshold",
+				label: "Compaction threshold",
+				description: "Compact when context usage exceeds this percentage of the model context window",
+				currentValue: `${config.compactionThresholdPercent}%`,
+				values: ["10%", "20%", "30%", "40%", "50%", "60%", "70%", "75%", "80%", "85%", "90%", "95%"],
+			},
+			{
+				id: "mid-run-compaction",
+				label: "Mid-run compaction",
+				description: "Compact after a tool turn before the next model request; resume or pause afterward",
+				currentValue: config.midRunCompaction,
+				values: ["off", "pause", "resume"],
+			},
+			...extensionItems,
 			{
 				id: "steering-mode",
 				label: "Steering mode",
@@ -615,6 +649,17 @@ export class SettingsSelectorComponent extends Container {
 						() => done(),
 					),
 			},
+			...(config.fastModeAvailable
+				? [
+						{
+							id: "fast-mode",
+							label: "Fast mode",
+							description: "Use the priority service tier for this model; may cost more",
+							currentValue: config.fastMode ? "true" : "false",
+							values: ["true", "false"],
+						},
+					]
+				: []),
 			{
 				id: "ui-mode",
 				label: "UI mode",
@@ -759,6 +804,12 @@ export class SettingsSelectorComponent extends Container {
 					case "autocompact":
 						callbacks.onAutoCompactChange(newValue === "true");
 						break;
+					case "compaction-threshold":
+						callbacks.onCompactionThresholdPercentChange(Number.parseInt(newValue, 10));
+						break;
+					case "mid-run-compaction":
+						callbacks.onMidRunCompactionChange(newValue as MidRunCompaction);
+						break;
 					case "show-images":
 						callbacks.onShowImagesChange(newValue === "true");
 						break;
@@ -782,6 +833,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "transport":
 						callbacks.onTransportChange(newValue as Transport);
+						break;
+					case "fast-mode":
+						callbacks.onFastModeChange(newValue === "true");
 						break;
 					case "http-idle-timeout": {
 						const choice = HTTP_IDLE_TIMEOUT_CHOICES.find((item) => item.label === newValue);
@@ -847,6 +901,8 @@ export class SettingsSelectorComponent extends Container {
 					case "theme":
 						callbacks.onThemeChange(newValue);
 						break;
+					default:
+						extensionSettingCallbacks.get(id)?.(newValue);
 				}
 			},
 			callbacks.onCancel,

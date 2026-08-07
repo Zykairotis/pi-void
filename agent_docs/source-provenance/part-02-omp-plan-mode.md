@@ -10,8 +10,14 @@ License: MIT, from source checkout `LICENSE`.
 
 - Read-only planning before mutation.
 - Structured Markdown plan draft/refinement followed by proposal.
+- Repository-grounded preference questions separated from discoverable facts.
 - Explicit approval during proposal before transition to build mode.
+- Review choices for fresh execution context, native compaction, or preserved context.
+- Reopenable pending review, direct draft editing, and refinement feedback.
+- Optional planning/execution model transitions using Pi's model registry.
+- Bounded continuation reminders when planning ends without a decision tool.
 - Approved-plan execution handoff and mandatory reread before mutation.
+- Graceful post-tool-turn stop before the approved execution handoff, avoiding a user-visible abort error.
 - Approved plan remains durable outside model context.
 - Exact approved plan reread before first approved-plan mutation.
 - Approved-plan reread requirement resets after Pi compaction.
@@ -21,8 +27,9 @@ License: MIT, from source checkout `LICENSE`.
 - `packages/coding-agent/src/piv-safe-verify.ts` owns mode permissions, plan state, approval, persistence, and mutation gating.
 - Pi custom session entries store bounded draft/approved plan state; no repository plan file or new artifact protocol is created.
 - Pi's existing extension tool, session, compaction, UI, and model-routing hooks remain authoritative.
+- Fresh execution is enforced by a durable execution-start context boundary; compact execution uses Pi's native compaction callback.
 - Headless modes never auto-approve a proposal.
-- Existing explicit `/build` behavior remains available without a proposal for compatibility with Guarded Build v0.
+- Existing explicit `/build` behavior remains available as a manual override; interactive use requires confirmation when a draft or proposal is unfinished.
 
 ## Rejected or deferred source behavior
 
@@ -30,6 +37,6 @@ License: MIT, from source checkout `LICENSE`.
 - OMP hashline and custom dispatch internals.
 - Integrated OMP interactive mode and custom compaction engine.
 - Subagent plan handoff.
-- OMP-specific plan overlays, thinking-level transitions, and writable scratch artifacts.
+- OMP overlay internals, section annotations/deletion, role-configuration machinery, and writable scratch artifacts. Pi Void uses the native scrolling selector/editor and exact model flags/scoped model selection instead.
 
 No Oh My Pi source code was copied. Behavior and test cases were independently adapted to Pi Void extension seams and Pi Void safety policy.

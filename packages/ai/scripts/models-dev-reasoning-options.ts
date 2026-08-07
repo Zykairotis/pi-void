@@ -4,11 +4,11 @@ export type ModelsDevReasoningOption =
 	| { type: "toggle" }
 	| {
 			type: "effort";
-			values: Array<"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "default" | null>;
+			values: Array<"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | "default" | null>;
 	  }
 	| { type: "budget_tokens"; min?: number; max?: number };
 
-const THINKING_LEVELS: readonly ThinkingLevel[] = ["minimal", "low", "medium", "high", "xhigh", "max"];
+const THINKING_LEVELS: readonly ThinkingLevel[] = ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 
 /**
  * Converts models.dev verified effort values into Pi's selectable thinking levels.
@@ -24,6 +24,7 @@ export function getEffortThinkingLevelMap(options: readonly ModelsDevReasoningOp
 
 	const map: ThinkingLevelMap = { off: supported.has("none") ? "none" : null };
 	for (const level of THINKING_LEVELS) {
+		if (level === "ultra" && !supported.has(level)) continue;
 		map[level] = supported.has(level) ? level : null;
 	}
 	return map;

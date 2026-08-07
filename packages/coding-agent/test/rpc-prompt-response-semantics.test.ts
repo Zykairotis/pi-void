@@ -250,6 +250,68 @@ describe("RPC prompt response semantics", () => {
 		}
 	});
 
+	it("applies settings through RPC and exposes the live queue mode in get_state", async () => {
+		const { lineHandler, cleanup } = await startRpcMode({ withAuth: false, responseDelayMs: 0 });
+
+		try {
+			lineHandler(
+				JSON.stringify({
+					id: "settings-set",
+					type: "set_setting",
+					data: { key: "steeringMode", scope: "global", value: "all" },
+				}),
+			);
+			await vi.waitFor(() => {
+				const response = parseOutputLines(rpcIo.outputLines).find(
+					(record) => record.id === "settings-set" && record.type === "response",
+				);
+				expect(response).toMatchObject({
+					id: "settings-set",
+					command: "set_setting",
+					success: true,
+					data: { protocolVersion: 1 },
+				});
+			});
+
+			lineHandler(JSON.stringify({ id: "state-after-settings", type: "get_state" }));
+			await vi.waitFor(() => {
+				const response = parseOutputLines(rpcIo.outputLines).find(
+					(record) => record.id === "state-after-settings" && record.type === "response",
+				);
+				expect(response).toMatchObject({
+					id: "state-after-settings",
+					command: "get_state",
+					success: true,
+					data: { steeringMode: "all" },
+				});
+			});
+
+			lineHandler(
+				JSON.stringify({
+					id: "settings-invalid",
+					type: "set_setting",
+					key: "transport",
+					scope: "global",
+					value: "invalid",
+				}),
+			);
+			await vi.waitFor(() => {
+				const response = parseOutputLines(rpcIo.outputLines).find(
+					(record) => record.id === "settings-invalid" && record.type === "response",
+				);
+				expect(response).toMatchObject({
+					id: "settings-invalid",
+					command: "set_setting",
+					success: false,
+					errorCode: "invalid_option",
+					errorDetails: { key: "transport", scope: "global" },
+				});
+			});
+		} finally {
+			await cleanup();
+		}
+	});
+
 	it("emits one success response when prompt is queued during streaming", async () => {
 		const { lineHandler, cleanup } = await startRpcMode({ withAuth: true, responseDelayMs: 100 });
 

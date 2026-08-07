@@ -42,6 +42,7 @@ import type {
 	KeyId,
 	OverlayHandle,
 	OverlayOptions,
+	SettingItem,
 	TUI,
 } from "@earendil-works/pi-tui";
 import type { Static, TSchema } from "typebox";
@@ -98,6 +99,8 @@ export interface ExtensionUIDialogOptions {
 	signal?: AbortSignal;
 	/** Timeout in milliseconds. Dialog auto-dismisses with live countdown display. */
 	timeout?: number;
+	/** Optional Markdown content to review before choosing an option. */
+	content?: string;
 }
 
 /** Placement for extension widgets. */
@@ -334,6 +337,8 @@ export interface ExtensionContext {
 	signal: AbortSignal | undefined;
 	/** Abort the current agent operation */
 	abort(): void;
+	/** Finish the current tool turn normally, then stop before another model request. */
+	stopAfterTurn(): void;
 	/** Whether there are queued messages waiting */
 	hasPendingMessages(): boolean;
 	/** Gracefully shutdown pi and exit. Available in all contexts. */
@@ -1179,6 +1184,13 @@ export interface ResolvedCommand extends RegisteredCommand {
 	invocationName: string;
 }
 
+export interface RegisteredSettings {
+	name: string;
+	sourceInfo: SourceInfo;
+	items: SettingItem[];
+	onChange: (id: string, value: string) => void;
+}
+
 // ============================================================================
 // Extension API
 // ============================================================================
@@ -1253,6 +1265,9 @@ export interface ExtensionAPI {
 
 	/** Register a custom command. */
 	registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">): void;
+
+	/** Register settings rendered by the interactive `/settings` selector. */
+	registerSettings(name: string, options: Omit<RegisteredSettings, "name" | "sourceInfo">): void;
 
 	/** Register a keyboard shortcut. */
 	registerShortcut(
@@ -1647,6 +1662,7 @@ export interface ExtensionContextActions {
 	isProjectTrusted: () => boolean;
 	getSignal: () => AbortSignal | undefined;
 	abort: () => void;
+	stopAfterTurn?: () => void;
 	hasPendingMessages: () => boolean;
 	shutdown: () => void;
 	getContextUsage: () => ContextUsage | undefined;
@@ -1700,6 +1716,7 @@ export interface Extension {
 	markdownTransformer?: MarkdownTransformer;
 	entryRenderers?: Map<string, EntryRenderer>;
 	commands: Map<string, RegisteredCommand>;
+	settings?: Map<string, RegisteredSettings>;
 	flags: Map<string, ExtensionFlag>;
 	shortcuts: Map<KeyId, ExtensionShortcut>;
 }

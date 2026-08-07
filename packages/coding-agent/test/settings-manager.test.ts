@@ -25,6 +25,38 @@ describe("SettingsManager", () => {
 		}
 	});
 
+	it("defaults fast mode off and persists changes", async () => {
+		const manager = SettingsManager.create(projectDir, agentDir);
+		expect(manager.getFastMode()).toBe(false);
+
+		manager.setFastMode(true);
+		await manager.flush();
+		expect(manager.getFastMode()).toBe(true);
+		expect(JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8")).fastMode).toBe(true);
+	});
+
+	it("defaults compaction threshold to 85 percent and persists changes", async () => {
+		const manager = SettingsManager.create(projectDir, agentDir);
+		expect(manager.getCompactionThresholdPercent()).toBe(85);
+
+		manager.setCompactionThresholdPercent(70);
+		await manager.flush();
+
+		expect(manager.getCompactionThresholdPercent()).toBe(70);
+		expect(JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8")).compaction.thresholdPercent).toBe(70);
+
+		const reloaded = SettingsManager.create(projectDir, agentDir);
+		expect(reloaded.getCompactionThresholdPercent()).toBe(70);
+	});
+
+	it("uses the default compaction threshold for invalid persisted values", () => {
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ compaction: { thresholdPercent: 0 } }));
+
+		const manager = SettingsManager.create(projectDir, agentDir);
+
+		expect(manager.getCompactionThresholdPercent()).toBe(85);
+	});
+
 	describe("preserves externally added settings", () => {
 		it("should preserve enabledModels when changing thinking level", async () => {
 			// Create initial settings file

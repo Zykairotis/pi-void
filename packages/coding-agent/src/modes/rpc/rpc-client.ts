@@ -13,6 +13,7 @@ import type { CompactionResult } from "../../core/compaction/index.ts";
 import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
 import type { JsonAgentSessionEvent } from "../json-event.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
+import type { RpcSettingsSnapshot, RpcSettingUpdate } from "./rpc-settings.ts";
 import type { RpcCommand, RpcResponse, RpcSessionState, RpcSlashCommand } from "./rpc-types.ts";
 
 // ============================================================================
@@ -238,6 +239,30 @@ export class RpcClient {
 		return this.getData(response);
 	}
 
+	/** Get the versioned settings snapshot exposed by the RPC bridge. */
+	async getSettings(): Promise<RpcSettingsSnapshot> {
+		const response = await this.send({ type: "get_settings" });
+		return this.getData(response);
+	}
+
+	async setSetting(update: RpcSettingUpdate): Promise<RpcSettingsSnapshot>;
+	async setSetting(key: string, scope: RpcSettingUpdate["scope"], value: unknown): Promise<RpcSettingsSnapshot>;
+	async setSetting(
+		updateOrKey: RpcSettingUpdate | string,
+		scope?: RpcSettingUpdate["scope"],
+		value?: unknown,
+	): Promise<RpcSettingsSnapshot> {
+		let update: RpcSettingUpdate;
+		if (typeof updateOrKey === "string") {
+			if (scope === undefined) throw new Error("Setting scope is required");
+			update = { key: updateOrKey, scope, value };
+		} else {
+			update = updateOrKey;
+		}
+		const response = await this.send({ type: "set_setting", ...update });
+		return this.getData(response);
+	}
+
 	/**
 	 * Set model by provider and ID.
 	 */
@@ -271,6 +296,10 @@ export class RpcClient {
 	 */
 	async setThinkingLevel(level: ThinkingLevel): Promise<void> {
 		await this.send({ type: "set_thinking_level", level });
+	}
+
+	async setFastMode(enabled: boolean): Promise<void> {
+		await this.send({ type: "set_fast_mode", enabled });
 	}
 
 	/**

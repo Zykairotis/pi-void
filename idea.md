@@ -20,9 +20,14 @@ Implemented today:
 - Endpoint model metadata drives model selection and limits.
 - Last valid model catalog remains usable if endpoint is unavailable.
 - API credentials remain in user configuration and never enter Git.
-- Auto-compaction reserves space using selected model's advertised maximum output, capped at half its context window.
+- Auto-compaction triggers at a configurable percentage of the selected model's context window, defaulting to 85%; compaction summary budgeting remains configured separately.
+- An optional deterministic Blackhole compaction extension can own mid-run triggering with resume/pause behavior and percentage or absolute token thresholds; observational memory remains opt-in and is not part of the default profile.
+- `piv` loads the hidden `piv-cognee` extension by default. It uses the `pi-void` dataset, bounded transient recall, redacted session capture, compaction-linked remember, and optional idle/shutdown improve with `/cognee` runtime toggles; the local API may be unavailable without breaking the Pi loop.
+- Cognee is a bounded derived-memory adapter, not a second session history store: recall is untrusted transient context, captured prompts, answers, and tool traces are redacted before remote storage, and compaction summaries are queued for permanent remember. Improve is an explicit extension capability, not part of Pi's core loop; unsupported server routes fail visibly without blocking Pi.
+- `/cognee watch` provides a loopback-only realtime observer over capped, redacted local events. It shows agent/session identity and Cognee lifecycle without adding a second memory or session store; prompt recall also reports immediate animated activity before Pi's model request.
 - The interactive theme picker includes all 98 themes from OhMyPi's pinned catalog alongside Pi's native dark and light themes.
-- `piv` bundles Guarded Build v0: exact plan/build tool modes, OMP-style draft/refine/propose workflow, session-native bounded Markdown plan state, explicit interactive approval, approved-plan execution handoff and reread gating before mutation, Bash default-off, canonical direct edit/write checks, durable session state, and one project-trusted settled verifier.
+- `piv` bundles Guarded Build v0 with OMP-equivalent plan behavior through Pi-native seams: exact plan/build tool modes; repository-grounded planning questions; incremental draft/refine/propose state; scrollable Markdown review; fresh, compact, or preserved-context approval; optional planning/execution model routing; bounded convergence reminders; reopenable durable approval; mandatory approved-plan reread gating; Bash default-off; canonical direct edit/write checks; and one project-trusted settled verifier.
+- Plan state remains bounded and session-native rather than introducing OMP's `local://` or `xd://` artifact protocols. Fresh execution uses a durable context boundary, compact execution uses Pi's native compaction, and headless proposals remain pending until an approval-capable client acts.
 - Guarded Build v0 is guarded execution, not a sandbox: opted-in Bash, custom external effects, and filesystem TOCTOU remain outside its direct-tool boundary.
 
 Current endpoint:
@@ -132,6 +137,7 @@ Build outside upstream-owned source paths where stable seams permit:
 - workspace adapters and sandbox launchers
 - durable task state, budgets, recovery, and background-job tracking
 - optional worktree-isolated delegation
+- bounded derived-memory adapters such as `piv-cognee`
 - headless task orchestration and evidence reports
 
 ### Optional external mechanisms
@@ -183,13 +189,7 @@ Per-role routing may select different models for primary work, planning, compact
 
 ### 4. Context safety
 
-Compaction should happen before a model loses space required for its answer. Default reserve derives from model metadata:
-
-```text
-reserve = min(maxOutput, floor(contextWindow / 2))
-```
-
-Explicit user configuration overrides derived reserve. Summary generation keeps its own smaller budget; advertised maximum output must not automatically become summary size.
+Compaction should happen before a model loses space required for its answer. The automatic trigger defaults to 85% of the selected model's context window and is user-configurable. `reserveTokens` controls the compaction summary response budget; advertised maximum output must not automatically become summary size.
 
 Structured compaction must preserve goal, constraints, decisions, changed files, verifier failures, unresolved risks, and next steps. Compaction changes active context, not durable session history.
 
@@ -387,7 +387,10 @@ Primary implementation files:
 packages/coding-agent/src/piv.ts
 packages/coding-agent/src/piv-provider.ts
 packages/coding-agent/src/piv-safe-verify.ts
+packages/coding-agent/src/piv-cognee.ts
+packages/coding-agent/src/piv-cognee-client.ts
 packages/coding-agent/test/piv-provider.test.ts
+packages/coding-agent/test/piv-cognee.test.ts
 packages/coding-agent/test/piv-safe-verify.test.ts
 packages/coding-agent/src/modes/interactive/theme/*.json
 packages/coding-agent/docs/theme-sources.md
@@ -399,6 +402,7 @@ Small shared changes currently support:
 - model-aware compaction reserve
 - detection of explicit user compaction reserve
 - discovery and packaging of curated built-in themes
+- extension-requested graceful stop after the current tool turn
 
 Keep this list current when fork-specific files change.
 
@@ -424,7 +428,7 @@ Keep this list current when fork-specific files change.
 - Automatic push, merge, release, or production deployment
 - Cloud-only state or telemetry
 - Vector storage before retrieval benchmarks justify it
-- Silent permanent memory generated from model summaries
+- Unbounded or unredacted permanent memory generated from arbitrary model output; the shipped adapter only queues bounded, redacted saved-compaction summaries when enabled
 - Self-modifying tools, policies, prompts, or harness code without review and held-out regression gates
 - Dozens of always-visible tools
 - Heavy task databases while append-only session and filesystem journals suffice

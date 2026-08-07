@@ -48,6 +48,8 @@ export interface CreateAgentSessionOptions {
 	model?: Model<any>;
 	/** Thinking level. Default: from settings, else 'medium' (clamped to model capabilities) */
 	thinkingLevel?: ThinkingLevel;
+	/** Enable priority service tier for models that advertise it. */
+	fastMode?: boolean;
 	/** Models available for cycling (Ctrl+P in interactive mode) */
 	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 
@@ -176,6 +178,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const modelRuntime = options.modelRuntime ?? (await ModelRuntime.create({ authPath, modelsPath }));
 
 	const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
+	const fastModeOverride = options.fastMode;
 	const sessionManager = options.sessionManager ?? SessionManager.create(cwd, getDefaultSessionDir(cwd, agentDir));
 
 	if (!resourceLoader) {
@@ -311,6 +314,18 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			const headerRunner = extensionRunnerRef.current;
 			return modelRuntime.streamSimple(model, context, {
 				...options,
+				serviceTier:
+					options?.serviceTier === "priority" &&
+					!(
+						(model.api === "openai-responses" || model.api === "openai-codex-responses") &&
+						model.serviceTiers?.includes("priority")
+					)
+						? undefined
+						: ((fastModeOverride ?? settingsManager.getFastMode()) || options?.serviceTier === "priority") &&
+								(model.api === "openai-responses" || model.api === "openai-codex-responses") &&
+								model.serviceTiers?.includes("priority")
+							? "priority"
+							: options?.serviceTier,
 				timeoutMs,
 				websocketConnectTimeoutMs,
 				maxRetries: options?.maxRetries ?? providerRetrySettings.maxRetries,

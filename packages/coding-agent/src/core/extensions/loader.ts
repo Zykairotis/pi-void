@@ -43,6 +43,7 @@ import type {
 	MessageRenderer,
 	ProviderConfig,
 	RegisteredCommand,
+	RegisteredSettings,
 	ToolDefinition,
 } from "./types.ts";
 
@@ -264,6 +265,20 @@ function createExtensionAPI(
 			});
 		},
 
+		registerSettings(name: string, options: Omit<RegisteredSettings, "name" | "sourceInfo">): void {
+			runtime.assertActive();
+			let settings = extension.settings;
+			if (!settings) {
+				settings = new Map();
+				extension.settings = settings;
+			}
+			settings.set(name, {
+				name,
+				sourceInfo: extension.sourceInfo,
+				...options,
+			});
+		},
+
 		registerShortcut(
 			shortcut: KeyId,
 			options: {
@@ -458,6 +473,7 @@ function createExtension(extensionPath: string, resolvedPath: string): Extension
 		messageRenderers: new Map(),
 		entryRenderers: new Map(),
 		commands: new Map(),
+		settings: new Map(),
 		flags: new Map(),
 		shortcuts: new Map(),
 	};

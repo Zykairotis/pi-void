@@ -123,16 +123,24 @@ function combineUsage(first: Usage, second: Usage): Usage {
 // Types
 // ============================================================================
 
+export type MidRunCompaction = "off" | "pause" | "resume";
+
 export interface CompactionSettings {
 	enabled: boolean;
+	thresholdPercent?: number;
 	reserveTokens: number;
 	keepRecentTokens: number;
+	midRunCompaction?: MidRunCompaction;
 }
+
+export const DEFAULT_COMPACTION_THRESHOLD_PERCENT = 85;
 
 export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
 	enabled: true,
+	thresholdPercent: DEFAULT_COMPACTION_THRESHOLD_PERCENT,
 	reserveTokens: 16384,
 	keepRecentTokens: 20000,
+	midRunCompaction: "off",
 };
 
 // ============================================================================
@@ -233,8 +241,17 @@ export function estimateContextTokens(messages: AgentMessage[]): ContextUsageEst
  * Check if compaction should trigger based on context usage.
  */
 export function shouldCompact(contextTokens: number, contextWindow: number, settings: CompactionSettings): boolean {
-	if (!settings.enabled) return false;
-	return contextTokens > contextWindow - settings.reserveTokens;
+	if (!settings.enabled || contextWindow <= 0) return false;
+	return contextTokens > resolveThresholdTokens(contextWindow, settings);
+}
+
+export function resolveThresholdTokens(contextWindow: number, settings: CompactionSettings): number {
+	const thresholdPercent = settings.thresholdPercent;
+	const normalizedThresholdPercent =
+		typeof thresholdPercent === "number" && Number.isFinite(thresholdPercent) && thresholdPercent > 0
+			? Math.min(99, Math.max(1, thresholdPercent))
+			: DEFAULT_COMPACTION_THRESHOLD_PERCENT;
+	return Math.floor(contextWindow * (normalizedThresholdPercent / 100));
 }
 
 export function modelAwareReserveTokens(contextWindow: number, maxTokens: number): number {

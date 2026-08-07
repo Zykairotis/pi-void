@@ -16,6 +16,7 @@ function createContext(tokens: number | null, compact = vi.fn()): ExtensionConte
 		isProjectTrusted: () => true,
 		signal: undefined,
 		abort: vi.fn(),
+		stopAfterTurn: vi.fn(),
 		hasPendingMessages: () => false,
 		shutdown: vi.fn(),
 		getContextUsage: () => ({ tokens, contextWindow: 200_000, percent: tokens === null ? null : tokens / 2000 }),

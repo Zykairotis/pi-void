@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { streamSimple as streamSimpleOpenAICodexResponses } from "../src/api/openai-codex-responses.ts";
+import { streamSimple as streamSimpleOpenAICompletions } from "../src/api/openai-completions.ts";
 import { clampThinkingLevel, getModel, getSupportedThinkingLevels } from "../src/compat.ts";
 import type { Context, Model } from "../src/types.ts";
 
@@ -28,6 +29,59 @@ describe("max thinking level", () => {
 
 		expect(getSupportedThinkingLevels(model)).toEqual(["off", "minimal", "low", "medium", "high"]);
 		expect(clampThinkingLevel(model, "max")).toBe("high");
+		expect(clampThinkingLevel(model, "ultra")).toBe("high");
+	});
+
+	it("exposes and preserves a model-specific ultra value", () => {
+		const model: Model<"openai-completions"> = {
+			id: "ultra-reasoning",
+			name: "Ultra Reasoning",
+			api: "openai-completions",
+			provider: "test",
+			baseUrl: "https://example.com/v1",
+			reasoning: true,
+			thinkingLevelMap: { ultra: "native-ultra" },
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 128000,
+			maxTokens: 4096,
+		};
+
+		expect(getSupportedThinkingLevels(model)).toContain("ultra");
+		expect(clampThinkingLevel(model, "ultra")).toBe("ultra");
+	});
+
+	it("sends a mapped ultra value through OpenAI-compatible requests", async () => {
+		const model: Model<"openai-completions"> = {
+			id: "ultra-reasoning",
+			name: "Ultra Reasoning",
+			api: "openai-completions",
+			provider: "test",
+			baseUrl: "https://example.com/v1",
+			reasoning: true,
+			thinkingLevelMap: { ultra: "native-ultra" },
+			compat: { supportsReasoningEffort: true, thinkingFormat: "openai" },
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 128000,
+			maxTokens: 4096,
+		};
+		const context: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "Hello", timestamp: Date.now() }],
+		};
+		let payload: unknown;
+
+		await streamSimpleOpenAICompletions(model, context, {
+			apiKey: "test-key",
+			reasoning: "ultra",
+			onPayload: (request) => {
+				payload = request;
+				throw new Error("payload captured");
+			},
+		}).result();
+
+		expect(payload).toMatchObject({ reasoning_effort: "native-ultra" });
 	});
 
 	it.each(["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"] as const)(
@@ -85,5 +139,26 @@ describe("max thinking level", () => {
 		}).result();
 
 		expect(payload).toMatchObject({ reasoning: { effort: "max", summary: "auto" } });
+	});
+
+	it("sends native max for DeepSeek V4", async () => {
+		const model = getModel("deepseek", "deepseek-v4-pro");
+		expect(model).toBeDefined();
+		const context: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "Hello", timestamp: Date.now() }],
+		};
+		let payload: unknown;
+
+		await streamSimpleOpenAICompletions(model!, context, {
+			apiKey: "test-key",
+			reasoning: "max",
+			onPayload: (request) => {
+				payload = request;
+				throw new Error("payload captured");
+			},
+		}).result();
+
+		expect(payload).toMatchObject({ thinking: { type: "enabled" }, reasoning_effort: "max" });
 	});
 });

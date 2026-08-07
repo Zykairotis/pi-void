@@ -29,6 +29,7 @@ export function buildBaseOptions(
 			? { ...model.samplingParams, ...options?.samplingParams }
 			: undefined;
 	return {
+		serviceTier: options?.serviceTier,
 		temperature: options?.temperature,
 		samplingParams,
 		maxTokens: clampMaxTokensToContext(model, context, options?.maxTokens ?? model.maxTokens),
@@ -50,8 +51,10 @@ export function buildBaseOptions(
 	};
 }
 
-export function clampReasoning(effort: ThinkingLevel | undefined): Exclude<ThinkingLevel, "xhigh" | "max"> | undefined {
-	return effort === "xhigh" || effort === "max" ? "high" : effort;
+export function clampReasoning(
+	effort: ThinkingLevel | undefined,
+): Exclude<ThinkingLevel, "xhigh" | "max" | "ultra"> | undefined {
+	return effort === "xhigh" || effort === "max" || effort === "ultra" ? "high" : effort;
 }
 
 export function adjustMaxTokensForThinking(

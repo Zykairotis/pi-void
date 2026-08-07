@@ -29,6 +29,12 @@ import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { type Theme, theme } from "../interactive/theme/theme.ts";
 import { toJsonEvent } from "../json-event.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
+import {
+	applyRpcSetting,
+	createRpcSettingsSnapshot,
+	type RpcSettingsContext,
+	RpcSettingsError,
+} from "./rpc-settings.ts";
 import type {
 	RpcCommand,
 	RpcExtensionUIRequest,
@@ -38,6 +44,17 @@ import type {
 	RpcSlashCommand,
 } from "./rpc-types.ts";
 
+export type {
+	RpcSettingsConstraints,
+	RpcSettingsDiagnostic,
+	RpcSettingsErrorCode,
+	RpcSettingsField,
+	RpcSettingsFieldKind,
+	RpcSettingsFieldScope,
+	RpcSettingsSnapshot,
+	RpcSettingsValue,
+	RpcSettingUpdate,
+} from "./rpc-settings.ts";
 // Re-export types for consumers
 export type {
 	RpcCommand,
@@ -72,8 +89,13 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		return { id, type: "response", command, success: true, data } as RpcResponse;
 	};
 
-	const error = (id: string | undefined, command: string, message: string): RpcResponse => {
-		return { id, type: "response", command, success: false, error: message };
+	const error = (
+		id: string | undefined,
+		command: string,
+		message: string,
+		details?: { errorCode?: string; errorDetails?: { key?: string; scope?: string } },
+	): RpcResponse => {
+		return { id, type: "response", command, success: false, error: message, ...details };
 	};
 
 	// Pending extension UI requests waiting for response
@@ -135,8 +157,17 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 	 */
 	const createExtensionUIContext = (): ExtensionUIContext => ({
 		select: (title, options, opts) =>
-			createDialogPromise(opts, undefined, { method: "select", title, options, timeout: opts?.timeout }, (r) =>
-				"cancelled" in r && r.cancelled ? undefined : "value" in r ? r.value : undefined,
+			createDialogPromise(
+				opts,
+				undefined,
+				{
+					method: "select",
+					title,
+					options,
+					...(opts?.timeout === undefined ? {} : { timeout: opts.timeout }),
+					...(opts?.content === undefined ? {} : { content: opts.content }),
+				},
+				(r) => ("cancelled" in r && r.cancelled ? undefined : "value" in r ? r.value : undefined),
 			),
 
 		confirm: (title, message, opts) =>
@@ -382,6 +413,13 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 	await rebindSession();
 	registerSignalHandlers();
 
+	const getSettingsContext = (): RpcSettingsContext => ({
+		cwd: session.sessionManager.getCwd(),
+		settingsManager: session.settingsManager,
+		getExtensionSettings: () => session.extensionRunner.getRegisteredSettings(),
+		applyLive: () => session.syncSettingsFromManager(),
+	});
+
 	// Handle a single command
 	const handleCommand = async (command: RpcCommand): Promise<RpcResponse | undefined> => {
 		const id = command.id;
@@ -447,6 +485,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				const state: RpcSessionState = {
 					model: session.model,
 					thinkingLevel: session.thinkingLevel,
+					fastMode: session.getFastMode(),
+					fastModeAvailable: session.supportsFastMode(),
 					isStreaming: session.isStreaming,
 					isCompacting: session.isCompacting,
 					steeringMode: session.steeringMode,
@@ -459,6 +499,20 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 					pendingMessageCount: session.pendingMessageCount,
 				};
 				return success(id, "get_state", state);
+			}
+
+			// =================================================================
+			// Settings
+			// =================================================================
+
+			case "get_settings": {
+				return success(id, "get_settings", createRpcSettingsSnapshot(getSettingsContext()));
+			}
+
+			case "set_setting": {
+				const update = "data" in command ? command.data : command;
+				const snapshot = await applyRpcSetting(getSettingsContext(), update);
+				return success(id, "set_setting", snapshot);
 			}
 
 			// =================================================================
@@ -495,6 +549,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			case "set_thinking_level": {
 				session.setThinkingLevel(command.level);
 				return success(id, "set_thinking_level");
+			}
+
+			case "set_fast_mode": {
+				session.setFastMode(command.enabled);
+				return success(id, "set_fast_mode");
 			}
 
 			case "cycle_thinking_level": {
@@ -786,11 +845,18 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			}
 			await checkShutdownRequested();
 		} catch (commandError: unknown) {
+			const settingsError = commandError instanceof RpcSettingsError ? commandError : undefined;
 			output(
 				error(
 					command.id,
 					command.type,
 					commandError instanceof Error ? commandError.message : String(commandError),
+					settingsError
+						? {
+								errorCode: settingsError.code,
+								errorDetails: { key: settingsError.key, scope: settingsError.scope },
+							}
+						: undefined,
 				),
 			);
 			await waitForRawStdoutBackpressure();

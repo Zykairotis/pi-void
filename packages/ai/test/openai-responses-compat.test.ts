@@ -153,6 +153,36 @@ describe("openai-responses provider defaults", () => {
 		});
 	});
 
+	it("keeps priority service tier independent from reasoning effort", async () => {
+		let capturedPayload: unknown;
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("data: [DONE]\n\n", {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			}),
+		);
+
+		const model = getModel("openai", "gpt-5.6-luna");
+		const stream = streamOpenAIResponses(
+			model,
+			{
+				systemPrompt: "sys",
+				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+			},
+			{
+				apiKey: "test-key",
+				serviceTier: "priority",
+				reasoningEffort: "max",
+				onPayload: (payload) => {
+					capturedPayload = payload;
+				},
+			},
+		);
+
+		await stream.result();
+		expect(capturedPayload).toMatchObject({ service_tier: "priority", reasoning: { effort: "max" } });
+	});
+
 	it.each([
 		"gpt-5.1",
 		"gpt-5.2",

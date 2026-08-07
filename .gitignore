@@ -42,6 +42,12 @@ out.html
 packages/coding-agent/binaries/
 todo.md
 plans/
+
+# Local dotfiles/directories and generated summaries; keep GitHub configuration tracked.
+.*
+!.github/
+!.github/**
+summary.md
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
 collect.sh

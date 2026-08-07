@@ -117,6 +117,7 @@ export type {
 	ReadToolResultEvent,
 	// Commands
 	RegisteredCommand,
+	RegisteredSettings,
 	RegisteredTool,
 	ReplacedSessionContext,
 	ResolvedCommand,

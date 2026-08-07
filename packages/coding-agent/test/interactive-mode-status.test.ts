@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import * as path from "node:path";
 import { type AutocompleteProvider, CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
+import { renderLayoutFrame } from "../../tui/src/layout.ts";
 import { type Component, Container, type Focusable, type TUI } from "../../tui/src/tui.ts";
 import { TuiMainScreen } from "../../tui/src/tui-main-screen.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
@@ -204,6 +205,49 @@ describe("InteractiveMode.createExtensionUIContext setTheme", () => {
 	});
 });
 
+describe("InteractiveMode.showExtensionSelector", () => {
+	test("forwards Markdown review content into the mounted selector", async () => {
+		initTheme("dark");
+		const editor = new TestFocusableComponent("EDITOR");
+		const editorContainer = new Container();
+		const hideExtensionSelector = vi.fn();
+		const fakeThis = {
+			editor,
+			editorContainer,
+			extensionSelector: undefined as (Component & { handleInput(data: string): void }) | undefined,
+			ui: { setFocus: vi.fn(), requestRender: vi.fn() },
+			disposeActiveSelector: vi.fn(),
+			toggleToolOutputExpansion: vi.fn(),
+			hideExtensionSelector,
+		};
+		const showExtensionSelector = Reflect.get(InteractiveMode.prototype, "showExtensionSelector");
+		if (typeof showExtensionSelector !== "function") throw new Error("showExtensionSelector method not found");
+
+		const selection = Reflect.apply(showExtensionSelector, fakeThis, [
+			"Plan mode - next step",
+			["Approve and execute", "Approve and compact context", "Approve and keep context", "Refine plan"],
+			{
+				content:
+					"# Visible plan\n\n## Context\nRepository context.\n\n## Approach\n1. Read the repository\n2. Implement the change\n3. Verify it\n\n## Assumptions\nNone.",
+			},
+		]) as Promise<string | undefined>;
+
+		expect(renderAll(editorContainer)).toContain("Visible plan");
+		expect(renderAll(editorContainer)).toContain("Implement the change");
+		const extensionSelector = fakeThis.extensionSelector;
+		if (!extensionSelector) throw new Error("extension selector was not mounted");
+		const constrained = renderLayoutFrame(extensionSelector, 100, 18, () => {}).lines.join("\n");
+		expect(constrained).toContain("Visible plan");
+		expect(constrained).toContain("Approve and execute");
+		expect(constrained).toContain("Approve and compact context");
+		expect(constrained).toContain("Approve and keep context");
+		expect(constrained).toContain("Refine plan");
+		extensionSelector.handleInput("\u001b");
+		await expect(selection).resolves.toBeUndefined();
+		expect(hideExtensionSelector).toHaveBeenCalledOnce();
+	});
+});
+
 describe("InteractiveMode.showExtensionCustom", () => {
 	beforeAll(() => {
 		initTheme("dark");
@@ -386,6 +430,7 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 				promptTemplates: [];
 				extensionRunner: { getRegisteredCommands: () => [] };
 				resourceLoader: { getSkills: () => { skills: [] } };
+				supportsFastMode: () => boolean;
 			};
 			settingsManager: { getEnableSkillCommands: () => boolean };
 			skillCommands: Map<string, string>;
@@ -409,6 +454,7 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 				promptTemplates: [],
 				extensionRunner: { getRegisteredCommands: () => [] },
 				resourceLoader: { getSkills: () => ({ skills: [] }) },
+				supportsFastMode: () => true,
 			},
 			settingsManager: { getEnableSkillCommands: () => false },
 			skillCommands: new Map(),
@@ -428,6 +474,55 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 		]);
 	});
 
+	test("hides fast mode autocomplete for unsupported models", async () => {
+		type TestModel = { id: string; provider: string; name: string };
+		type FakeInteractiveMode = {
+			session: {
+				scopedModels: Array<{ model: TestModel }>;
+				modelRuntime: { getAvailableSnapshot: () => TestModel[] };
+				promptTemplates: [];
+				extensionRunner: { getRegisteredCommands: () => [] };
+				resourceLoader: { getSkills: () => { skills: [] } };
+				supportsFastMode: () => boolean;
+			};
+			settingsManager: { getEnableSkillCommands: () => boolean };
+			skillCommands: Map<string, string>;
+			sessionManager: { getCwd: () => string };
+			fdPath: null;
+		};
+
+		const createBaseAutocompleteProvider = (
+			InteractiveMode as unknown as {
+				prototype: { createBaseAutocompleteProvider(this: FakeInteractiveMode): AutocompleteProvider };
+			}
+		).prototype.createBaseAutocompleteProvider;
+		const fakeThis: FakeInteractiveMode = {
+			session: {
+				scopedModels: [],
+				modelRuntime: { getAvailableSnapshot: () => [] },
+				promptTemplates: [],
+				extensionRunner: { getRegisteredCommands: () => [] },
+				resourceLoader: { getSkills: () => ({ skills: [] }) },
+				supportsFastMode: () => false,
+			},
+			settingsManager: { getEnableSkillCommands: () => false },
+			skillCommands: new Map(),
+			sessionManager: { getCwd: () => "/tmp" },
+			fdPath: null,
+		};
+
+		const unsupported = await createBaseAutocompleteProvider.call(fakeThis).getSuggestions(["/fast"], 0, 5, {
+			signal: new AbortController().signal,
+		});
+		expect(unsupported).toBeNull();
+
+		fakeThis.session.supportsFastMode = () => true;
+		const supported = await createBaseAutocompleteProvider.call(fakeThis).getSuggestions(["/fast"], 0, 5, {
+			signal: new AbortController().signal,
+		});
+		expect(supported?.items.map((item) => item.value)).toContain("fast");
+	});
+
 	test("matches login command arguments by provider id and name", async () => {
 		type FakeInteractiveMode = {
 			session: {
@@ -436,6 +531,7 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 				promptTemplates: [];
 				extensionRunner: { getRegisteredCommands: () => [] };
 				resourceLoader: { getSkills: () => { skills: [] } };
+				supportsFastMode: () => boolean;
 			};
 			settingsManager: { getEnableSkillCommands: () => boolean };
 			skillCommands: Map<string, string>;
@@ -456,6 +552,7 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 				promptTemplates: [],
 				extensionRunner: { getRegisteredCommands: () => [] },
 				resourceLoader: { getSkills: () => ({ skills: [] }) },
+				supportsFastMode: () => true,
 			},
 			settingsManager: { getEnableSkillCommands: () => false },
 			skillCommands: new Map(),

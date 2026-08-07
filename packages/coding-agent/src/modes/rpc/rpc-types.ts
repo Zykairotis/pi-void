@@ -12,6 +12,7 @@ import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
 import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
+import type { RpcSettingsSnapshot, RpcSettingUpdate } from "./rpc-settings.ts";
 
 // ============================================================================
 // RPC Commands (stdin)
@@ -27,6 +28,12 @@ export type RpcCommand =
 
 	// State
 	| { id?: string; type: "get_state" }
+	| { id?: string; type: "set_fast_mode"; enabled: boolean }
+
+	// Settings
+	| { id?: string; type: "get_settings" }
+	| ({ id?: string; type: "set_setting" } & RpcSettingUpdate)
+	| { id?: string; type: "set_setting"; data: RpcSettingUpdate }
 
 	// Model
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
@@ -95,6 +102,8 @@ export interface RpcSlashCommand {
 export interface RpcSessionState {
 	model?: Model<any>;
 	thinkingLevel: ThinkingLevel;
+	fastMode: boolean;
+	fastModeAvailable: boolean;
 	isStreaming: boolean;
 	isCompacting: boolean;
 	steeringMode: "all" | "one-at-a-time";
@@ -123,6 +132,10 @@ export type RpcResponse =
 	// State
 	| { id?: string; type: "response"; command: "get_state"; success: true; data: RpcSessionState }
 
+	// Settings
+	| { id?: string; type: "response"; command: "get_settings"; success: true; data: RpcSettingsSnapshot }
+	| { id?: string; type: "response"; command: "set_setting"; success: true; data: RpcSettingsSnapshot }
+
 	// Model
 	| {
 			id?: string;
@@ -148,6 +161,7 @@ export type RpcResponse =
 
 	// Thinking
 	| { id?: string; type: "response"; command: "set_thinking_level"; success: true }
+	| { id?: string; type: "response"; command: "set_fast_mode"; success: true }
 	| {
 			id?: string;
 			type: "response";
@@ -228,7 +242,15 @@ export type RpcResponse =
 	  }
 
 	// Error response (any command can fail)
-	| { id?: string; type: "response"; command: string; success: false; error: string };
+	| {
+			id?: string;
+			type: "response";
+			command: string;
+			success: false;
+			error: string;
+			errorCode?: string;
+			errorDetails?: { key?: string; scope?: string };
+	  };
 
 // ============================================================================
 // Extension UI Events (stdout)
@@ -236,7 +258,15 @@ export type RpcResponse =
 
 /** Emitted when an extension needs user input */
 export type RpcExtensionUIRequest =
-	| { type: "extension_ui_request"; id: string; method: "select"; title: string; options: string[]; timeout?: number }
+	| {
+			type: "extension_ui_request";
+			id: string;
+			method: "select";
+			title: string;
+			options: string[];
+			timeout?: number;
+			content?: string;
+	  }
 	| { type: "extension_ui_request"; id: string; method: "confirm"; title: string; message: string; timeout?: number }
 	| {
 			type: "extension_ui_request";
