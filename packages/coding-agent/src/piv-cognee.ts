@@ -9,6 +9,7 @@ import { getAgentDir } from "./config.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "./core/extensions/types.ts";
 import { type CogneeClient, type CogneeClientConfig, CogneeError, createCogneeClient } from "./piv-cognee-client.ts";
 import { loadMergedCogneeEnv } from "./piv-cognee-env.ts";
+import { redactMemoryText } from "./piv-cognee-redaction.ts";
 import {
 	appendCogneeObservation,
 	type CogneeObservationOperation,
@@ -362,7 +363,7 @@ export function resolveCogneeApiKey(
 	return undefined;
 }
 
-export function redactMemoryText(text: string, maxChars: number): string {
+function redactMemoryTextLegacy(text: string, maxChars: number): string {
 	if (maxChars <= 0) return "";
 	const redacted = text
 		.replace(/Bearer\s+[^\s"'`]+/gi, "Bearer [REDACTED]")

@@ -1,7 +1,7 @@
 import { appendFile, chmod, mkdir, readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { redactMemoryText } from "./piv-cognee.ts";
+import { redactMemoryText } from "./piv-cognee-redaction.ts";
 
 export const COGNEE_OBSERVATION_FILE = "observations.jsonl";
 const MAX_EVENTS = 500;
