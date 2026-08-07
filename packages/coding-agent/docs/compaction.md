@@ -61,13 +61,27 @@ If both native and Blackhole mid-run triggers are enabled, Blackhole yields to n
 
 ### Derived Cognee Memory
 
-When running through `piv`, the hidden `piv-cognee` extension provides bounded cross-session memory through the local Cognee API. It does not replace Pi's session tree or compaction history.
+When running through `piv`, the hidden `piv-cognee` extension provides Claude-Code-style Cognee memory over the local Cognee HTTP API. It does not replace Pi's session tree or compaction history.
 
-- `before_agent_start` may add a capped recall result to the current provider request as a hidden custom message. The result is untrusted reference data and is not persisted as a durable session message.
-- `session_compact` runs after Pi saves the native `CompactionEntry`. When `autoRemember` is `compaction`, the extension redacts and caps the saved summary, then queues a dataset-scoped remember operation under `~/.pi/agent/pi-cognee/pending/`.
-- Queue writes are bounded and use `pending` or `uncertain` states. Uncertain operations are never retried automatically; `/cognee flush uncertain` is an explicit retry.
-- The model receives only the read-only `cognee_search` tool. Manual `/cognee remember ...` is the user-controlled write path.
-- The default dataset is `pi-void`, the default API is `http://127.0.0.1:8211`, and `/cognee on|off`, `/cognee recall on|off`, and `/cognee remember on|off` persist runtime settings. Network, auth, timeout, and malformed-response failures soft-fail and preserve Pi operation.
+Pi supports this through the **extension event API** (not Claude's `hooks.json` plugin format). The mapping is:
+
+| Claude Code hook | Pi extension event | Behavior |
+|------------------|--------------------|----------|
+| SessionStart | `session_start` | Session id + optional agent register |
+| UserPromptSubmit (recall) | `before_agent_start` | Bounded recall inject (`session`+`trace`+`graph`) |
+| UserPromptSubmit (store) | `before_agent_start` | Pending user prompt for QA pair |
+| PostToolUse | `tool_result` | TraceEntry via `POST /api/v1/remember/entry` |
+| Stop | `agent_end` | QAEntry (prompt + assistant answer) |
+| PreCompact | `session_before_compact` | Short memory anchor |
+| SessionEnd | `session_shutdown` | Optional `/api/v1/improve` + agent unregister |
+| (extra) | `session_compact` | Redacted compaction summary → durable remember queue |
+
+- Continuous capture defaults **on** (`captureSession` / `captureTools` / `autoImprove`). Toggle with `/cognee capture|tools|improve on|off` if cost is a concern.
+- Compaction summaries still queue under `~/.pi/agent/pi-cognee/pending/` when `autoRemember` is `compaction`.
+- Skills: `cognee-remember`, `cognee-search`, `cognee-sync`. Commands include `/cognee doctor` and statusline key `piv-cognee`.
+- Loads Layer A keys from env + `~/.cognee/.env` (shared with Claude/Codex). Default dataset remains **`pi-void`** (not `agent_sessions`).
+- The model receives only the read-only `cognee_search` tool. Manual `/cognee remember ...` remains available.
+- Soft-fail on network/auth/timeouts; failed session-cache writes buffer under `~/.pi/agent/pi-cognee/warmup/`.
 
 Blackhole is independent of Cognee. Native Pi compaction and a saved Blackhole compaction both produce valid remember sources; Cognee does not trigger or implement compaction.
 

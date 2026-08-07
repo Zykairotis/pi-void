@@ -4,6 +4,7 @@ export type CogneeErrorKind =
 	| "unreachable"
 	| "timeout"
 	| "aborted"
+	| "not_found"
 	| "malformed"
 	| "response_too_large";
 
@@ -37,6 +38,18 @@ export interface RememberRequest {
 	text: string;
 	nodeSet: string;
 	dataset?: string;
+	sessionId?: string;
+}
+
+export interface RememberEntryRequest {
+	entry: Record<string, unknown>;
+	dataset?: string;
+	sessionId: string;
+}
+
+export interface ImproveRequest {
+	dataset?: string;
+	sessionIds?: string[];
 }
 
 export interface CogneeClientDependencies {
@@ -46,9 +59,30 @@ export interface CogneeClientDependencies {
 export interface CogneeClient {
 	recall(
 		query: string,
-		options?: { topK?: number; sessionId?: string; signal?: AbortSignal },
+		options?: {
+			topK?: number;
+			sessionId?: string;
+			scope?: string[];
+			signal?: AbortSignal;
+			timeoutMs?: number;
+		},
 	): Promise<RecallResult[]>;
-	remember(request: RememberRequest, options?: { signal?: AbortSignal }): Promise<void>;
+	remember(request: RememberRequest, options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<void>;
+	/** Claude/OpenClaw-style session cache write: QA or Trace entry. */
+	rememberEntry(
+		request: RememberEntryRequest,
+		options?: { signal?: AbortSignal; timeoutMs?: number },
+	): Promise<{ entryId?: string }>;
+	/** Bridge session cache into the permanent graph (Claude SessionEnd /improve). */
+	improve(request?: ImproveRequest, options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<void>;
+	registerAgent(
+		request: { agentSessionName: string; sessionId?: string; datasetNames?: string[] },
+		options?: { signal?: AbortSignal; timeoutMs?: number },
+	): Promise<void>;
+	unregisterAgent(
+		request: { agentSessionName: string },
+		options?: { signal?: AbortSignal; timeoutMs?: number },
+	): Promise<void>;
 }
 
 interface RequestSignal {
@@ -97,6 +131,7 @@ function headers(apiKey: string | undefined, contentType?: string): Headers {
 
 function classifyStatus(status: number): CogneeErrorKind {
 	if (status === 401 || status === 403) return "auth_failed";
+	if (status === 404) return "not_found";
 	if (status >= 500 || status === 408 || status === 429) return "server_error";
 	return "malformed";
 }
@@ -154,8 +189,9 @@ async function request(
 	init: RequestInit,
 	config: CogneeClientConfig,
 	parentSignal: AbortSignal | undefined,
+	timeoutMs?: number,
 ): Promise<Response> {
-	const requestSignal = createRequestSignal(config.recallBudgetMs, parentSignal);
+	const requestSignal = createRequestSignal(timeoutMs ?? config.recallBudgetMs, parentSignal);
 	try {
 		return await fetchImpl(url, { ...init, signal: requestSignal.signal });
 	} catch {
@@ -167,6 +203,12 @@ async function request(
 	}
 }
 
+async function assertOk(response: Response, action: string): Promise<void> {
+	if (response.ok) return;
+	const kind = classifyStatus(response.status);
+	throw new CogneeError(kind, `Cognee ${action} failed with HTTP ${response.status}`, response.status);
+}
+
 export function createCogneeClient(
 	config: CogneeClientConfig,
 	dependencies: CogneeClientDependencies = {},
@@ -175,6 +217,7 @@ export function createCogneeClient(
 
 	return {
 		async recall(query, options = {}) {
+			const scope = options.scope && options.scope.length > 0 ? options.scope : ["session", "trace", "graph"];
 			const response = await request(
 				fetchImpl,
 				buildUrl(config.baseUrl, "/api/v1/recall"),
@@ -183,20 +226,18 @@ export function createCogneeClient(
 					headers: headers(config.apiKey, "application/json"),
 					body: JSON.stringify({
 						query,
-						top_k: options.topK ?? 5,
-						only_context: true,
-						scope: ["graph"],
-						...(options.sessionId ? { session_id: options.sessionId } : {}),
+						topK: options.topK ?? 5,
+						onlyContext: true,
+						scope,
+						...(options.sessionId ? { sessionId: options.sessionId } : {}),
 						datasets: [config.dataset],
 					}),
 				},
 				config,
 				options.signal,
+				options.timeoutMs,
 			);
-			if (!response.ok) {
-				const kind = classifyStatus(response.status);
-				throw new CogneeError(kind, `Cognee recall failed with HTTP ${response.status}`, response.status);
-			}
+			await assertOk(response, "recall");
 			return normalizeRecall(await readJson(response, config.maxResponseChars));
 		},
 
@@ -205,6 +246,7 @@ export function createCogneeClient(
 			form.set("datasetName", input.dataset ?? config.dataset);
 			form.set("node_set", input.nodeSet);
 			form.set("run_in_background", "true");
+			if (input.sessionId) form.set("session_id", input.sessionId);
 			form.set("data", new Blob([input.text], { type: "text/plain" }), "piv-cognee.txt");
 			const response = await request(
 				fetchImpl,
@@ -212,11 +254,98 @@ export function createCogneeClient(
 				{ method: "POST", headers: headers(config.apiKey), body: form },
 				config,
 				options.signal,
+				options.timeoutMs ?? Math.max(config.recallBudgetMs, 30_000),
 			);
-			if (!response.ok) {
-				const kind = classifyStatus(response.status);
-				throw new CogneeError(kind, `Cognee remember failed with HTTP ${response.status}`, response.status);
+			await assertOk(response, "remember");
+		},
+
+		async rememberEntry(input, options = {}) {
+			const response = await request(
+				fetchImpl,
+				buildUrl(config.baseUrl, "/api/v1/remember/entry"),
+				{
+					method: "POST",
+					headers: headers(config.apiKey, "application/json"),
+					body: JSON.stringify({
+						entry: input.entry,
+						dataset_name: input.dataset ?? config.dataset,
+						session_id: input.sessionId,
+					}),
+				},
+				config,
+				options.signal,
+				options.timeoutMs ?? 30_000,
+			);
+			await assertOk(response, "remember/entry");
+			try {
+				const payload = (await readJson(response, config.maxResponseChars)) as { entry_id?: unknown };
+				return typeof payload.entry_id === "string" ? { entryId: payload.entry_id } : {};
+			} catch {
+				return {};
 			}
+		},
+
+		async improve(input = {}, options = {}) {
+			const response = await request(
+				fetchImpl,
+				buildUrl(config.baseUrl, "/api/v1/improve"),
+				{
+					method: "POST",
+					headers: headers(config.apiKey, "application/json"),
+					body: JSON.stringify({
+						// ImprovePayloadDTO (Cognee 1.4): camelCase
+						datasetName: input.dataset ?? config.dataset,
+						...(input.sessionIds && input.sessionIds.length > 0 ? { sessionIds: input.sessionIds } : {}),
+						runInBackground: true,
+					}),
+				},
+				config,
+				options.signal,
+				options.timeoutMs ?? 120_000,
+			);
+			await assertOk(response, "improve");
+		},
+
+		async registerAgent(input, options = {}) {
+			const body: Record<string, unknown> = {
+				agent_session_name: input.agentSessionName,
+				type: "api",
+				memory_mode: "hybrid",
+				source: "api",
+			};
+			if (input.sessionId) body.session_id = input.sessionId;
+			if (input.datasetNames && input.datasetNames.length > 0) body.dataset_names = input.datasetNames;
+			const response = await request(
+				fetchImpl,
+				buildUrl(config.baseUrl, "/api/v1/agents/register"),
+				{
+					method: "POST",
+					headers: headers(config.apiKey, "application/json"),
+					body: JSON.stringify(body),
+				},
+				config,
+				options.signal,
+				options.timeoutMs ?? 15_000,
+			);
+			if (response.status === 404) return;
+			await assertOk(response, "agents/register");
+		},
+
+		async unregisterAgent(input, options = {}) {
+			const response = await request(
+				fetchImpl,
+				buildUrl(config.baseUrl, "/api/v1/agents/unregister"),
+				{
+					method: "POST",
+					headers: headers(config.apiKey, "application/json"),
+					body: JSON.stringify({ agent_session_name: input.agentSessionName }),
+				},
+				config,
+				options.signal,
+				options.timeoutMs ?? 15_000,
+			);
+			if (response.status === 404) return;
+			await assertOk(response, "agents/unregister");
 		},
 	};
 }

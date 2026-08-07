@@ -5,19 +5,23 @@ import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
 import {
 	canAttemptCircuit,
+	cogneeSessionId,
 	createCircuitState,
 	createPendingRemember,
 	createPivCogneeExtension,
 	enqueuePendingRemember,
+	extractMessageText,
 	loadPivCogneeConfig,
 	noteCircuitFailure,
 	readPendingRemember,
 	redactMemoryText,
 	resolveCogneeApiKey,
 	resolvePivCogneeConfig,
+	truncateForCapture,
 	updatePendingRememberState,
 } from "../src/piv-cognee.ts";
 import { type CogneeClientConfig, CogneeError, createCogneeClient } from "../src/piv-cognee-client.ts";
+import { parseEnvFile } from "../src/piv-cognee-env.ts";
 
 function config(overrides: Partial<CogneeClientConfig> = {}): CogneeClientConfig {
 	return {
@@ -52,11 +56,64 @@ describe("piv-cognee HTTP client", () => {
 		expect(new Headers(requestInit?.headers).get("x-api-key")).toBe("secret-key");
 		expect(JSON.parse(String(requestInit?.body))).toEqual({
 			query: "remember this",
-			top_k: 3,
-			only_context: true,
-			scope: ["graph"],
-			session_id: "session-1",
+			topK: 3,
+			onlyContext: true,
+			scope: ["session", "trace", "graph"],
+			sessionId: "session-1",
 			datasets: ["pi-void"],
+		});
+	});
+
+	it("stores session cache entries via remember/entry", async () => {
+		let requestUrl = "";
+		let requestInit: RequestInit | undefined;
+		const client = createCogneeClient(config({ apiKey: "secret-key" }), {
+			fetch: async (input, init) => {
+				requestUrl = String(input);
+				requestInit = init;
+				return new Response(JSON.stringify({ entry_id: "e1" }), { status: 200 });
+			},
+		});
+
+		await expect(
+			client.rememberEntry({
+				sessionId: "piv_session-1",
+				entry: { type: "qa", question: "q", answer: "a", context: "" },
+			}),
+		).resolves.toEqual({ entryId: "e1" });
+		expect(requestUrl).toBe("http://127.0.0.1:8211/api/v1/remember/entry");
+		expect(JSON.parse(String(requestInit?.body))).toMatchObject({
+			session_id: "piv_session-1",
+			dataset_name: "pi-void",
+			entry: { type: "qa", question: "q", answer: "a" },
+		});
+	});
+
+	it("reports an unavailable improve endpoint instead of resolving", async () => {
+		const client = createCogneeClient(config(), {
+			fetch: async () => new Response(null, { status: 404 }),
+		});
+
+		await expect(client.improve()).rejects.toSatisfy((error: unknown) => {
+			return error instanceof CogneeError && error.kind === "not_found" && error.status === 404;
+		});
+	});
+
+	it("sends the Cognee v1 improve payload fields", async () => {
+		let requestInit: RequestInit | undefined;
+		const client = createCogneeClient(config(), {
+			fetch: async (_input, init) => {
+				requestInit = init;
+				return new Response(null, { status: 200 });
+			},
+		});
+
+		await client.improve({ dataset: "pi-void-smoke", sessionIds: ["session-1"] });
+
+		expect(JSON.parse(String(requestInit?.body))).toEqual({
+			datasetName: "pi-void-smoke",
+			sessionIds: ["session-1"],
+			runInBackground: true,
 		});
 	});
 
@@ -99,6 +156,9 @@ describe("piv-cognee state helpers", () => {
 			enabled: true,
 			autoRecall: true,
 			autoRemember: "compaction",
+			captureSession: true,
+			captureTools: true,
+			autoImprove: true,
 			baseUrl: "http://127.0.0.1:8211",
 			dataset: "pi-void",
 		});
@@ -107,9 +167,18 @@ describe("piv-cognee state helpers", () => {
 				PI_COGNEE_ENABLED: "false",
 				PI_COGNEE_RECALL: "0",
 				PI_COGNEE_REMEMBER: "off",
+				PI_COGNEE_CAPTURE: "0",
+				PI_COGNEE_IMPROVE: "false",
 				PI_COGNEE_DATASET: "repo-memory",
 			}),
-		).toMatchObject({ enabled: false, autoRecall: false, autoRemember: "off", dataset: "repo-memory" });
+		).toMatchObject({
+			enabled: false,
+			autoRecall: false,
+			autoRemember: "off",
+			captureSession: false,
+			autoImprove: false,
+			dataset: "repo-memory",
+		});
 		expect(() => resolvePivCogneeConfig(undefined, { PI_COGNEE_ENABLED: "sometimes" })).toThrow(/PI_COGNEE_ENABLED/);
 	});
 
@@ -125,10 +194,23 @@ describe("piv-cognee state helpers", () => {
 		expect(redacted.length).toBeLessThanOrEqual(80);
 	});
 
-	it("resolves the environment key before the cached key", () => {
-		expect(resolveCogneeApiKey({ COGNEE_API_KEY: " env-key " }, '{"api_key":"cached-key"}')).toBe("env-key");
-		expect(resolveCogneeApiKey({}, '{"api_key":"cached-key"}')).toBe("cached-key");
-		expect(resolveCogneeApiKey({}, "not-json")).toBeUndefined();
+	it("prefers process env, then mint cache, then merged file env", () => {
+		// Stale ~/.cognee/.env must not beat a fresh mint when process.env has no key
+		expect(
+			resolveCogneeApiKey(
+				{ COGNEE_API_KEY: "stale-file-key" },
+				'{"api_key":"cached-key","base_url":"http://127.0.0.1:8211"}',
+				"http://127.0.0.1:8211",
+				{}, // empty process env
+			),
+		).toBe("cached-key");
+		expect(
+			resolveCogneeApiKey({ COGNEE_API_KEY: "stale-file-key" }, '{"api_key":"cached-key"}', undefined, {
+				COGNEE_API_KEY: " process-key ",
+			}),
+		).toBe("process-key");
+		expect(resolveCogneeApiKey({ COGNEE_API_KEY: "file-only" }, undefined, undefined, {})).toBe("file-only");
+		expect(resolveCogneeApiKey({}, "not-json", undefined, {})).toBeUndefined();
 	});
 
 	it("bounds pending remember records without silently exceeding the queue limit", async () => {
@@ -156,7 +238,12 @@ describe("piv-cognee state helpers", () => {
 
 type Hook = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
 
-function extensionHookFixture(storageDir: string, hasUI = false, env: NodeJS.ProcessEnv = {}) {
+function extensionHookFixture(
+	storageDir: string,
+	hasUI = false,
+	env: NodeJS.ProcessEnv = {},
+	fetchImpl?: typeof fetch,
+) {
 	const handlers = new Map<string, Hook>();
 	const commands = new Map<string, (args: string, ctx: ExtensionContext) => Promise<void> | void>();
 	const tools = new Map<string, { execute: (...args: unknown[]) => Promise<unknown> }>();
@@ -164,6 +251,7 @@ function extensionHookFixture(storageDir: string, hasUI = false, env: NodeJS.Pro
 	const appended: Array<{ customType: string; data: unknown }> = [];
 	const notifications: string[] = [];
 	const requests: string[] = [];
+	const requestBodies: Array<{ url: string; body?: string }> = [];
 	const currentTools = ["read", "grep", "cognee_search"];
 	const api = {
 		on(event: string, handler: Hook) {
@@ -190,21 +278,36 @@ function extensionHookFixture(storageDir: string, hasUI = false, env: NodeJS.Pro
 	const ctx = {
 		hasUI,
 		signal: undefined,
-		ui: { notify: (message: string) => notifications.push(message) },
+		ui: {
+			notify: (message: string) => notifications.push(message),
+			setStatus: () => undefined,
+		},
 		sessionManager: { getSessionId: () => "session-1" },
 	} as unknown as ExtensionContext;
-	createPivCogneeExtension({
-		storageDir,
-		env,
-		fetch: async (input) => {
-			requests.push(String(input));
-			if (String(input).endsWith("/recall")) {
-				return new Response(JSON.stringify([{ text: "remembered context" }]), { status: 200 });
-			}
-			return new Response(null, { status: 202 });
-		},
-	})(api);
-	return { handlers, commands, tools, activeToolSets, appended, notifications, requests, ctx };
+	const defaultFetch: typeof fetch = async (input, init) => {
+		const url = String(input);
+		requests.push(url);
+		requestBodies.push({ url, body: typeof init?.body === "string" ? init.body : undefined });
+		if (url.endsWith("/recall")) {
+			return new Response(JSON.stringify([{ text: "remembered context" }]), { status: 200 });
+		}
+		if (url.includes("/remember/entry")) {
+			return new Response(JSON.stringify({ entry_id: "entry-1" }), { status: 200 });
+		}
+		if (url.includes("/improve") || url.includes("/agents/")) {
+			return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+		}
+		return new Response(null, { status: 202 });
+	};
+	createPivCogneeExtension({ storageDir, env, fetch: fetchImpl ?? defaultFetch })(api);
+	return { handlers, commands, tools, activeToolSets, appended, notifications, requests, requestBodies, ctx };
+}
+
+async function waitFor(condition: () => boolean): Promise<void> {
+	for (let attempt = 0; attempt < 100 && !condition(); attempt++) {
+		await new Promise((resolve) => setTimeout(resolve, 1));
+	}
+	if (!condition()) throw new Error("condition was not met before timeout");
 }
 
 describe("piv-cognee extension hooks", () => {
@@ -219,7 +322,6 @@ describe("piv-cognee extension hooks", () => {
 			);
 			expect(recall).toMatchObject({ message: { customType: "piv-cognee-recall", display: false } });
 			expect((recall as { message: { content: string } }).message.content).toContain("remembered context");
-			expect(runtime.appended).toHaveLength(0);
 
 			await runtime.handlers.get("session_compact")?.(
 				{
@@ -241,6 +343,181 @@ describe("piv-cognee extension hooks", () => {
 			rmSync(storageDir, { recursive: true, force: true });
 		}
 	});
+
+	it("returns the Cognee anchor through Pi's compaction contract", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-anchor-"));
+		try {
+			const runtime = extensionHookFixture(storageDir);
+			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
+			const result = await runtime.handlers.get("session_before_compact")?.(
+				{
+					type: "session_before_compact",
+					preparation: {
+						firstKeptEntryId: "keep-1",
+						tokensBefore: 42,
+						previousSummary: "What did we decide?",
+						messagesToSummarize: [{}],
+					},
+					reason: "manual",
+				},
+				runtime.ctx,
+			);
+			expect(result).toMatchObject({
+				compaction: {
+					summary: expect.stringContaining("remembered context"),
+					firstKeptEntryId: "keep-1",
+					tokensBefore: 42,
+				},
+			});
+		} finally {
+			rmSync(storageDir, { recursive: true, force: true });
+		}
+	});
+
+	it("captures prompt/answer and redacted tool traces like Claude Code hooks", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-capture-"));
+		try {
+			const runtime = extensionHookFixture(storageDir);
+			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
+			await runtime.handlers.get("before_agent_start")?.(
+				{ type: "before_agent_start", prompt: "Deploy uses which port?" },
+				runtime.ctx,
+			);
+			await runtime.handlers.get("tool_result")?.(
+				{
+					type: "tool_result",
+					toolCallId: "t1",
+					toolName: "read",
+					input: {
+						path: "README.md",
+						headers: { Authorization: "Bearer tool-secret", token: "token-secret" },
+					},
+					content: [{ type: "text", text: "port 8211\napi_key=output-secret" }],
+					isError: true,
+				},
+				runtime.ctx,
+			);
+			await runtime.handlers.get("agent_end")?.(
+				{
+					type: "agent_end",
+					messages: [{ role: "assistant", content: [{ type: "text", text: "Port 8211." }] }],
+				},
+				runtime.ctx,
+			);
+			// Allow fire-and-forget remember/entry + agents/register
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			const entryCalls = runtime.requests.filter((url) => url.includes("/remember/entry"));
+			expect(entryCalls.length).toBeGreaterThanOrEqual(2);
+			const traceBody = runtime.requestBodies
+				.filter((request) => request.url.includes("/remember/entry"))
+				.map((request) => request.body)
+				.map((body) => (body ? (JSON.parse(body) as { entry?: { type?: string } }) : undefined))
+				.find((body) => body?.entry?.type === "trace");
+			expect(traceBody).toBeDefined();
+			expect(JSON.stringify(traceBody)).not.toContain("tool-secret");
+			expect(JSON.stringify(traceBody)).not.toContain("token-secret");
+			expect(JSON.stringify(traceBody)).not.toContain("output-secret");
+			expect(JSON.stringify(traceBody)).toContain("[REDACTED]");
+			expect(cogneeSessionId("session-1")).toBe("piv_session-1");
+			expect(extractMessageText({ role: "assistant", content: [{ type: "text", text: "hi" }] })).toBe("hi");
+			expect(truncateForCapture("x".repeat(20), 10)).toContain("…[truncated]");
+		} finally {
+			rmSync(storageDir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("piv-cognee lifecycle regressions", () => {
+	it("serializes pending queue drains", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-drain-"));
+		let releaseRemember!: () => void;
+		const rememberGate = new Promise<void>((resolve) => {
+			releaseRemember = resolve;
+		});
+		let rememberStarted = 0;
+		const calls: string[] = [];
+		const fetchImpl: typeof fetch = async (input) => {
+			const url = String(input);
+			calls.push(url);
+			if (url.endsWith("/remember")) {
+				rememberStarted += 1;
+				await rememberGate;
+				return new Response(null, { status: 202 });
+			}
+			if (url.endsWith("/agents/register")) return new Response(null, { status: 200 });
+			return url.endsWith("/health")
+				? new Response("ok", { status: 200 })
+				: new Response(JSON.stringify([{ text: "context" }]), { status: 200 });
+		};
+		try {
+			const runtime = extensionHookFixture(storageDir, false, {}, fetchImpl);
+			const record = createPendingRemember("existing summary", "pi-void", "agent_actions", 300);
+			await enqueuePendingRemember(join(storageDir, "pending"), record, 4);
+			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
+			await waitFor(() => rememberStarted === 1);
+			await runtime.handlers.get("session_compact")?.(
+				{
+					type: "session_compact",
+					compactionEntry: { summary: "new summary" },
+					reason: "manual",
+				},
+				runtime.ctx,
+			);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			expect(rememberStarted).toBe(1);
+			releaseRemember();
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(calls.filter((url) => url.endsWith("/remember"))).toHaveLength(1);
+		} finally {
+			rmSync(storageDir, { recursive: true, force: true });
+		}
+	});
+
+	it("awaits improve before unregistering on shutdown", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-shutdown-"));
+		let releaseImprove!: () => void;
+		const improveGate = new Promise<void>((resolve) => {
+			releaseImprove = resolve;
+		});
+		const calls: string[] = [];
+		const fetchImpl: typeof fetch = async (input) => {
+			const url = String(input);
+			calls.push(`start:${url}`);
+			if (url.endsWith("/improve")) {
+				await improveGate;
+				calls.push(`done:${url}`);
+				return new Response(null, { status: 200 });
+			}
+			if (url.endsWith("/agents/register") || url.endsWith("/agents/unregister")) {
+				return new Response(null, { status: 200 });
+			}
+			if (url.endsWith("/health")) return new Response("ok", { status: 200 });
+			return new Response(JSON.stringify([{ text: "context" }]), { status: 200 });
+		};
+		try {
+			const runtime = extensionHookFixture(storageDir, false, {}, fetchImpl);
+			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
+			await waitFor(() => calls.some((url) => url.endsWith("/agents/register")));
+			await runtime.handlers.get("before_agent_start")?.(
+				{ type: "before_agent_start", prompt: "capture this" },
+				runtime.ctx,
+			);
+			const shutdown = runtime.handlers.get("session_shutdown")?.(
+				{ type: "session_shutdown", reason: "quit" },
+				runtime.ctx,
+			);
+			await waitFor(() => calls.some((url) => url.endsWith("/improve")));
+			expect(calls.some((url) => url.endsWith("/agents/unregister"))).toBe(false);
+			releaseImprove();
+			await shutdown;
+			const improveDone = calls.findIndex((url) => url.startsWith("done:"));
+			const unregisterStart = calls.findIndex((url) => url.endsWith("/agents/unregister"));
+			expect(improveDone).toBeGreaterThanOrEqual(0);
+			expect(unregisterStart).toBeGreaterThan(improveDone);
+		} finally {
+			rmSync(storageDir, { recursive: true, force: true });
+		}
+	});
 });
 
 describe("piv-cognee policy regressions", () => {
@@ -256,7 +533,8 @@ describe("piv-cognee policy regressions", () => {
 					runtime.ctx,
 				),
 			).toBeUndefined();
-			expect(runtime.requests).toHaveLength(0);
+			// session_start may probe /health; disabled mode must not call recall/remember
+			expect(runtime.requests.filter((url) => url.includes("/recall") || url.includes("/remember"))).toHaveLength(0);
 		} finally {
 			rmSync(storageDir, { recursive: true, force: true });
 		}
@@ -271,16 +549,34 @@ describe("piv-cognee policy regressions", () => {
 			await updatePendingRememberState(join(storageDir, "pending"), record.operationId, "uncertain");
 			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
 			await new Promise((resolve) => setTimeout(resolve, 10));
-			expect(runtime.requests).toHaveLength(0);
+			// session_start may register the agent; it must not drain uncertain items automatically
+			const rememberCalls = () => runtime.requests.filter((url) => url.includes("/remember"));
+			expect(rememberCalls()).toHaveLength(0);
 			expect(await readPendingRemember(join(storageDir, "pending"))).toHaveLength(1);
 			await runtime.commands.get("cognee")!("flush pending", runtime.ctx);
-			expect(runtime.requests).toHaveLength(0);
+			expect(rememberCalls()).toHaveLength(0);
 			await runtime.commands.get("cognee")!("flush uncertain", runtime.ctx);
-			expect(runtime.requests).toHaveLength(1);
+			expect(rememberCalls().length).toBeGreaterThanOrEqual(1);
 			expect(await readPendingRemember(join(storageDir, "pending"))).toHaveLength(0);
 		} finally {
 			rmSync(storageDir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("piv-cognee env file parsing", () => {
+	it("parses export-style cognee keys", () => {
+		const parsed = parseEnvFile(`
+# comment
+export COGNEE_BASE_URL="http://127.0.0.1:8211"
+COGNEE_API_KEY=secret
+LLM_API_KEY=should-not-appear
+PI_COGNEE_DATASET=pi-void
+`);
+		expect(parsed.COGNEE_BASE_URL).toBe("http://127.0.0.1:8211");
+		expect(parsed.COGNEE_API_KEY).toBe("secret");
+		expect(parsed.PI_COGNEE_DATASET).toBe("pi-void");
+		expect(parsed.LLM_API_KEY).toBeUndefined();
 	});
 });
 

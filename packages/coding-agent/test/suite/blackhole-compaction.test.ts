@@ -1,13 +1,15 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import { type AssistantMessage, type Context, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import piBlackholeExtension from "../../examples/extensions/pi-blackhole/index.ts";
 import { loadConfig } from "../../examples/extensions/pi-blackhole/src/core/unified-config.ts";
+import type { SessionBeforeCompactEvent } from "../../src/core/extensions/types.ts";
+import { createPivCogneeExtension } from "../../src/piv-cognee.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 const harnesses: Harness[] = [];
@@ -184,6 +186,60 @@ describe("optional Blackhole compaction extension", () => {
 
 		expect(harness.faux.state.callCount).toBe(1);
 		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
+	});
+
+	it("uses the last compaction summary when Blackhole and Cognee are both enabled", async () => {
+		configureBlackhole();
+		const fakeFetch: typeof fetch = async (input) => {
+			const url = String(input);
+			if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+			if (url.endsWith("/api/v1/recall")) return new Response("[]", { status: 200 });
+			return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+		};
+		const compactionEvent = (): SessionBeforeCompactEvent => ({
+			type: "session_before_compact",
+			preparation: {
+				firstKeptEntryId: "keep-entry",
+				messagesToSummarize: [
+					{ role: "user", content: "Keep this compaction input", timestamp: Date.now() } as AgentMessage,
+				],
+				turnPrefixMessages: [],
+				isSplitTurn: false,
+				tokensBefore: 100,
+				fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+				settings: { enabled: true, reserveTokens: 0, keepRecentTokens: 10 },
+			},
+			branchEntries: [],
+			reason: "manual",
+			willRetry: false,
+			signal: new AbortController().signal,
+		});
+		const run = async (extensions: Array<(pi: ExtensionAPI) => void>) => {
+			const storageDir = mkdtempSync(join(tmpdir(), "piv-blackhole-cognee-"));
+			configDirs.push(storageDir);
+			const harness = await createHarness({ extensionFactories: extensions });
+			harnesses.push(harness);
+			await harness.session.extensionRunner.emit({ type: "session_start", reason: "startup" });
+			const result = await harness.session.extensionRunner.emit(compactionEvent());
+			await harness.session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+			return result;
+		};
+		const makeCognee = () => {
+			const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-hooks-"));
+			configDirs.push(storageDir);
+			return createPivCogneeExtension({
+				storageDir,
+				apiKey: "test-key",
+				env: { PI_COGNEE_DATASET: "pi-void", PI_COGNEE_IMPROVE: "false" },
+				fetch: fakeFetch,
+			});
+		};
+
+		const cogneeLast = await run([piBlackholeExtension, makeCognee()]);
+		expect(cogneeLast).toMatchObject({ compaction: { summary: expect.stringContaining("Compaction (manual)") } });
+
+		const blackholeLast = await run([makeCognee(), piBlackholeExtension]);
+		expect(blackholeLast).toMatchObject({ compaction: { details: { engine: "blackhole" } } });
 	});
 
 	it("suspends retries after a failed compaction and allows one resume turn", async () => {
