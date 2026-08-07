@@ -17,11 +17,13 @@ import {
 	redactMemoryText,
 	resolveCogneeApiKey,
 	resolvePivCogneeConfig,
+	shouldOwnCompactionSummary,
 	truncateForCapture,
 	updatePendingRememberState,
 } from "../src/piv-cognee.ts";
 import { type CogneeClientConfig, CogneeError, createCogneeClient } from "../src/piv-cognee-client.ts";
 import { parseEnvFile } from "../src/piv-cognee-env.ts";
+import { readCogneeObservations } from "../src/piv-cognee-observer.ts";
 
 function config(overrides: Partial<CogneeClientConfig> = {}): CogneeClientConfig {
 	return {
@@ -62,6 +64,22 @@ describe("piv-cognee HTTP client", () => {
 			sessionId: "session-1",
 			datasets: ["pi-void"],
 		});
+	});
+
+	it("accepts a bounded oversized recall envelope and keeps top-k results", async () => {
+		const payload = JSON.stringify({
+			results: [{ text: "first memory" }, { text: "second memory" }],
+			context: "x".repeat(7_000),
+		});
+		const client = createCogneeClient(config({ maxResponseChars: 100 }), {
+			fetch: async () =>
+				new Response(payload, {
+					status: 200,
+					headers: { "content-length": String(payload.length) },
+				}),
+		});
+
+		await expect(client.recall("query", { topK: 1 })).resolves.toEqual([{ text: "first memory" }]);
 	});
 
 	it("stores session cache entries via remember/entry", async () => {
@@ -251,6 +269,7 @@ function extensionHookFixture(
 	const activeToolSets: string[][] = [];
 	const appended: Array<{ customType: string; data: unknown }> = [];
 	const notifications: string[] = [];
+	const statuses: string[] = [];
 	const requests: string[] = [];
 	const requestBodies: Array<{ url: string; body?: string }> = [];
 	const currentTools = ["read", "grep", "cognee_search"];
@@ -281,7 +300,9 @@ function extensionHookFixture(
 		signal: undefined,
 		ui: {
 			notify: (message: string) => notifications.push(message),
-			setStatus: () => undefined,
+			setStatus: (_id: string, status: string | undefined) => {
+				if (status) statuses.push(status);
+			},
 		},
 		sessionManager: { getSessionId: () => "session-1" },
 	} as unknown as ExtensionContext;
@@ -301,7 +322,18 @@ function extensionHookFixture(
 		return new Response(null, { status: 202 });
 	};
 	createPivCogneeExtension({ storageDir, env, fetch: fetchImpl ?? defaultFetch })(api);
-	return { handlers, commands, tools, activeToolSets, appended, notifications, requests, requestBodies, ctx };
+	return {
+		handlers,
+		commands,
+		tools,
+		activeToolSets,
+		appended,
+		notifications,
+		statuses,
+		requests,
+		requestBodies,
+		ctx,
+	};
 }
 
 async function waitFor(condition: () => boolean): Promise<void> {
@@ -312,6 +344,53 @@ async function waitFor(condition: () => boolean): Promise<void> {
 }
 
 describe("piv-cognee extension hooks", () => {
+	it("shows recall activity before the request resolves and records its lifecycle", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-activity-"));
+		let releaseRecall: (response: Response) => void = () => undefined;
+		const recallResponse = new Promise<Response>((resolve) => {
+			releaseRecall = resolve;
+		});
+		try {
+			const runtime = extensionHookFixture(storageDir, true, {}, async (input) => {
+				if (String(input).endsWith("/recall")) return recallResponse;
+				return new Response(null, { status: 202 });
+			});
+			const prompt = runtime.handlers.get("before_agent_start")?.(
+				{ type: "before_agent_start", prompt: "Authorization: Bearer prompt-secret" },
+				runtime.ctx,
+			);
+			await waitFor(() => runtime.statuses.some((status) => status.includes("cognee:recall .")));
+			expect(runtime.statuses.some((status) => status.includes("cognee:recall"))).toBe(true);
+			releaseRecall(new Response(JSON.stringify([{ text: "remembered context" }]), { status: 200 }));
+			await prompt;
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			const events = await readCogneeObservations(storageDir);
+			expect(events.map((event) => event.phase)).toEqual(["started", "succeeded"]);
+			expect(events[0]?.preview).not.toContain("prompt-secret");
+			expect(runtime.statuses.at(-1)).toContain("cap=on");
+		} finally {
+			rmSync(storageDir, { recursive: true, force: true });
+		}
+	});
+
+	it("starts and closes the local observer through /cognee watch", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-watch-"));
+		try {
+			const runtime = extensionHookFixture(storageDir, true);
+			const command = runtime.commands.get("cognee");
+			if (!command) throw new Error("cognee command was not registered");
+			await command("watch", runtime.ctx);
+			const message = runtime.notifications.find((item) => item.includes("Cognee observer:"));
+			if (!message) throw new Error("observer URL was not reported");
+			const url = message.slice(message.indexOf("http://"));
+			expect(await fetch(url).then((response) => response.text())).toContain("Cognee Signal Room");
+			await runtime.handlers.get("session_shutdown")?.({ type: "session_shutdown" }, runtime.ctx);
+			expect(await fetch(url).catch(() => undefined)).toBeUndefined();
+		} finally {
+			rmSync(storageDir, { recursive: true, force: true });
+		}
+	});
+
 	it("injects transient recall and queues a redacted compaction summary", async () => {
 		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-extension-"));
 		try {
@@ -345,10 +424,58 @@ describe("piv-cognee extension hooks", () => {
 		}
 	});
 
-	it("returns the Cognee anchor through Pi's compaction contract", async () => {
-		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-anchor-"));
+	it("defers Pi compaction summary when Blackhole would own it", () => {
+		expect(shouldOwnCompactionSummary("defer", true)).toBe(false);
+		expect(shouldOwnCompactionSummary("defer", false)).toBe(false);
+		expect(shouldOwnCompactionSummary("own", true)).toBe(true);
+		expect(shouldOwnCompactionSummary("auto", true)).toBe(false);
+		expect(shouldOwnCompactionSummary("auto", false)).toBe(true);
+	});
+
+	it("stores a pre-compact anchor without overriding Blackhole/native summary by default", async () => {
+		const agentRoot = mkdtempSync(join(tmpdir(), "piv-cognee-agent-"));
+		const storageDir = join(agentRoot, "pi-cognee");
+		// Simulate Blackhole owning compact
+		const { mkdirSync, writeFileSync } = await import("node:fs");
+		mkdirSync(join(agentRoot, "pi-blackhole"), { recursive: true });
+		writeFileSync(
+			join(agentRoot, "pi-blackhole", "pi-blackhole-config.json"),
+			JSON.stringify({ compaction: "auto", compactionEngine: "blackhole" }),
+		);
 		try {
-			const runtime = extensionHookFixture(storageDir);
+			const runtime = extensionHookFixture(storageDir, false, { PI_CODING_AGENT_DIR: agentRoot });
+			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
+			const result = await runtime.handlers.get("session_before_compact")?.(
+				{
+					type: "session_before_compact",
+					preparation: {
+						firstKeptEntryId: "keep-1",
+						tokensBefore: 42,
+						previousSummary: "What did we decide?",
+						messagesToSummarize: [{}],
+					},
+					reason: "manual",
+				},
+				runtime.ctx,
+			);
+			// Defer: no compaction result — Blackhole/native keeps the Pi summary
+			expect(result).toBeUndefined();
+			// Still captured to Cognee session cache
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(runtime.requests.some((url) => url.includes("/remember/entry"))).toBe(true);
+		} finally {
+			rmSync(agentRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("returns the Cognee anchor through Pi's compaction contract when mode is own", async () => {
+		const agentRoot = mkdtempSync(join(tmpdir(), "piv-cognee-own-"));
+		const storageDir = join(agentRoot, "pi-cognee");
+		try {
+			const runtime = extensionHookFixture(storageDir, false, {
+				PI_CODING_AGENT_DIR: agentRoot,
+				PI_COGNEE_COMPACTION_SUMMARY: "own",
+			});
 			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
 			const result = await runtime.handlers.get("session_before_compact")?.(
 				{
@@ -371,7 +498,7 @@ describe("piv-cognee extension hooks", () => {
 				},
 			});
 		} finally {
-			rmSync(storageDir, { recursive: true, force: true });
+			rmSync(agentRoot, { recursive: true, force: true });
 		}
 	});
 

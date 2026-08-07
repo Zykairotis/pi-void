@@ -53,6 +53,14 @@
 - Credential precedence should be `COGNEE_API_KEY` then the existing endpoint-matched `~/.cognee-plugin/api_key.json`; the key must never enter config, logs, session entries, or tests.
 - Current managed Cognee is on `127.0.0.1:8211`, but the service is stopped; live authenticated contract verification remains an implementation-time smoke check, not a research result.
 
+## Observer + TUI Findings
+- `piv-cognee` already has a session-scoped storage root at `~/.pi/agent/pi-cognee/`, so observation JSONL can reuse that boundary without creating a second session store.
+- `pi.appendEntry("piv-cognee", ...)` is durable but not a live browser transport; a separate redacted observation stream is required for SSE.
+- `ctx.ui.setStatus()` renders immediately through the existing footer provider, while the native working indicator is created only on Pi's `agent_start`; status activity must cover the pre-agent Cognee recall wait.
+- Native Node HTTP, SSE, filesystem reads, and static HTML avoid a new frontend dependency.
+- The observer must bind to loopback, cap/redact previews, and never persist API keys.
+- Live Cognee recall returned HTTP 200 with a 73,683-byte JSON envelope while the client transport cap was 12,000; valid context wrappers can exceed the configured injected-memory budget. A separate 128 KiB recall transport cap plus top-K normalization preserves bounded model context without rejecting this response.
+
 ## Decision Constraints
 - First-class means `piv` always loads the hidden `piv-cognee` inline extension, including alongside `--no-extensions`, while network work remains controlled by runtime toggles.
 - Default dataset is Pi Void-owned `pi-void`; do not inherit shared `agent_sessions` or `COGNEE_PLUGIN_DATASET` unless the user explicitly configures a shared dataset.

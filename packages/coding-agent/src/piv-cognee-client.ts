@@ -136,6 +136,8 @@ function classifyStatus(status: number): CogneeErrorKind {
 	return "malformed";
 }
 
+const MAX_RECALL_RESPONSE_CHARS = 128 * 1024;
+
 function responseLimit(response: Response, maxChars: number): void {
 	const contentLength = Number(response.headers.get("content-length"));
 	if (Number.isFinite(contentLength) && contentLength > maxChars) {
@@ -143,10 +145,10 @@ function responseLimit(response: Response, maxChars: number): void {
 	}
 }
 
-async function readJson(response: Response, maxChars: number): Promise<unknown> {
-	responseLimit(response, maxChars);
+async function readJson(response: Response, maxChars: number, transportMaxChars = maxChars): Promise<unknown> {
+	responseLimit(response, transportMaxChars);
 	const text = await response.text();
-	if (text.length > maxChars) {
+	if (text.length > transportMaxChars) {
 		throw new CogneeError("response_too_large", "Cognee response exceeded the configured limit");
 	}
 	try {
@@ -238,7 +240,10 @@ export function createCogneeClient(
 				options.timeoutMs,
 			);
 			await assertOk(response, "recall");
-			return normalizeRecall(await readJson(response, config.maxResponseChars));
+			return normalizeRecall(await readJson(response, config.maxResponseChars, MAX_RECALL_RESPONSE_CHARS)).slice(
+				0,
+				options.topK ?? 5,
+			);
 		},
 
 		async remember(input, options = {}) {

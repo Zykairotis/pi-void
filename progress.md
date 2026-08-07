@@ -1,6 +1,12 @@
 # Progress Log
 
 ## Current Session
+- Started Phase 9 for a local realtime Cognee observer and prompt activity feedback.
+- Confirmed the existing `piv-cognee` storage boundary, extension status API, and native Node HTTP/SSE seams.
+- Implemented `/cognee watch` with a loopback native HTTP/SSE dashboard, capped redacted JSONL events, lifecycle pairing, endpoint/session identity, queue/improve/remember/recall visibility, and SSE shutdown cleanup.
+- Added animated `cognee:recall` status before pre-model recall resolves; added regressions for status timing, redaction, observer startup, and observer shutdown.
+- Verified focused tests `23/23`, `npm run check`, coding-agent build, compiled dashboard browser load, realtime SSE event update, and redacted ingest inspector. Fixed an inline JavaScript escaping defect found by browser smoke.
+- Diagnosed live recall failure: Cognee returned HTTP 200 with a `73,683`-byte envelope while the client cap was `12,000`; added a `128 KiB` recall transport cap with top-K normalization. Rebuilt and verified the compiled client returned one result with `22,414` text characters.
 - Recorded the planning scope and constraints.
 - Read the complete Pi extension documentation.
 - Confirmed stable seams for recall, post-compaction persistence, status, tools, lifecycle cleanup, and soft failure.

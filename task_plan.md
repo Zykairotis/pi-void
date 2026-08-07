@@ -777,6 +777,44 @@ See Phase 8.
 | 2026-08-07 | Phase 6 complete on `void`: 12 offline client/extension tests cover disabled recall, uncertain writes, queueing, toggles, hooks, and read-only search; `npm run check` is clean. |
 | 2026-08-07 | Phase 7 complete on `void`: `idea.md`, compaction boundaries, and the coding-agent Unreleased changelog document shipped Slice 1 without claiming deferred improve or shared-memory features. |
 | 2026-08-07 | Phase 8 live smoke verified: synchronized Layer A key auth, `/cognee status`, remember queue recovery, dataset-scoped remember/search, and `/cognee off` passed; local API stopped afterward. Default 1.5s recall timed out against a 3.8s graph query, while stored `recallBudgetMs: 10000` passed. |
+| 2026-08-07 | Phase 9 complete: `/cognee watch` loopback dashboard, SSE lifecycle stream, redacted ingest inspector, session/agent identity, shutdown cleanup, and pre-model animated recall status pass `23/23`, `npm run check`, build, and compiled browser smoke. |
+
+---
+
+## Phase 9 — Realtime Cognee observer + prompt activity feedback
+
+**Goal:** Add a local realtime observer for Cognee request lifecycle and redacted ingest previews, plus visible activity during pre-model Cognee recall.
+
+**Design:**
+
+- Append bounded redacted observation events under the existing `~/.pi/agent/pi-cognee/` storage boundary.
+- Serve a dependency-free local HTML dashboard from `/cognee watch` over loopback with SSE updates.
+- Display agent/session IDs, dataset, request phase, status, latency, queue depth, errors, and capped ingest previews.
+- Set the existing Pi extension status immediately during `before_agent_start`; do not block or replace Pi's model loop.
+
+**Acceptance:**
+
+- `/cognee watch` prints a local URL and the dashboard updates without refresh.
+- Prompt, recall, remember, trace, improve, queue, and failure events appear with redacted previews.
+- Prompt submission shows an animated Cognee activity status before Pi's model working indicator.
+- Observer is local-only and never logs API keys or uncapped payloads.
+- Focused tests, `npm run check`, coding-agent build, and browser smoke pass.
+
+**Errors encountered:**
+
+| Error | Resolution |
+|-------|------------|
+| Inline dashboard JavaScript was invalid because the TypeScript template string consumed the quote escape in the HTML escape helper. | Replaced the quote lookup with a character-code branch; compiled browser smoke then passed. |
+
+---
+
+## Phase 10 — Bounded oversized recall envelope
+
+**Goal:** Accept valid Cognee recall envelopes that contain large metadata/context wrappers without weakening the prompt injection cap.
+
+- Live response measured at `73,683` bytes with HTTP `200`; the old `12,000` limit rejected it before normalization.
+- Recall transport now allows up to `128 KiB`, normalizes only requested top-K results, and retains the configured `recallMaxChars` output cap.
+- Regression, `npm run check`, build, and compiled live recall pass.
 
 ---
 
@@ -794,5 +832,7 @@ See Phase 8.
 [x] C7 docs + changelog
 [x] npm run check green
 [x] Live smoke verified; API stopped after the intentional test
+[x] Phase 9 observer + activity feedback
+[x] Phase 10 bounded recall envelope
 [ ] Do not push / PR unless asked
 ```

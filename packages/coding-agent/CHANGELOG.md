@@ -75,6 +75,8 @@
 - Added first-class `piv` Cognee memory with bounded transient recall, redacted compaction-linked remember queueing, `/cognee` controls, and a read-only `cognee_search` tool; the stock `pi` launcher is unchanged.
 - Extended `piv-cognee` with a Claude Code-style hook clone on Pi extension events: continuous session capture (`/remember/entry` for prompts, answers, and tool traces), pre-compact anchors, session-end `/improve`, and `/cognee capture|tools|improve` toggles.
 - Brought `piv-cognee` closer to claude-code parity: `/cognee doctor`, statusline, skills (`cognee-remember`/`search`/`sync`), idle improve on `agent_settled`, warmup buffer, session map, multi-scope pre-compact recall, tool allowlist, and `~/.cognee/.env` loading for Layer A keys.
+- Improved Blackhole + Cognee compaction cooperation via `compactionSummaryMode` (`auto`/`defer`/`own`): default `auto` defers the Pi summary to Blackhole when configured, still stores pre-compact anchors and permanent remember of the final summary.
+- Added `/cognee watch`, a loopback-only realtime observer with SSE updates for agent/session identity, Cognee request lifecycle, queue state, latency, and capped redacted ingest previews; prompt recall now shows immediate animated activity in the Pi statusline.
 - Added capability-gated fast mode for local Codex/Luna Responses models, with persisted, CLI, interactive, and RPC controls for the priority service tier ([#5](https://github.com/Zykairotis/pi-void/pull/5)).
 - Added `/fast` interactive command with toggle, explicit on/off, and status controls ([#5](https://github.com/Zykairotis/pi-void/pull/5)).
 - Added model-specific `ultra` thinking selection and preserved local endpoint thinking metadata for explicit provider mappings ([#5](https://github.com/Zykairotis/pi-void/pull/5)).
@@ -98,6 +100,8 @@
 - Fixed `piv-cognee` tool traces leaking credentials, pre-compaction anchors not reaching Pi compaction, shutdown improve racing unregister, concurrent pending drains duplicating writes, and unsupported `/improve` routes reporting success.
 - Fixed Cognee v1 recall and improve payloads to match the server's camelCase fields, preserving session and graph recall.
 - Fixed `piv-cognee` API-key resolution to prefer the `~/.pi/agent/pi-cognee/api_key.json` key file over stale shared Cognee env files.
+- Fixed observer SSE cleanup and request metrics so connected dashboards cannot block `piv` shutdown and lifecycle events count as one request.
+- Fixed valid oversized Cognee recall envelopes being rejected before normalization; transport remains capped at `128 KiB`, while injected memory remains bounded by the configured recall character limit.
 - Fixed extension selectors dropping supplied Markdown review content before mounting, which hid the Pi Void plan body from the approval menu, and kept selector controls visible when the review viewport shrinks ([#5](https://github.com/Zykairotis/pi-void/pull/5)).
 - Fixed project-level nested provider retry settings replacing unmodified global provider retry settings ([#7572](https://github.com/earendil-works/pi/issues/7572)).
 - Fixed inherited GitHub Copilot Grok 4.5 requests to use the supported Responses API ([#7560](https://github.com/earendil-works/pi/issues/7560)).

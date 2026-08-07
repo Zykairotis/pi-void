@@ -30,11 +30,22 @@ Pi does not load Claude `hooks.json`. Parity is implemented with the **Pi extens
   "captureSession": true,
   "captureTools": true,
   "autoImprove": true,
+  "compactionSummaryMode": "auto",
   "baseUrl": "http://127.0.0.1:8211",
   "dataset": "pi-void",
   "recallBudgetMs": 10000
 }
 ```
+
+## Blackhole cooperation
+
+| Mode | Behavior |
+|------|----------|
+| **`auto` (recommended)** | If Blackhole is configured (`~/.pi/agent/pi-blackhole/...`), Cognee **does not** override the Pi compact summary. Blackhole writes the chat summary; Cognee stores a pre-compact memory anchor + queues the final summary on `session_compact`. |
+| **`defer`** | Always defer summary (even without Blackhole). |
+| **`own`** | Cognee returns the Pi compaction summary (standalone; can fight Blackhole). |
+
+Balanced profile: `compactionSummaryMode: "auto"`, Blackhole mid-run compact, Cognee capture/recall/remember.
 
 Config: `~/.pi/agent/pi-cognee/config.json`
 API key: `~/.pi/agent/pi-cognee/api_key.json` with mode `0600`; process `COGNEE_API_KEY` wins, then this file, then the mint cache and shared `~/.cognee/.env`.
@@ -44,7 +55,7 @@ Does **not** auto-use `COGNEE_PLUGIN_DATASET=agent_sessions` — default dataset
 ## Commands
 
 ```text
-/cognee status | doctor
+/cognee status | watch | doctor
 /cognee on | off
 /cognee recall on|off
 /cognee capture on|off
@@ -55,6 +66,19 @@ Does **not** auto-use `COGNEE_PLUGIN_DATASET=agent_sessions` — default dataset
 /cognee search <query>
 /cognee flush [pending|uncertain]
 ```
+
+## Realtime observer
+
+`/cognee watch` starts a loopback-only dashboard and reports its URL in the Pi UI. It reads the local
+`~/.pi/agent/pi-cognee/observations.jsonl` stream and updates over SSE. The dashboard shows agent/session IDs,
+dataset, Cognee endpoint, request lifecycle, latency, queue activity, failures, and capped redacted previews.
+
+The observer is local instrumentation, not a second memory store. API keys are never written to the event stream;
+previews are capped and passed through the same memory redaction rules as Cognee writes. The server closes with the
+Pi session.
+
+Recall transport accepts Cognee's bounded response envelope up to `128 KiB`, then keeps only the requested top-K
+results. Prompt/context injection remains capped by `recallMaxChars`.
 
 ## Ops
 
