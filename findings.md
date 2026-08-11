@@ -12,22 +12,25 @@ The strongest design is:
 - keep the parent `AgentSession` authoritative for decomposition, mode/policy, integration, verification, and user-facing completion;
 - create each child as a fresh native `AgentSession` with an in-memory history and explicit model/tool scope;
 - start with only bundled foreground read-only `explore` and `review` roles;
-- disable child extensions, skills, prompt templates, themes, and context-file discovery in V1 so the worker runtime is intentionally small and predictable;
+- disable child extensions and ambient skills, prompt templates, themes, and context-file discovery by default so the worker runtime is intentionally small and predictable;
+- allow Phase A to pass only explicitly selected, trusted, hash-validated skills, prompt templates, and context files;
 - derive child tools from the parent's currently active tools intersected with the role/runtime allowlist;
 - return a compact typed result instead of copying the child transcript into the parent;
 - propagate cancellation and hard budgets;
-- make custom profiles, parallel fan-out, writers/worktrees, recursion, and background jobs later capability layers rather than MVP defaults.
+- keep configurable roles/resources explicit and independently gated; make parallel fan-out, writers/worktrees, recursion, and background jobs later capability layers rather than defaults.
 
 The local references agree on the important invariants even though their implementations differ: **isolate context, narrow permissions, track lineage, bound execution, treat child output as evidence, and keep mutation integration parent-owned**.
 
 The current Pi Void tree already contains enough native primitives for a strong foreground MVP. In particular, `createAgentSession({ tools })` supplies an actual tool allowlist, `SessionManager.inMemory()` can provide a clean child history, `AgentSession.subscribe()` exposes lifecycle events, and `AgentSession.abort()/waitForIdle()` provide a deterministic cancellation boundary. The existing subprocess subagent example remains useful as a compatibility and process-isolation reference, but it is not the only viable execution path.
+
+Phase B1 bounded sibling read fanout, Phase B2 typed reviewer orchestration, Phase B3.1 deterministic cross-model reviewer routing, Phase B4 parent-owned launch preflight/digest, Phase B5 selective typed context packets, Phase B6.1 sanitized fork snapshots, and Phase B7.1 bounded typed transient recovery are implemented over the same atomic `runResolved()` executor, with B7.1 frozen after independent audit. Reviewer results remain independently scoped and verified, deterministic, and contradiction-preserving; model selection changes compute only and records task/dimension/default/parent provenance. Preflight records resolved model, effective tools, exact scope roots, budget reservations, trust, selected-resource provenance, packet metadata, and fork metadata before launch; only a bounded digest enters parent context. Explicit packet and sanitized fork content enter only the fresh child handoff as untrusted data. Fork mode uses `buildSessionContext().messages`, strict allowlisting, shared credential redaction, deterministic UTF-8 caps, and a combined packet/fork budget; it never clones sessions or imports `getBranch()` state. B7.1 retries only explicitly typed transient provider/startup failures once, reuses the immutable normalized contract and context, aggregates usage/output, and delays batch fail-fast until logical-task recovery is terminal. The parent remains the sole synthesizer. Writers, chains, background jobs, fallback model policy, and Hivemind remain future phases.
 
 ---
 
 ## Current repository state relevant to this work
 
 - Active branch inspected: `void`.
-- Subagent implementation has **not** been started in this planning pass.
+- At the time of this research snapshot, subagent implementation had not started; the current V1 implementation is tracked in `progress.md` and `task_plan.md`.
 - Existing unrelated/concurrent changes in PIV provider, model-store, Cognee, tests, and planning files must be preserved.
 - Local reference roots:
   - `agent_references/oh-my-pi`
@@ -41,6 +44,10 @@ The current Pi Void tree already contains enough native primitives for a strong 
   - `packages/coding-agent/examples/extensions/subagent/README.md`
 
 No reference implementation should be copied wholesale. The useful target is a Pi Void-native contract built from the common safety/lifecycle patterns.
+
+Phase A is implemented in `packages/coding-agent/src/piv-subagents.ts`: user/project role resolution is provenance- and hash-bound, user context selection is isolated under `$PI_AGENT_DIR/context/`, selected skills receive exact resource read roots, selected prompt bodies reach child execution, selected resources are capped before reading at 64 KiB per file and 256 KiB in aggregate, project trust is required for project sources, and extensions remain excluded. The runner consumes one resolved launch contract without rediscovery. Phase B1/B2 parallel read and typed review layers plus B3.1 model routing, B4 preflight/digest, and B5 context packets reuse that runner; fallback/retry, fork-context sanitization, and writer/background semantics remain future phases.
+
+M10/M11 verification is complete for the deterministic delegation path: parent-owned lineage, terminal/partial-result verification, parent-side evidence bounds, unresolved review claims, foreground/durable-async timeout forwarding, and unsafe foreground `review` rejection are covered by `181/181` focused verification tests plus the Faux-provider integration suite at `9/9`. The seven-file foreground delegation regression shard passes `263/263`. Root `npm run check` reaches only the inherited `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` TypeScript error.
 
 ---
 
@@ -1064,3 +1071,286 @@ The broad V1 architecture is now locked. Remaining questions should be answered 
 - In V2, which resource classes should be selectively re-enabled first, if any, and under what trust/provenance rules?
 
 These questions do not change the core architecture above.
+
+# 21. W1-W11 executable acceptance ledger
+
+This ledger closes the deterministic evidence-traceability gap without adding production code, duplicate tests, or new behavior. It records the current `HEAD` (`7cbd8a676815cbfef3b03a4902269ede2ac2fbf1`) and a dirty worktree containing unrelated/concurrent changes; results were captured against that tree.
+
+All Vitest commands below ran from `packages/coding-agent`.
+
+| Scope | Existing acceptance evidence | Command/result | Status |
+|---|---|---|---|
+| W1 isolated writer foundation | `piv-subagents.test.ts`: clean/dirty HEAD gates, base SHA validation, detached worktree, scoped tools, confinement, cleanup, parent preservation | C1: 7 files, `263/263`, exit 0 | PASS / FROZEN |
+| W2 bounded writer artifacts | `piv-subagents.test.ts`: status inventory, artifact hashes, object-store isolation, CRLF consistency, caps, failed-writer proposal suppression | C1: `263/263`, exit 0 | PASS / FROZEN |
+| W3 parent integration and rollback | `piv-subagents.test.ts`, `piv-subagents-adversarial.test.ts`, `piv-safe-verify.test.ts`: preimage/inventory/apply gates, verifier failure, rollback and conflict preservation | C1: `263/263`, exit 0 | PASS / FROZEN |
+| W4 proposal workflow | Writer workflow tests: canonical artifact path, inspect/reject/integrate, mandatory verifier, reuse, verifier failure and rollback | C1: `263/263`, exit 0 | PASS / FROZEN |
+| W5A automated writer hardening | `piv-writer-w5.test.ts`: Faux success, multi-file changes, rejection/reuse, tampering, path/symlink/cap attacks, stale/dirty parents, verifier failure, rollback conflict, cancel/timeout | C1: `263/263`, exit 0 | PASS / FROZEN |
+| W5B live provider certification | `examples/w5-writer-dogfood.ts` supports `cx/gpt-5.6-luna` and `cx/deepseek/deepseek-v4-flash`; no live JSONL result was supplied | C5a/C5b: NOT RUN; external evidence required | PENDING EXTERNAL CERTIFICATION |
+| W6 observatory/TUI | `piv-subagent-observatory.test.ts` and related tests: lifecycle snapshots, rendering/redaction, writer phases, command aliases, update isolation | C1: `263/263`, exit 0 | PASS / FROZEN for deterministic implementation |
+| W7.1 one-owner durable job | `piv-subagent-jobs.test.ts`: persist-before-launch, owner isolation, cancellation/shutdown settlement, stale restore, notification ordering, retention | C1: `263/263`, exit 0 | PASS / FROZEN |
+| W7.2 bounded job scheduling | Jobs tests: FIFO queue, active/queue caps, aggregate reservations, queued cancellation, exact release, fail-closed persistence, shutdown/restore | C1: `263/263`, exit 0 | PASS / FROZEN |
+| W8.1 durable observatory metadata | Jobs/observatory tests: post-persistence subscription, active/FIFO/terminal projection, bounded metadata, no result bodies | C1: `263/263`, exit 0 | PASS / FROZEN |
+| W8.2 terminal result inspection | Observatory/subagent tests: terminal-only inspection, frozen bounded projection, invalid-path rejection, no scheduler/session mutation | C1: `263/263`, exit 0 | PASS / FROZEN |
+| W8.3 completion inbox | Observatory/subagent tests: persisted metadata validation, deduplication, ordering, cap, frozen-on-open behavior, no result-body reads | C1: `263/263`, exit 0 | PASS / FROZEN |
+| W9 unsafe host execution | `piv-subagents.test.ts`, `piv-safe-verify.test.ts`, `piv-delegate-mvp.test.ts`: startup/runtime gates, trust/Bash/TUI confirmation, best-effort cancellation warning, post-confirmation recheck, no retry for unsafe runs, async/batch/review enablement, duplicate-flag rejection | Targeted `piv-subagents.test.ts`: `138/138`; exit 0 | PASS / CONTRACT-HARDENED / NOT A SANDBOX |
+| Milestone 10 parent verification | Lineage, terminal status, non-partial completion, evidence bounds, path scope, unresolved review claims | C2: 2 files, `181/181`, exit 0 | VERIFIED |
+| Milestone 11 Faux integration | Real `pivSubagents` factory: registration, context isolation, gates, completion, review claims, cancellation, foreground/async timeout, `--sub-yolo`, confirmed unsafe review/batch delegation | C3: 1 file, `9/9`, exit 0 | VERIFIED for deterministic Faux path |
+
+## 21.1 Canonical command records
+
+- **C1:** `cd packages/coding-agent && npx vitest run test/piv-subagents.test.ts test/piv-subagents-adversarial.test.ts test/piv-safe-verify.test.ts test/piv-writer-w5.test.ts test/piv-subagent-jobs.test.ts test/piv-subagent-observatory.test.ts test/piv-delegate-mvp.test.ts --testTimeout=60000` -> 7 files passed, `263/263`, exit 0.
+- **C2:** `cd packages/coding-agent && npx vitest run test/piv-subagents.test.ts test/piv-safe-verify.test.ts` -> 2 files passed, `181/181`, exit 0.
+- **C3:** `cd packages/coding-agent && npx vitest run test/piv-delegate-mvp.test.ts --testTimeout=60000` -> 1 file passed, `9/9`, exit 0.
+- **C4:** targeted Biome on the seven PIV test files -> clean, exit 0; standalone Biome on all 12 benchmark TypeScript files -> clean, exit 0; `git diff --check` -> no diagnostics, exit 0.
+- **C4 root check:** `npm run check` reaches only the inherited `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` TypeScript error; no new PIV diagnostic is present.
+- **C5a/C5b:** W5B live-provider routes are documented but not run; no certification result is claimed.
+
+This ledger separates implementation closure, deterministic/local acceptance, and external production-provider certification. No roadmap W10-W13 capability work is implemented or claimed; M12/M13 are Milestone names, not roadmap W12 work.
+
+# 22. M12-M13 executable acceptance ledger
+
+Status: **M12 COMPLETE / VERIFIED / FROZEN; M13 COMPLETE / VERIFIED / FROZEN**. The old artifacts below remain historical and are not canonical. The production native-only policy remains unchanged.
+
+The repaired harness uses the existing `NativeSubagentRunner` for both adapters and records typed resource-loader and CLI contract vectors, startup metrics, honest end-RSS availability, memory summaries, cleanup, and maintenance rationale. `m13:verify` consumed exactly the four full-budget M12 runs, then executed C1/C2/C3 and recorded observed counts, exit codes, Git SHA, and dirty-worktree qualification.
+
+| Scope | Artifact | Result | Status |
+|---|---|---|---|
+| Historical M12/M13 run set | `.artifacts/m12/2f72fc84-edc3-4635-95bc-d08bd2b1e0a9/`, `.artifacts/m12/67e78886-c006-4b05-9f94-afcb6e9c1843/`, `.artifacts/m12/6a4ec429-ef91-4522-841d-f91dc7bc6cfb/`, `.artifacts/m12/ccaa8af7-2e47-4edf-b05c-f9ceaadaf08d/`, `.artifacts/m13/m13-1786289209293/` | Previous reports used labels-only compatibility evidence and hard-coded C1/C2/C3 counts | HISTORICAL / NOT CANONICAL |
+| M12 cold performance | `.artifacts/m12/99f421f8-228b-4137-a44e-092895359713/` | 30 repetitions; schema-v2; all hard gates pass; decision `native-only` | PASS / CANONICAL |
+| M12 warm performance | `.artifacts/m12/d6222038-23e7-4ca9-a8ce-1770dc96db37/` | 5 warmups + 100 measured repetitions; schema-v2; all hard gates pass; decision `native-only` | PASS / CANONICAL |
+| M12 safety | `.artifacts/m12/67457e73-cd91-452b-b0a0-154ebf94a369/` | 50 repetitions across the exact four safety workloads; terminal/cancellation/orphan/cleanup gates pass | PASS / CANONICAL |
+| M12 compatibility | `.artifacts/m12/430338fe-ddb8-45f6-a0ee-fdaaee129df9/` | 3 repetitions with complete resource-loader and CLI contract vectors; compatibility/resource gates pass | PASS / CANONICAL |
+| M13 policy | `packages/coding-agent/src/piv-subagents.ts` and `.artifacts/m13/m13-1786296433961/policy.json` | Native default, no fallback, no automatic routing, rollback without state migration | PASS / FROZEN |
+| M13 acceptance artifact | `.artifacts/m13/m13-1786296433961/acceptance.json` | Schema-v2; exact four M12 sources; observed C1 `263/263`, C2 `181/181`, C3 `9/9`; exit codes 0; dirty qualification retained | PASS / CANONICAL |
+
+The benchmark is synthetic boundary evidence, not live provider certification. W5B remains `PENDING EXTERNAL CERTIFICATION`; exhaustive B8 matrices remain optional. No roadmap W10-W13 capability work is implemented or claimed.
+
+
+---
+
+# 23. Pi Void versus Prime-Agent subagent comparison
+
+_Last reviewed: 2026-08-11. Read-only comparison of the local `agent_references/prime-agent` checkout against the current Pi Void tree. The reference checkout was not modified and live-provider certification is not claimed._
+
+## Executive verdict
+
+Prime-Agent is the stronger **live recursive agent runtime**. Pi Void is the stronger **bounded delegation, verification, and mutation-integrity layer**. Prime-Agent wins dynamic orchestration; Pi Void wins constrained reproducibility and evidence-backed execution.
+
+- Overall capability: **Prime-Agent 8.8/10; Pi Void 7.5/10**.
+- Safety/reliability fit for Pi Void’s stated goals: **Pi Void 9.0/10; Prime-Agent 8.0/10**.
+- This is not a universal product ranking: the scores weight different objectives.
+
+## Evidence reviewed
+
+### Pi Void
+
+- `idea.md`: ownership boundaries, safety rules, frozen phases, explicit non-goals, and deferred recursion/background capabilities.
+- `packages/coding-agent/src/piv-subagents.ts`: roles, scopes, resource provenance, context packets, fork sanitization, native sessions, writers, batches, reviews, recovery, observability, and tool registration.
+- `packages/coding-agent/src/piv-subagent-jobs.ts`: durable jobs, FIFO queueing, owner budgets, cancellation, interruption, persistence, projections, and retention.
+- `packages/coding-agent/src/piv-subagent-observatory.ts`: bounded progress/workflow snapshots, redaction, result inspection, and completion metadata.
+- `packages/coding-agent/src/piv-agent-packs.ts`: bounded Ruflo role import, frontmatter checks, source hashing, conflict handling, and limits.
+- PIV tests: `piv-subagents*.test.ts`, `piv-subagent-jobs.test.ts`, `piv-subagent-observatory.test.ts`, and `piv-delegate-mvp.test.ts`.
+
+### Prime-Agent
+
+- `packages/coding-agent/src/core/agent-session-runtime.ts`: top-level/subagent runtime ownership, nested runtimes, child creation/deletion, and cleanup.
+- `packages/coding-agent/src/core/rlm-runtime.ts`: spawn handles, child registry/list/delete APIs, model matching, and runtime host contracts.
+- `packages/coding-agent/src/core/agent-messages.ts`: parent/child/sibling topology, message delivery, receipts, limits, rate limiting, and reachability authorization.
+- `packages/coding-agent/src/core/agent-observe.ts`: agent listing, snapshots, and bounded recent-message inspection.
+- `packages/coding-agent/src/core/prompts/rlm.ts`: model-facing runtime, messaging, observation, and cleanup doctrine.
+- `packages/coding-agent/src/core/rlm-max-depth.ts`: configurable recursion-depth state.
+- `packages/coding-agent/src/modes/agents-view/` and `modes/daemon/daemon-supervisor*.ts`: interactive views, session persistence, process supervision, ownership, and recovery infrastructure.
+- Tests: recursion, family messaging, observe skill, message skill, and observe-session suites.
+
+## Overall rating table
+
+Ratings measure capability fit for each dimension, not line count or implementation quality.
+
+| Dimension | Pi Void | Prime-Agent | Winner | Reason |
+|---|---:|---:|---|---|
+| Basic delegation | 8.5 | 8.5 | Tie | Both use native Pi child-session/runtime seams. Pi Void has stronger result contracts; Prime-Agent has stronger live lifecycle. |
+| Typed results/evidence | 9.5 | 7.5 | Pi Void | Bounded schemas, evidence paths, findings, verification, provenance, and contradiction preservation. |
+| Verification/correctness gates | 9.0 | 7.5 | Pi Void | Parent verification is authoritative; observed artifacts override model claims. |
+| Writer isolation/patch integrity | 9.5 | 7.5 | Pi Void | Worktrees, scoped tools, hashes, preimages, non-fuzzy integration, rollback, and conflict detection. |
+| Safety/authority boundaries | 9.0 | 8.0 | Pi Void | Read-only defaults, capability narrowing, disabled child resources, fixed recursion boundary, fail-closed paths. |
+| Durable bounded jobs | 9.0 | 8.5 | Pi Void | Owner scope, FIFO queue, reservations, persistence-before-promotion, interruption, retention, bounded projections. |
+| Recursive delegation | 5.0 | 9.5 | Prime-Agent | Nested RLM runtimes and descendant cleanup; Pi Void explicitly disables recursion. |
+| Live parent/child messaging | 4.5 | 9.5 | Prime-Agent | Family-scoped messaging, queueing, steering/follow-up, receipts, limits, and authorization. |
+| Live child observation | 6.5 | 9.0 | Prime-Agent | Live snapshots and recent messages versus Pi Void progress/terminal projections. |
+| Foreground lifecycle control | 6.5 | 9.0 | Prime-Agent | List, inspect, delete, retain, cancel, and nested cleanup. |
+| Daemon/session persistence | 6.5 | 9.5 | Prime-Agent | Persistent live runtime/session fabric versus Pi Void durable job metadata/results. |
+| Subagent UI/operations | 7.0 | 9.0 | Prime-Agent | Agents views, messages, hierarchy, and session navigation. |
+| Depth/model routing | 5.5 | 9.0 | Prime-Agent | Configurable `/rlm-max-depth` and model matching versus exact-parent-model/fixed-depth policy. |
+| **Overall capability** | **7.5** | **8.8** | **Prime-Agent** | Broader live orchestration. |
+| **Safety/reliability fit** | **9.0** | **8.0** | **Pi Void** | Narrower authority and stronger evidence/integration gates. |
+
+## Where Prime-Agent wins
+
+### 1. Recursive delegation and runtime trees
+
+Prime-Agent treats each child as a first-class runtime. A child can create descendants, retain them, inspect them, delete them, forward nested events, and participate in descendant cancellation/cleanup. Runtime metadata includes child/parent identity, runtime kind, model, session name, status, and cleanup state.
+
+Pi Void’s `delegate`, `delegate_batch`, and `review_batch` are intentionally flat. Child extensions, MCP, and recursive delegation remain disabled. This prevents recursive explosion and preserves one authoritative parent loop, but it cannot naturally express planner -> researcher -> specialist -> reviewer trees.
+
+**Prime-Agent advantage:** dynamic decomposition and multi-level investigations. **Pi Void advantage:** simpler authority, accounting, cancellation, and testing.
+
+### 2. Live family-scoped messaging
+
+Prime-Agent’s `agent_message` supports parent, child, and sibling addressing, roster discovery, broadcasts, queued delivery, automatic/steer/follow-up modes, receipts, persisted message events, queue limits, message-size limits, rate limiting, and nuclear-family reachability checks.
+
+Pi Void passes an immutable launch packet and returns a typed result. It has no equivalent live PIV message bus.
+
+**Prime-Agent advantage:** redirect a running child, request clarification, or coordinate siblings without restarting. **Pi Void advantage:** immutable handoffs are easier to replay, redact, bound, and verify; free-form messages remain untrusted.
+
+### 3. Live rollout observation
+
+Prime-Agent’s `agent_observe` can list agents, inspect a target snapshot, and retrieve bounded recent messages. It reveals what a child is doing, not merely whether a job exists.
+
+Pi Void’s observatory exposes phases, tool activity, attempts, timing, diagnostics, writer state, durable metadata, terminal results, and completion metadata. It deliberately avoids arbitrary transcript ingestion and steering.
+
+**Prime-Agent wins active debugging and supervision.** Pi Void wins context minimization and leakage resistance.
+
+### 4. Foreground lifecycle control
+
+Prime-Agent supports direct lookup by ID/name, ambiguity detection, deletion, retained completed children, nested cleanup, cleanup-failure tracking, descendant cancellation, and child-update forwarding.
+
+Pi Void supports startup/runtime cancellation, timeout, durable-job cancellation, queued cancellation, restart interruption, terminal retention, and owner-only inspection, but not the same general live-child registry.
+
+**Prime-Agent wins** when children are managed as live sessions rather than one-shot calls.
+
+### 5. Configurable recursion depth
+
+Prime-Agent’s `/rlm-max-depth` supports default, environment, global, inherited, and per-chat sources. Tests cover immediate changes, next-turn prompt changes, persistence failure, stale errors, and rollback.
+
+Pi Void has a fixed non-recursive policy. This is a deliberate non-goal, not an implementation defect.
+
+**Prime-Agent wins flexibility; Pi Void wins predictability.**
+
+### 6. Daemon-backed live session fabric
+
+Prime-Agent integrates children with daemon supervisors, session catalogs, leases, process supervision, restart/recovery journals, inactive-session visibility, and child update events. Children remain operationally addressable beyond one foreground turn.
+
+Pi Void persists append-only job snapshots and bounded terminal projections. It intentionally interrupts active work on restart rather than ambiguously relaunching it and does not preserve a general live conversational child through restart.
+
+**Prime-Agent wins reconnection and long-running orchestration.** **Pi Void’s fail-closed interruption is safer for non-idempotent work.**
+
+### 7. Interactive agents UI
+
+Prime-Agent has agents views, child summaries, message rendering, hierarchy display, inactive-session visibility, session navigation, and daemon-backed updates.
+
+Pi Void has W6/W8 observatory overlays, full/split transcript views, bounded progress, terminal inspection, durable job sections, and completion metadata. It explicitly defers TUI job actions, live inbox state, steering, queue authority, result ingestion, and auto-resume.
+
+**Prime-Agent wins operational fleet management.**
+
+### 8. Model and depth flexibility
+
+Prime-Agent includes RLM model matching and child model identity. Pi Void requires delegated children and durable jobs to use the exact current parent `Model` object; per-role routing, fallback models, and arbitrary child model selection are deferred/disallowed.
+
+**Prime-Agent wins specialist routing.** **Pi Void wins same-model reproducibility and predictable capability/cost accounting.**
+
+## Where Pi Void matches or wins
+
+### 1. Typed, bounded, evidence-oriented results
+
+Pi Void’s result types distinguish completed, failed, cancelled, timed-out, and verification-failed states; evidence paths from prose; partial output from trusted completion; attempts; logical task status from aggregate batch status; and model claims from parent verification. Durable projections reject invalid statuses, malformed timestamps, oversized text, invalid paths/findings, inconsistent IDs, and non-terminal snapshots without matching state.
+
+Prime-Agent has strong runtime/session types, but its differentiator is coordination rather than this same evidence-first result boundary.
+
+### 2. Capability narrowing and resource isolation
+
+Pi Void derives child tools from parent active tools and role/runtime policy. Read-only children use `read`, `grep`, `find`, and `ls`; writers have a separate scoped set. Child extensions, MCP, Cognee/Blackhole/guard extensions, credentials, ambient skills, templates, themes, and context discovery are disabled unless explicitly selected and validated.
+
+Prime-Agent has strong family/depth/runtime controls, but its RLM system is broader: Python skills, messaging, observation, refinement, lifecycle, and recursion are available according to installed capabilities. Prime-Agent therefore has more operational power and a larger authority surface.
+
+### 3. Writer isolation and patch integrity
+
+Pi Void’s W1-W5 are materially strong in the reviewed writer path: clean-parent and exact-HEAD gates; detached isolated worktrees; scoped tools without Git/Bash/network/delegation; actual Git/filesystem inventory; UTF-8 text-only artifacts; rejection of symlinks, gitlinks, binary/ignored/scope-escaping paths; bounded files/bytes; exact artifact provenance and hashes; preimage/postimage checks; non-fuzzy integration; mandatory verification; rollback conflict detection; and no silent merge/rebase/commit/push.
+
+The local Prime-Agent evidence shows broad workspace/process infrastructure, but does not establish a stronger equivalent to this frozen W1-W5 patch protocol.
+
+### 4. Durable owner-scoped jobs
+
+Pi Void’s W7.1/W7.2 provides one owner-scoped durable read-only job with append-only snapshots, persistence-before-promotion, owner-only inspection/cancellation, active/queued limits, FIFO admission, aggregate output reservations, deterministic queued cancellation, restart interruption, terminal retention, and bounded verified projections.
+
+Prime-Agent wins persistent live sessions; Pi Void wins this narrower bounded-job contract.
+
+### 5. Immutable handoffs, fork sanitization, and redaction
+
+Pi Void’s B5/B6.1 context packets and fork snapshots are immutable, bounded, redacted, UTF-8-safe, and separate from child transcript state. It does not clone the entire parent branch or blindly inject history.
+
+### 6. Bounded typed recovery
+
+Pi Void’s B7.1 permits two total attempts only for explicitly classified transient startup/provider failures, reusing the immutable request/context, aggregating usage/output, recording provenance, and avoiding fallback model selection. This is less flexible but stronger for deterministic review.
+
+## Capability versus safety scorecard
+
+| Evaluation lens | Pi Void | Prime-Agent | Interpretation |
+|---|---:|---:|---|
+| Feature breadth | 7.5 | 9.5 | Prime-Agent exposes substantially more live orchestration. |
+| Live collaboration | 5.5 | 9.5 | Messaging, observation, recursion, and steering dominate in Prime-Agent. |
+| Bounded reproducibility | 9.5 | 7.5 | Pi Void has immutable contracts, same-model policy, and bounded retries. |
+| Evidence/verification | 9.5 | 7.5 | Pi Void makes observed artifacts authoritative. |
+| Mutation safety | 9.5 | 7.5 | Pi Void’s reviewed writer protocol is narrowly stronger. |
+| Default authority minimization | 9.0 | 8.0 | Pi Void starts narrower and keeps expensive capabilities opt-in. |
+| Long-running orchestration | 7.0 | 9.5 | Prime-Agent’s daemon/session runtime is more complete. |
+| Operational debugging | 7.0 | 9.0 | Prime-Agent adds transcript observation and mature agent views. |
+| Cost/control predictability | 9.0 | 8.0 | Exact model, aggregate budgets, and bounded attempts favor Pi Void. |
+| Architecture fit for Pi Void | 9.5 | 7.5 | Copying Prime-Agent wholesale would conflict with Pi Void’s minimal-loop direction. |
+
+## Recommended Pi Void improvements based on Prime-Agent wins
+
+### Priority 1: bounded live observation
+
+Add a read-only API over the existing live-session registry for direct-child listing, status/phase/model/tool-count/timing inspection, and capped recent transcript previews. Enforce owner/parent-child scope, preserve redaction/byte caps, and never inject observation output into trusted result state automatically.
+
+### Priority 2: controlled parent follow-up
+
+Allow a parent to send a new bounded follow-up to a running child while preserving the original immutable launch contract. Cap count/bytes/rate; keep permissions, model, workspace, and trust unchanged; define cancellation/follow-up races deterministically.
+
+### Priority 3: explicit depth policy before recursion
+
+Define inherited/per-task depth, descendant count, aggregate output/token/time budgets, duplicate-task detection, and cleanup guarantees before enabling recursion. Default depth should remain `0` or `1`.
+
+### Priority 4: family-scoped messaging only if needed
+
+If sibling collaboration is justified, allow only parent/child/sibling routes with bounded size/count/rate, receipts, persisted events, and untrusted-data semantics. No messages should mutate policy or become trusted results without verification.
+
+### Priority 5: retain the current job/daemon boundary
+
+Do not replace the durable job registry with live daemon children until evidence shows interruption/reconnect is insufficient. Any future live daemon layer needs ownership/leases, descendant cleanup, credential lifetime rules, restart state transitions, retention/redaction, and deterministic cancellation races.
+
+## What not to copy
+
+- Do not add a second planner/controller or replace Pi’s authoritative loop.
+- Do not enable recursion by default.
+- Do not expose unrestricted cross-session messaging.
+- Do not inject raw child transcripts into parent history.
+- Do not silently inherit extensions, skills, MCP, credentials, or network access.
+- Do not add automatic model fallback solely for feature parity.
+- Do not auto-resume interrupted non-idempotent work.
+- Do not treat multiple model reports as proof without deterministic verification.
+- Do not claim sandboxing from session lineage alone.
+- Do not turn `/agents` into job-management authority without ownership and race semantics.
+
+## Final comparison
+
+| Question | Pi Void | Prime-Agent |
+|---|---|---|
+| Bounded child investigation? | Yes, with typed evidence and parent verification. | Yes, with native runtime/session management. |
+| Recursive descendants? | No, intentionally disabled/deferred. | Yes, with RLM/depth controls. |
+| Live parent/child communication? | No equivalent PIV message bus. | Yes, family-scoped `agent_message`. |
+| Live transcript inspection? | Progress/terminal observatory, not equivalent recent-message inspection. | Yes, via `agent_observe`. |
+| Cancel/delete live child? | Cancellation exists; retained live-child deletion is narrower. | Yes, with runtime deletion/cleanup. |
+| Daemon reconnect? | Durable metadata/results; active work interrupts on restart. | Yes, daemon-supervised runtime/session infrastructure. |
+| Safe writers? | Isolated worktrees and parent-owned patch integration. | Broad workspace/runtime support; no stronger local patch evidence. |
+| Trusted output by default? | No; verification mandatory. | Messages/results remain model-generated and should be treated as untrusted. |
+| Dynamic agent fleets? | Not currently. | Yes. |
+| Auditable bounded mutation? | Yes, particularly W1-W5. | Not demonstrated as stronger in the reviewed evidence. |
+
+## Final conclusion
+
+> **Prime-Agent is the stronger live multi-agent runtime; Pi Void is the stronger controlled delegation and verification layer.**
+
+Prime-Agent’s clearest wins are recursive runtime trees, family messaging, live observation, child lifecycle control, configurable depth/model routing, daemon-backed persistence, and operational UI. Pi Void’s clearest wins are typed evidence, parent-owned verification, capability/resource narrowing, immutable context boundaries, bounded recovery, durable owner-scoped jobs, and isolated writer patch integrity.
+
+The highest-value parity work is bounded live observation followed by controlled parent follow-up. Recursive delegation, family messaging, and daemon-backed live persistence should remain opt-in and gated by measured need, aggregate budgets, ownership, redaction, and deterministic recovery tests.

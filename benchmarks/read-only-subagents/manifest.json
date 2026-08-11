@@ -1,0 +1,71 @@
+{
+	"schemaVersion": 1,
+	"executions": [
+		{
+			"provider": "openai",
+			"model": "cx/gpt-5.6-luna",
+			"apiKeyEnv": "PIV_LOCAL_API_KEY",
+			"baseUrl": "http://127.0.0.1:20128/v1",
+			"api": "openai-responses",
+			"contextWindow": 272000,
+			"maxTokens": 128000,
+			"reasoning": true,
+			"input": ["text"]
+		},
+		{
+			"provider": "openai",
+			"model": "cmc/deepseek/deepseek-v4-pro",
+			"apiKeyEnv": "PIV_LOCAL_API_KEY",
+			"baseUrl": "http://127.0.0.1:20128/v1",
+			"api": "openai-completions",
+			"contextWindow": 1000000,
+			"maxTokens": 384000,
+			"reasoning": true,
+			"input": ["text"]
+		}
+	],
+	"targets": [
+		{
+			"id": "pi-stock",
+			"source": {
+				"repo": "https://github.com/earendil-works/pi.git",
+				"commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
+				"subdir": "packages/coding-agent"
+			},
+			"localPath": "../../Zykairotis/benchmark-checkouts/pi-upstream"
+		},
+		{
+			"id": "pi-native-example",
+			"source": {
+				"repo": "https://github.com/earendil-works/pi.git",
+				"commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
+				"subdir": "packages/coding-agent/examples/extensions/subagent"
+			},
+			"localPath": "../../Zykairotis/benchmark-checkouts/pi-upstream"
+		},
+		{
+			"id": "pi-subagents",
+			"source": {
+				"repo": "https://github.com/nicobailon/pi-subagents.git",
+				"commit": "67cf559acbb4b621b53879e2df3c8bd211c2b44b"
+			},
+			"localPath": "../../Zykairotis/benchmark-checkouts/pi-subagents"
+		},
+		{
+			"id": "pi-void",
+			"source": {
+				"commit": "CURRENT_WORKSPACE",
+				"subdir": "."
+			},
+			"status": "current_workspace"
+		}
+	],
+	"sourcePolicy": {
+		"externalCommitRequired": true,
+		"allowExistingCheckoutOrCache": true,
+		"allowFetch": false,
+		"allowBranchChanges": false,
+		"allowSubstitution": false,
+		"piVoidUsesCurrentWorkspace": true
+	}
+}

@@ -8,6 +8,7 @@ import { ExtensionSelectorComponent } from "../src/modes/interactive/components/
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import pivSafeVerify, {
 	createPivSafeVerify,
+	type PivCapabilityState,
 	parsePivMode,
 	parseVerifierArgv,
 	runVerifier,
@@ -85,6 +86,22 @@ describe("Pi Void launcher isolation and startup parsing", () => {
 		expect(() => validatePivStartupArgs(["--piv-plan-model="])).toThrow(/requires a nonempty model/);
 	});
 
+	it("rejects unsafe subagent host execution before headless startup", () => {
+		const configDir = mkdtempSync(join(tmpdir(), "piv-sub-yolo-config-"));
+		roots.push(configDir);
+		const result = spawnSync(
+			process.execPath,
+			["src/piv.ts", "--piv-mode", "build", "--piv-allow-bash", "--sub-yolo", "--help"],
+			{
+				cwd: process.cwd(),
+				env: { ...process.env, PI_CODING_AGENT_DIR: configDir, PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1" },
+				encoding: "utf8",
+			},
+		);
+		expect(result.status).toBe(1);
+		expect(`${result.stdout}${result.stderr}`).toContain("interactive TUI");
+	});
+
 	it("accepts bounded JSON argv and rejects shell strings or unsafe values", () => {
 		expect(parseVerifierArgv('["node","--version"]')).toEqual(["node", "--version"]);
 		expect(parseVerifierArgv(undefined)).toBeUndefined();
@@ -139,6 +156,7 @@ function extensionFixture(
 		entries?: Array<Record<string, unknown>>;
 		verifyResult?: { stdout: string; stderr: string; code: number; killed: boolean };
 		onModeChange?: (mode: "plan" | "build", ctx: ExtensionContext) => Promise<void>;
+		onCapabilityChange?: (capabilities: PivCapabilityState, ctx: ExtensionContext) => Promise<void>;
 		hasUI?: boolean;
 		planChoice?: string;
 		planChoices?: string[];
@@ -249,7 +267,9 @@ function extensionFixture(
 			input: async () => undefined,
 		},
 	} as unknown as ExtensionContext;
-	(options.onModeChange ? createPivSafeVerify({ onModeChange: options.onModeChange }) : pivSafeVerify)(api);
+	(options.onModeChange || options.onCapabilityChange
+		? createPivSafeVerify({ onModeChange: options.onModeChange, onCapabilityChange: options.onCapabilityChange })
+		: pivSafeVerify)(api);
 	return {
 		activeTools,
 		appended,
@@ -293,12 +313,51 @@ async function successfulMutation(runtime: ReturnType<typeof extensionFixture>, 
 	});
 }
 
+async function writerIntegrationResult(
+	runtime: ReturnType<typeof extensionFixture>,
+	id: string,
+	details: unknown,
+	isError = false,
+): Promise<void> {
+	expect(
+		await runtime.emit("tool_call", {
+			toolCallId: id,
+			toolName: "integrate_writer_patch",
+			input: { artifact: {} },
+		}),
+	).toBeUndefined();
+	await runtime.emit("tool_result", {
+		toolCallId: id,
+		toolName: "integrate_writer_patch",
+		input: { artifact: {} },
+		content: [],
+		details,
+		isError,
+	});
+}
+
 describe("Pi Void guarded extension", () => {
 	it("applies restored mode routing during session start", async () => {
 		const onModeChange = vi.fn(async () => {});
 		const runtime = extensionFixture({ flags: { "piv-mode": "plan" }, onModeChange });
 		await runtime.emit("session_start");
 		expect(onModeChange).toHaveBeenCalledWith("plan", runtime.ctx);
+	});
+
+	it("publishes an immutable authoritative capability snapshot", async () => {
+		const snapshots: PivCapabilityState[] = [];
+		const runtime = extensionFixture({
+			flags: { "piv-mode": "build", "piv-allow-bash": true },
+			onCapabilityChange: async (capabilities) => {
+				snapshots.push(capabilities);
+			},
+		});
+		await runtime.emit("session_start");
+		expect(snapshots).toHaveLength(1);
+		expect(snapshots[0]).toMatchObject({ mode: "build", bashEnabledInRecordedProcess: true });
+		expect(snapshots[0]?.tools).toEqual(expect.arrayContaining(["bash", "edit", "write"]));
+		expect(Object.isFrozen(snapshots[0])).toBe(true);
+		expect(Object.isFrozen(snapshots[0]?.tools)).toBe(true);
 	});
 
 	it("injects OMP-style planning instructions while in plan mode", async () => {
@@ -335,7 +394,22 @@ describe("Pi Void guarded extension", () => {
 	it("applies the default plan tool set and independently denies unknown calls", async () => {
 		const plan = extensionFixture();
 		await plan.emit("session_start");
-		expect(plan.activeTools.at(-1)).toEqual(["read", "grep", "find", "ls", "ask", "draft_plan", "propose_plan"]);
+		expect(plan.activeTools.at(-1)).toEqual([
+			"read",
+			"grep",
+			"find",
+			"ls",
+			"ask",
+			"draft_plan",
+			"propose_plan",
+			"list_subagent_profiles",
+			"delegate",
+			"delegate_async",
+			"inspect_subagent_job",
+			"cancel_subagent_job",
+			"delegate_batch",
+			"review_batch",
+		]);
 		expect(await plan.emit("tool_call", { toolCallId: "1", toolName: "edit", input: { path: "x" } })).toMatchObject({
 			block: true,
 		});
@@ -348,7 +422,27 @@ describe("Pi Void guarded extension", () => {
 
 		const build = extensionFixture({ flags: { "piv-mode": "build", "piv-allow-bash": true } });
 		await build.emit("session_start");
-		expect(build.activeTools.at(-1)).toEqual(["read", "grep", "find", "ls", "read_plan", "edit", "write", "bash"]);
+		expect(build.activeTools.at(-1)).toEqual([
+			"read",
+			"grep",
+			"find",
+			"ls",
+			"list_subagent_profiles",
+			"delegate",
+			"delegate_async",
+			"inspect_subagent_job",
+			"cancel_subagent_job",
+			"delegate_batch",
+			"review_batch",
+			"delegate_write",
+			"inspect_writer_patch",
+			"reject_writer_patch",
+			"integrate_writer_patch",
+			"read_plan",
+			"edit",
+			"write",
+			"bash",
+		]);
 		expect(
 			await build.emit("tool_call", { toolCallId: "3", toolName: "bash", input: { command: "true" } }),
 		).toBeUndefined();
@@ -669,6 +763,23 @@ describe("Pi Void guarded extension", () => {
 		).toMatchObject({ block: true, reason: expect.stringContaining("read_plan") });
 	});
 
+	it("blocks writer integration until an approved plan is reread", async () => {
+		const runtime = extensionFixture({ hasUI: true, planChoice: "Approve and execute" });
+		await runtime.emit("session_start");
+		await draftPlan(runtime);
+		await runtime.tools
+			.get("propose_plan")!
+			.execute("plan-1", { title: "Add guard" }, undefined, undefined, runtime.ctx);
+		await runtime.emit("agent_settled");
+		expect(
+			await runtime.emit("tool_call", {
+				toolCallId: "integrate-before-read",
+				toolName: "integrate_writer_patch",
+				input: { artifact: {} },
+			}),
+		).toMatchObject({ block: true, reason: expect.stringContaining("read_plan") });
+	});
+
 	it("requires confirmation before manually bypassing an unfinished plan", async () => {
 		const runtime = extensionFixture({ hasUI: true, confirm: false });
 		await runtime.emit("session_start");
@@ -680,7 +791,7 @@ describe("Pi Void guarded extension", () => {
 	});
 
 	it("bounds prose-only plan convergence reminders at three continuations", async () => {
-		const runtime = extensionFixture();
+		const runtime = extensionFixture({ hasUI: true });
 		await runtime.emit("session_start");
 		for (let attempt = 0; attempt < 4; attempt++) {
 			await runtime.emit("agent_start");
@@ -693,6 +804,13 @@ describe("Pi Void guarded extension", () => {
 			3,
 		);
 		expect(runtime.appended.at(-1)?.data).toMatchObject({ plan: { decisionReminderCount: 3 } });
+	});
+
+	it("does not schedule plan continuations in print mode", async () => {
+		const runtime = extensionFixture();
+		await runtime.emit("session_start");
+		await runtime.emit("agent_settled");
+		expect(runtime.steeredMessages).toHaveLength(0);
 	});
 
 	it("switches to configured planning and user-selected execution models", async () => {
@@ -778,7 +896,26 @@ describe("Pi Void guarded extension", () => {
 	it("requires current-process Bash opt-in and project trust", async () => {
 		const untrusted = extensionFixture({ flags: { "piv-mode": "build", "piv-allow-bash": true }, trusted: false });
 		await untrusted.emit("session_start");
-		expect(untrusted.activeTools.at(-1)).toEqual(["read", "grep", "find", "ls", "read_plan", "edit", "write"]);
+		expect(untrusted.activeTools.at(-1)).toEqual([
+			"read",
+			"grep",
+			"find",
+			"ls",
+			"list_subagent_profiles",
+			"delegate",
+			"delegate_async",
+			"inspect_subagent_job",
+			"cancel_subagent_job",
+			"delegate_batch",
+			"review_batch",
+			"delegate_write",
+			"inspect_writer_patch",
+			"reject_writer_patch",
+			"integrate_writer_patch",
+			"read_plan",
+			"edit",
+			"write",
+		]);
 		expect(
 			await untrusted.emit("tool_call", { toolCallId: "1", toolName: "bash", input: { command: "true" } }),
 		).toMatchObject({ block: true });
@@ -808,6 +945,43 @@ describe("Pi Void guarded extension", () => {
 		await successfulMutation(runtime);
 		expect(runtime.appended.at(-1)?.data).toMatchObject({ mutationGeneration: 1 });
 	});
+
+	it("records verified writer integration as an already-checked generation", async () => {
+		const command = JSON.stringify([process.execPath, "-e", "process.exit(0)"]);
+		const runtime = extensionFixture({
+			flags: { "piv-verify": command },
+			hasUI: true,
+			planChoice: "Approve and execute",
+		});
+		await runtime.emit("session_start");
+		await draftPlan(runtime);
+		await runtime.tools
+			.get("propose_plan")!
+			.execute("plan-1", { title: "Add guard" }, undefined, undefined, runtime.ctx);
+		await runtime.emit("agent_settled");
+		await runtime.tools.get("read_plan")!.execute("plan-read", {}, undefined, undefined, runtime.ctx);
+		await writerIntegrationResult(runtime, "integrate-1", {
+			status: "integrated",
+			verification: { status: "passed", commandHash: "writer-verifier" },
+		});
+		expect(runtime.appended.at(-1)?.data).toMatchObject({
+			mutationGeneration: 1,
+			checkedGeneration: 1,
+			verifier: { status: "passed", generation: 1, commandHash: "writer-verifier" },
+		});
+		await runtime.emit("agent_settled");
+		expect(runtime.verifierExec).not.toHaveBeenCalled();
+	});
+
+	it.each(["verification_failed", "integration_conflict", "rollback_conflict"] as const)(
+		"does not advance generation for writer integration status %s",
+		async (status) => {
+			const runtime = extensionFixture({ flags: { "piv-mode": "build" } });
+			await runtime.emit("session_start");
+			await writerIntegrationResult(runtime, `integrate-${status}`, { status }, true);
+			expect(runtime.appended.at(-1)?.data).toMatchObject({ mutationGeneration: 0, checkedGeneration: 0 });
+		},
+	);
 
 	it("verifies latest generation once from the canonical root", async () => {
 		const command = JSON.stringify([
@@ -894,7 +1068,26 @@ describe("Pi Void guarded extension", () => {
 		(saved.data as { guardRoot: string; baseline: { root: string } }).guardRoot = resumedRoot;
 		(saved.data as { baseline: { root: string } }).baseline.root = resumedRoot;
 		await resumed.emit("session_start");
-		expect(resumed.activeTools.at(-1)).toEqual(["read", "grep", "find", "ls", "read_plan", "edit", "write"]);
+		expect(resumed.activeTools.at(-1)).toEqual([
+			"read",
+			"grep",
+			"find",
+			"ls",
+			"list_subagent_profiles",
+			"delegate",
+			"delegate_async",
+			"inspect_subagent_job",
+			"cancel_subagent_job",
+			"delegate_batch",
+			"review_batch",
+			"delegate_write",
+			"inspect_writer_patch",
+			"reject_writer_patch",
+			"integrate_writer_patch",
+			"read_plan",
+			"edit",
+			"write",
+		]);
 		expect(resumed.appended.at(-1)?.data).toMatchObject({ mode: "build", bashEnabledInRecordedProcess: false });
 	});
 });

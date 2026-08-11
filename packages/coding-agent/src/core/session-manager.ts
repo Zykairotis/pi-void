@@ -203,6 +203,7 @@ export type ReadonlySessionManager = Pick<
 	| "getEntries"
 	| "getTree"
 	| "getSessionName"
+	| "buildSessionContext"
 >;
 
 function createSessionId(): string {

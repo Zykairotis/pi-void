@@ -20,6 +20,9 @@ export interface AppKeybindings {
 	"app.model.cycleBackward": true;
 	"app.model.select": true;
 	"app.tools.expand": true;
+	"app.subagents.attach": true;
+	"app.subagents.expand": true;
+	"app.subagents.inspect": true;
 	"app.thinking.toggle": true;
 	"app.session.toggleNamedFilter": true;
 	"app.editor.external": true;
@@ -84,6 +87,9 @@ export const KEYBINDINGS = {
 	},
 	"app.model.select": { defaultKeys: "ctrl+l", description: "Open model selector" },
 	"app.tools.expand": { defaultKeys: "ctrl+o", description: "Toggle tool output" },
+	"app.subagents.attach": { defaultKeys: "right", description: "Attach to live subagent" },
+	"app.subagents.expand": { defaultKeys: "space", description: "Expand subagent details" },
+	"app.subagents.inspect": { defaultKeys: "ctrl+enter", description: "Inspect durable subagent job" },
 	"app.thinking.toggle": {
 		defaultKeys: "ctrl+t",
 		description: "Toggle thinking blocks",

@@ -27,6 +27,11 @@ Implemented today:
 - `/cognee watch` provides a loopback-only realtime observer over capped, redacted local events. It shows agent/session identity and Cognee lifecycle without adding a second memory or session store; prompt recall also reports immediate animated activity before Pi's model request.
 - The interactive theme picker includes all 98 themes from OhMyPi's pinned catalog alongside Pi's native dark and light themes.
 - `piv` bundles Guarded Build v0 with OMP-equivalent plan behavior through Pi-native seams: exact plan/build tool modes; repository-grounded planning questions; incremental draft/refine/propose state; scrollable Markdown review; fresh, compact, or preserved-context approval; optional planning/execution model routing; bounded convergence reminders; reopenable durable approval; mandatory approved-plan reread gating; Bash default-off; canonical direct edit/write checks; and one project-trusted settled verifier.
+- `piv` loads a hidden `delegate` tool for one foreground native read-only child session. V1 uses bundled `explore`/`review` roles, fresh in-memory history by default, opt-in sanitized fork continuity from `buildSessionContext().messages`, stripped child resources, parent/role read-tool intersection, tool-boundary scope enforcement, bounded JSON results with required evidence paths, parent verification, and deterministic cancellation/timeout; stock `pi` remains unchanged.
+- W9 adds explicit `--piv-mode build --piv-allow-bash --sub-yolo` host execution for confirmed foreground, durable async, batch, and review delegation paths. Default delegation remains read-only; the escape hatch gives all resolved roles the full scoped built-in tool set available to the trusted parent (`read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write`), disables recovery retry, requires project trust, active parent Bash, an interactive TUI, and confirmation per launch, and states that cancellation is best-effort. Child extensions, MCP, recursive delegation, and `delegate_write` remain disabled for delegated read/review roles. Normal `delegate_write` remains worktree-isolated and mutation-scoped; explicit YOLO `delegate_write` is the separately labeled direct-parent-workspace exception with no patch artifact or rollback. This is explicitly not a sandbox: host filesystem, process, network, credentials, and descendant cleanup remain outside containment; no `--no-sandbox` mode is advertised.
+- W1 adds build-only normal `delegate_write` as a separate primitive: the parent must be a clean Git worktree under `git status --porcelain=v1 -uall`, supply a full local 40-character SHA equal to current `HEAD`, and launch one foreground child in a temporary detached worktree. The child has only scoped `read`, `grep`, `find`, `ls`, `write`, and `edit`; Git metadata, Bash, network, MCP, extensions, delegation, retries, and parent integration are denied. W2 adds a trusted parent-side collector that inventories actual `git status --porcelain=v1 -z -uall` changes, reads raw `HEAD:path` and writer-worktree bytes, hashes those same bytes, and builds isolated `git diff --no-index` patches with external diff and textconv disabled. It accepts only regular UTF-8 text additions/modifications, rejects deletes, ignored paths, symlinks, gitlinks, binary data, scope escapes, and unsupported statuses, and writes immutable patch artifacts capped at 32 files and 512 KiB outside both worktrees without writing Git objects. Only `completed` writers receive a patch reference; W2 is frozen. W3 adds one parent-owned `integrateWriterPatchArtifact()` entry point with immutable artifact expectation snapshots, clean `HEAD`/worktree/index preconditions, exact preimage checks, checked non-fuzzy apply, required parent verification, post-verifier postimage/status validation, and compare-and-swap rollback that restores safe paths while raising explicit integration/rollback conflicts instead of overwriting newer state; W3 is frozen at this narrow optimistic-concurrency boundary, which is not literal atomic filesystem compare-and-swap without OS/repository locking. W4 adds three stateless parent-facing build tools around these frozen APIs: `inspect_writer_patch` validates a genuine W2 production artifact and returns capped metadata/preview; `reject_writer_patch` records only the current non-durable parent decision; and `integrate_writer_patch` requires a trusted build session and configured `--piv-verify` before calling W3. Artifact provenance is canonical `<agentDir>/artifacts/writer/<runId>/proposal.patch` equality, with regular-file, exact-byte/hash, schema, and inventory checks. No merge, rebase, commit, or conflict-resolution workflow is included. W5 adds a provider-free end-to-end adversarial writer gate and an explicit `W5_LIVE=1` manual dogfood harness for `cx/luna` and `cmc/deepseek`. W6 observability and TUI are implemented through the observatory store, bounded progress snapshots, tool render hooks, and switchable `/agents` and `/subagents` full-transcript or parent/child split views that reuse Pi's interactive message/tool components; live provider certification remains separate from default tests/checks.
+- W7.1 adds one owner-scoped durable asynchronous read-only job through `delegate_async`, `inspect_subagent_job`, and `cancel_subagent_job`: append-only session snapshots, independent cancellation, bounded verified-result projection, safe-boundary metadata notices, owner-only inspection/cancellation, restart interruption without relaunch, and terminal retention. W7.2 extends the same registry with bounded active concurrency, FIFO durable queue admission, owner aggregate planned-output reservations, deterministic queued cancellation, persistence-before-promotion, and queue/budget inspection metadata. W8.1 adds metadata-only owner-scoped durable job sections to the read-only `/agents` and `/subagents` overlays through a non-authoritative registry subscription and sanitized projection; no job actions, polling loop, result bodies, or scheduler changes are included. W8.2 adds one explicit configurable read-only inspect action for terminal BACKGROUND RECENT rows, calling the existing owner-scoped `inspect(jobId)` API and rendering only an ephemeral bounded result projection; it does not mutate session state or parent context. W8.3 adds a frozen noninteractive COMPLETION INBOX section derived once per overlay open from persisted `piv-subagent-job-completion` metadata intersected with current owner-scoped retained terminal jobs; inbox rows are metadata-only and not selectable. W8.4 adds owner-local live child-session registration and switchable full/split transcript views in the same overlays; attachment never steers, mutates, ingests results, or replaces the foreground Pi loop. The foreground runner remains unchanged. Background batch facades, background writers, auto-resume, steering/priority, TUI cancellation and queue-management authority, result ingestion, and live inbox state remain deferred.
+- Phase B1 adds the typed sibling-only `delegate_batch` fanout over the same `runResolved()` executor: at most 8 read-only tasks, default concurrency 2, hard maximum 4, fresh sessions, independent scopes, parent-owned reservations over complete JSON report bytes, observed terminal output accounting, bounded `totalBudgetBytes`, deterministic result ordering, aggregate usage, and cancellation/timeout. Phase B2 adds typed `review_batch` orchestration over that scheduler for correctness, security, tests, and regression dimensions, with independently verified structured findings and contradiction preservation. Every child launch strictly uses the current parent `Model` object; durable async jobs capture it at acceptance time. Request, profile, imported-pack, and reviewer-policy model routing is not supported. Phase B4 adds one parent-owned typed launch preflight for both batch APIs plus a bounded model-visible digest; it composes resolved contracts and existing validation before worker launch. Phase B5 adds one immutable typed context-packet path for legacy text and explicit parent-selected items; packet content is untrusted handoff data and metadata only reaches preflight. Phase B6.1 adds opt-in `fresh | fork` mode: fork sanitizes only `buildSessionContext().messages` into a frozen, redacted, UTF-8-bounded snapshot, keeps the child fresh, and enforces a combined packet/fork handoff budget. Phase B7.1 is frozen: bounded same-model transient recovery across all delegation facades: two total attempts, explicit typed retry classification, immutable request/context reuse, aggregate usage, and attempt provenance; fallback model selection remains deferred. W7.1 and W7.2 are frozen as the one-owner durable asynchronous read-only job slices; background batch facades, recursive delegation, writers, auto-resume, steering, and Hivemind remain outside this slice; W1 writer workspaces, W2 patch artifacts, W3 parent-owned patch verification/integration, and W4 parent-owned inspect/reject/integrate decisions are implemented separately.
 - Plan state remains bounded and session-native rather than introducing OMP's `local://` or `xd://` artifact protocols. Fresh execution uses a durable context boundary, compact execution uses Pi's native compaction, and headless proposals remain pending until an approval-capable client acts.
 - Guarded Build v0 is guarded execution, not a sandbox: opted-in Bash, custom external effects, and filesystem TOCTOU remain outside its direct-tool boundary.
 
@@ -136,7 +141,8 @@ Build outside upstream-owned source paths where stable seams permit:
 - verifier manifests, regression baselines, and bounded repair
 - workspace adapters and sandbox launchers
 - durable task state, budgets, recovery, and background-job tracking
-- optional flat delegation through a Pi Void-owned tool, with native read-only child sessions first and worktree-isolated writers later
+- optional flat delegation through a Pi Void-owned tool, with native read-only child sessions first, W1 worktree-isolated writers, W2 bounded patch artifacts, and W3 parent-owned verification/integration
+- optional Hivemind coordination above the subagent runner: parent-as-queen scheduling, run-scoped evidence state, bounded fan-out, advisory consensus, and verified learning
 - bounded derived-memory adapters such as `piv-cognee`
 - headless task orchestration and evidence reports
 
@@ -148,6 +154,8 @@ Build outside upstream-owned source paths where stable seams permit:
 - OpenCode: client/server sessions, role profiles, and permission patterns
 - Aider and Agentless: repository maps, checkpoints, localization, and deterministic validation
 - OhMyPi: content-anchored edits, optional LSP/DAP, and isolated child worktrees
+- ActiveLoop Hivemind: Pi lifecycle integration plus shared trace, retrieval, summarization, and skill-learning patterns
+- Ruflo: explicit hive topology, worker membership, consensus/state, and collective-coordination patterns
 - Grok Build: durable goal, budget, pause, and stop-state patterns for autonomous mode
 - mini-SWE-agent: minimal transparent fallback and evaluation baseline
 
@@ -185,7 +193,7 @@ Also retain tool-calling and structured-output support where exposed. Unsupporte
 
 Tool support is required for normal coding models. Models without reliable native tool calls may use an optional constrained shell-only profile.
 
-Per-role routing may select different models for primary work, planning, compaction, review, and optional workers, but must reuse Pi's model registry.
+Primary work, planning, compaction, and review may use their existing Pi-owned model routing. Pi Void delegated children do not add per-role routing: every child uses the exact current parent `Model` object, captured at tool launch or durable async acceptance.
 
 ### 4. Context safety
 
@@ -266,20 +274,53 @@ Rules:
 
 - `delegate` is loaded by `piv`, not stock `pi`.
 - Existing parent mode/tool policy remains authoritative; delegation observes `pi.getActiveTools()` rather than creating separate plan/build permissions.
-- V1 roles are bundled reviewed TypeScript definitions only. User/project role discovery is later and trust-gated.
+- V1 roles are bundled reviewed TypeScript definitions only. Phase A adds user/project role discovery only through explicit provenance, project trust, and execution-time hash revalidation.
 - Child gets separate context/history and only an explicit handoff packet; the parent transcript is not cloned.
-- V1 child resource discovery is off: no extensions, skills, prompt templates, themes, or context files. Relevant repository instructions must be passed deliberately when needed.
-- V1 explorers/reviewers are read-only and receive no Bash, edit/write, network/MCP, Cognee/Blackhole/guard extension, credential expansion, or recursive `delegate` capability.
+- Child resource discovery is off by default: no ambient extensions, skills, prompt templates, themes, or context files. Phase A can pass only explicitly selected, validated skills/prompts/context files.
+- User context selection is rooted at `$PI_AGENT_DIR/context/`; the agent directory itself is never a context root, so `auth.json`, `oauth.json`, `models.json`, settings, and sessions cannot enter through context selection.
+- Selected skill directories receive a separate exact read capability; repository scope is not widened. Selected prompt bodies are bounded and included in the explicit handoff instead of relying on disabled slash-template expansion. Selected resources are capped at 64 KiB per file and 256 KiB in aggregate.
+- The parent resolves one immutable launch contract. The exact current parent `Model` object, child startup, hash revalidation, execution, verification, and returned provenance all use that contract; durable async jobs capture the model at acceptance time.
+- V1 explorers/reviewers are read-only and receive no Bash, edit/write, network/MCP, Cognee/Blackhole/guard extension, credential expansion, or recursive `delegate` capability by default. Explicit `--sub-yolo` is the separately gated unsafe host-execution exception; it adds the full scoped built-in tool set available to the trusted parent, including Bash, edit, and write, but not child extensions, MCP, or recursive delegation.
 - Child result is typed, bounded evidence rather than trusted authority or an injected transcript.
 - Parent owns integration and verification.
 - Cancellation and timeout propagate to the child and terminate the run deterministically.
-- Custom profiles/resource inheritance come after the stripped runner is proven.
+- Explicit trusted configurable roles/resources are implemented as Phase A capabilities; trust grants eligibility, selection grants inclusion, and policy remains authoritative.
 - Parallel read fan-out comes after single-child lifecycle and accounting are stable; use conservative bounded concurrency.
-- Writers require isolated worktrees/workspaces and return observed patches/branches for parent verification.
+- Writers require isolated worktrees/workspaces and return observed patches/branches for parent verification, except the explicit trusted YOLO direct-parent-workspace path, which reports no isolation and requires no patch integration.
 - Background workers require durable owner-scoped job state, recovery, cancellation, retention, and completion delivery; do not model them as a boolean on the foreground runner.
 - No recursive delegation by default; hierarchical swarms are not a target architecture.
 
-Use delegation only when estimated benefit exceeds coordination, token, merge, and review cost. Primary intended uses are repository exploration, independent investigation, adversarial review, and spending a separate context window on evidence gathering without bloating the parent session.
+#### Hivemind coordination layer
+
+After bounded parallel read workers are proven, Pi Void may add an optional Hivemind layer above the same subagent executor. The parent Pi session is the logical queen; Hivemind is deterministic scheduling, run-scoped state, evidence aggregation, and advisory consensus rather than another autonomous planner.
+
+Target shape:
+
+```text
+Parent Pi AgentSession
+  -> `hivemind` with explicit tasks/budget
+      -> HivemindCoordinator
+          -> sibling SubagentRuns through the same executor as `delegate`
+          -> typed run-scoped EvidenceBoard
+          -> contradiction/evidence-quorum analysis
+      -> bounded HiveResult
+  -> parent verifier remains authoritative
+```
+
+Rules:
+
+- use a star topology first; workers do not directly spawn or message peers;
+- Hivemind cannot widen worker tools, mode, scope, network, credentials, or memory access;
+- consensus is advisory and never overrides deterministic verification;
+- do not claim Byzantine fault tolerance merely because several LLM workers vote; correlated model failures do not satisfy a distributed BFT fault model;
+- durable learning is separate from coordination: raw worker output is redacted/distilled and becomes only a candidate until verification/promotion policy accepts it;
+- parent-selected recall may later feed bounded verified knowledge into worker handoffs; child direct Cognee/durable-memory access remains off initially;
+- writer hives wait for isolated worktrees/workspaces and parent-owned patch verification;
+- durable/background/federated hives wait for persistent owner-scoped run state and secure worker identity.
+
+Detailed target architecture lives under `docs/hivemind/`.
+
+Use delegation only when estimated benefit exceeds coordination, token, merge, and review cost. Primary intended uses are repository exploration, independent investigation, adversarial review, and spending a separate context window on evidence gathering without bloating the parent session. Use Hivemind only when multiple independent evidence paths or an explicit panel provide additional value over one `delegate` run.
 
 ### 10. Evidence over feature count
 
@@ -384,7 +425,7 @@ Start with the stripped foreground delegation slice defined above rather than a 
 5. Child effective tools derived from parent active tools and capped to `read`/`grep`/`find`/`ls`.
 6. Typed handoff/result, lineage, timeout, cancellation, bounded progress, and parent verification.
 7. Controlled benchmark against Pi's subprocess example before deciding whether to maintain a second runner backend.
-8. Then, only with evidence: trusted configurable roles/resources, bounded parallel read workers, chain composition, worktree-isolated writers, durable background jobs, and optional scoped child memory.
+8. Trusted configurable roles/resources are implemented as Phase A, including dedicated user context isolation, selected skill read access, explicit prompt handoff, and single-resolution launch contracts. Phase B1 bounded sibling read fanout, Phase B2 typed reviewer orchestration, Phase B3.1 deterministic cross-model reviewer routing, Phase B4 launch preflight/digest, Phase B5 selective typed context packets, Phase B6.1 sanitized fork snapshots, and Phase B7.1 bounded typed transient recovery are implemented; evaluate fallback model policy, chains, worktree-isolated writers, durable background jobs, and optional scoped child memory only with evidence.
 
 Do not wait for full autonomous-mode infrastructure merely to prove a read-only child, but do not let the read-only slice smuggle in writer/background/autonomous assumptions either.
 
@@ -426,6 +467,8 @@ packages/coding-agent/src/piv-cognee-client.ts
 packages/coding-agent/test/piv-provider.test.ts
 packages/coding-agent/test/piv-cognee.test.ts
 packages/coding-agent/test/piv-safe-verify.test.ts
+packages/coding-agent/src/piv-subagents.ts
+packages/coding-agent/test/piv-subagents.test.ts
 packages/coding-agent/src/modes/interactive/theme/*.json
 packages/coding-agent/docs/theme-sources.md
 ```
@@ -447,11 +490,14 @@ Keep this list current when fork-specific files change.
 3. Add compatibility probes for chat completions, tools, streaming, images, reasoning, and structured output.
 4. Build Stage 0 same-model instrumentation and regression runner.
 5. Continue field-testing Guarded Build v0 and session-native plan approval before extracting a broader `safe` profile/package boundary.
-6. Prototype the narrow V1 delegation slice independently: `piv`-only `delegate`, bundled read-only roles, stripped native child resources, foreground execution, cancellation/timeout, typed bounded evidence, and parent verification. Keep it optional until controlled evaluation shows a benefit over single-agent Pi Void.
-7. After the single-child slice is stable, evaluate trusted configurable roles and low-concurrency parallel read workers. Do not enable shared-tree writers.
-8. Add isolated workspace/worktree support before any writer subagent; parent must verify observed patches before integration.
-9. Add durable/background subagent semantics only after owner-scoped task state, recovery, cancellation, retention, and completion delivery exist.
-10. Evaluate recovery before durable autonomy. Automatic repair, generic policy rules, multi-verifier pipelines, broad sandboxing, rollback, and trace services remain separate measured capabilities rather than prerequisites hidden inside delegation.
+6. Implemented and continue field-testing the narrow V1 delegation slice: `piv`-only `delegate`, bundled read-only roles, stripped native child resources, foreground execution, cancellation/timeout, typed bounded evidence, and parent verification.
+7. Implemented and frozen through Phase B7.1: Phase A explicit trusted configurability, Phase B1 low-concurrency sibling read fanout, Phase B2 typed reviewer orchestration, Phase B3.1 deterministic cross-model reviewer routing, Phase B4 parent-owned launch preflight/digest, Phase B5 selective typed context packets, Phase B6.1 sanitized fork snapshots, and Phase B7.1 bounded typed transient recovery: user/project roles, deterministic precedence, source hashes, selected skills/prompts/context, no extensions, bounded `delegate_batch`/`review_batch`, parent-owned budget accounting, deterministic cancellation/results, independently verified findings, contradiction preservation, typed model provenance, resolved effective tools/scopes, bounded model-visible launch summaries, immutable explicit packet handoffs, opt-in redacted fork continuity from `buildSessionContext().messages`, same-model retry only for explicit transient classifications, aggregate attempt accounting, and immutable attempt provenance. Do not enable shared-tree writers, reviewer voting, quorum, consensus, fallback models, or automatic retry beyond the bounded B7.1 policy.
+8. The B8 implementation release gate for Read-Only Subagents v1 is closed: B8.1 deterministic adversarial regressions, B8.2 pinned four-target harness correctness, and B8.3 finding-based hardening evidence are complete. The exhaustive 48 deterministic / 112 model-quality comparative matrix remains optional external certification evidence and is not required for the V1 implementation freeze. Keep parent-as-queen, explicit tasks, star topology, run-scoped evidence board, bounded aggregate budgets, and advisory evidence quorum deferred beyond the frozen V1 implementation.
+9. Add verified Hivemind learning only after redaction, provenance, promotion, invalidation, and scope policy are tested. Reuse `piv-cognee` through an adapter only if it fits the contract; child direct durable-memory access remains off initially.
+10. W5A writer adversarial and dogfood validation is implemented and frozen across provenance, stale/dirty parents, tampering, verifier mutation/failure, rollback conflicts, limits, cleanup, and capability denial. Treat W5B live writer certification for both corrected `cx` routes as an external production-certification gate; it does not block the V1 implementation freeze.
+11. W6 Subagent Observatory/TUI is implemented and FROZEN through existing `onUpdate`, `tool_execution_update`, `renderCall`/`renderResult`, and `ctx.ui.custom()` seams. Runtime `SubagentEvent` facts remain separate from bounded sanitized presentation snapshots; JSON/RPC updates stay typed, ordinary print stays unchanged, observatory actions remain read-only, and W1-W5 semantics stay frozen. W5B remains pending as external production certification, not an implementation-freeze blocker.
+12. W7.1/W7.2 durable owner-scoped read-only jobs, W8.1 metadata-only `/agents`/`/subagents` visibility, W8.2 explicit terminal-result inspection, and W8.3 frozen persisted completion-inbox metadata are implemented and frozen as bounded V2 slices. Keep job-management cancellation/retry/queue-control actions, polling, live inbox state, result ingestion, background batch facades, background writers, auto-resume, steering/priority, and Hivemind deferred. Do not add `background: true` to the foreground runner.
+13. Evaluate recovery before durable autonomy. Automatic repair, generic policy rules, multi-verifier pipelines, broad sandboxing, rollback, and trace services remain separate measured capabilities rather than prerequisites hidden inside delegation.
 
 ## Explicit Non-Goals
 

@@ -17,9 +17,28 @@ import { killProcessTree, trackDetachedChildPid, untrackDetachedChildPid } from 
 
 const STATE_TYPE = "piv-safe-verify-state";
 const STATE_VERSION = 3;
-const PLAN_TOOLS = ["read", "grep", "find", "ls", "ask", "draft_plan", "propose_plan"];
+const PLAN_TOOLS = [
+	"read",
+	"grep",
+	"find",
+	"ls",
+	"ask",
+	"draft_plan",
+	"propose_plan",
+	"list_subagent_profiles",
+	"delegate",
+	"delegate_async",
+	"inspect_subagent_job",
+	"cancel_subagent_job",
+	"delegate_batch",
+	"review_batch",
+];
 const BUILD_TOOLS = [
 	...PLAN_TOOLS.filter((tool) => tool !== "ask" && tool !== "draft_plan" && tool !== "propose_plan"),
+	"delegate_write",
+	"inspect_writer_patch",
+	"reject_writer_patch",
+	"integrate_writer_patch",
 	"read_plan",
 	"edit",
 	"write",
@@ -83,9 +102,14 @@ export const VERIFIER_OUTPUT_LIMIT_BYTES = 64 * 1024;
 export const VERIFIER_TERMINATION_GRACE_MS = 5_000;
 const MAX_VERIFY_ARGS = 64;
 const MAX_VERIFY_ARG_BYTES = 4096;
+let configuredPivVerifierArgv: string[] | undefined;
+
+export function getConfiguredPivVerifierArgv(): string[] | undefined {
+	return configuredPivVerifierArgv ? [...configuredPivVerifierArgv] : undefined;
+}
 const MAX_VERIFY_TOTAL_BYTES = 16 * 1024;
 
-type PivMode = "plan" | "build";
+export type PivMode = "plan" | "build";
 type PivPlanStatus = "none" | "draft" | "pending" | "approved";
 type PivPlanContextPolicy = "fresh" | "compact" | "keep";
 
@@ -676,8 +700,15 @@ function verifierFailureMessage(verifier: PivVerifierState): string {
 	}
 }
 
+export interface PivCapabilityState {
+	readonly mode: PivMode;
+	readonly tools: readonly string[];
+	readonly bashEnabledInRecordedProcess: boolean;
+}
+
 export interface PivSafeVerifyOptions {
 	onModeChange?: (mode: PivMode, ctx: ExtensionContext) => Promise<void>;
+	onCapabilityChange?: (capabilities: PivCapabilityState, ctx: ExtensionContext) => Promise<void>;
 }
 
 export function createPivSafeVerify(options: PivSafeVerifyOptions = {}) {
@@ -731,6 +762,17 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 				? [...BUILD_TOOLS, "bash"]
 				: BUILD_TOOLS;
 	const applyTools = (ctx: ExtensionContext) => pi.setActiveTools(effectiveTools(ctx));
+	const publishCapabilityState = async (ctx: ExtensionContext): Promise<void> => {
+		if (!state) return;
+		await options.onCapabilityChange?.(
+			Object.freeze({
+				mode: state.mode,
+				tools: Object.freeze([...effectiveTools(ctx)]),
+				bashEnabledInRecordedProcess: state.bashEnabledInRecordedProcess,
+			}),
+			ctx,
+		);
+	};
 	const applyModeModel = async (mode: PivMode, ctx: ExtensionContext) => {
 		if (!state) return;
 		const configured = parseModelFlag(
@@ -788,6 +830,7 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 		applyTools(ctx);
 		persist();
 		await applyModeModel(mode, ctx);
+		await publishCapabilityState(ctx);
 		ctx.ui.setStatus("piv-mode", mode);
 		ctx.ui.notify(`Pi Void mode: ${mode}${changed ? "" : " (unchanged)"}`, "info");
 		if (bashEffective(ctx))
@@ -1271,20 +1314,45 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 			state = { ...state, plan: { ...state.plan, decisionReminderCount: 0 } };
 			persist();
 		}
-		if (event.toolName === "edit" || event.toolName === "write") {
+		if (event.toolName === "edit" || event.toolName === "write" || event.toolName === "integrate_writer_patch") {
 			if (state.mode === "build" && state.plan.status === "approved" && !state.plan.readInBuild) {
 				return { block: true, reason: "Read approved plan with read_plan before mutation" };
 			}
-			const reason = validateMutationPath(event.input.path, ctx.cwd, state.guardRoot);
-			if (reason) return { block: true, reason };
+			if (event.toolName !== "integrate_writer_patch") {
+				const reason = validateMutationPath(event.input.path, ctx.cwd, state.guardRoot);
+				if (reason) return { block: true, reason };
+			}
 			authorizedMutations.add(event.toolCallId);
 		}
 		return undefined;
 	});
 	pi.on("tool_result", async (event: ToolResultEvent) => {
-		if ((event.toolName !== "edit" && event.toolName !== "write") || !authorizedMutations.delete(event.toolCallId))
+		if (!authorizedMutations.delete(event.toolCallId) || !state || event.isError) return;
+		if (event.toolName === "integrate_writer_patch") {
+			const details = event.details;
+			if (
+				details &&
+				typeof details === "object" &&
+				(details as { status?: unknown }).status === "integrated" &&
+				(details as { verification?: unknown }).verification &&
+				typeof (details as { verification: unknown }).verification === "object" &&
+				(details as { verification: { status?: unknown } }).verification.status === "passed"
+			) {
+				const generation = state.mutationGeneration + 1;
+				state = {
+					...state,
+					mutationGeneration: generation,
+					checkedGeneration: generation,
+					verifier: {
+						...(details as { verification: PivVerifierState }).verification,
+						generation,
+					},
+				};
+				persist();
+			}
 			return;
-		if (!event.isError && state) {
+		}
+		if (event.toolName === "edit" || event.toolName === "write") {
 			state = {
 				...state,
 				mutationGeneration: state.mutationGeneration + 1,
@@ -1309,6 +1377,7 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 		);
 	});
 	pi.on("agent_settled", async (_event, ctx) => {
+		if (!ctx.hasUI && (ctx.mode === "print" || ctx.mode === "json") && state?.mode === "plan") return;
 		if (state?.mode === "plan" && state.plan.status === "approved") {
 			await beginApprovedPlanHandoff(ctx);
 			return;
@@ -1389,6 +1458,7 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 
 	const restore = async (ctx: ExtensionContext) => {
 		verifierArgv = parseVerifierArgv(pi.getFlag("piv-verify"));
+		configuredPivVerifierArgv = verifierArgv ? [...verifierArgv] : undefined;
 		const { baseline, rootSource } = await captureBaseline(pi, ctx);
 		const latest = [...ctx.sessionManager.getBranch()]
 			.reverse()
@@ -1417,6 +1487,7 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 		applyTools(ctx);
 		persist();
 		await applyModeModel(mode, ctx);
+		await publishCapabilityState(ctx);
 		ctx.ui.setStatus("piv-mode", mode);
 		if (bashEffective(ctx))
 			ctx.ui.notify(

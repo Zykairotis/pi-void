@@ -45,6 +45,11 @@ export class ModelRegistry {
 		return this.runtime.getError();
 	}
 
+	/** Return the canonical runtime so Pi Void adapters can reuse model/auth state. */
+	getRuntime(): ModelRuntime {
+		return this.runtime;
+	}
+
 	getAll(): Model<Api>[] {
 		return [...this.runtime.getModels()];
 	}

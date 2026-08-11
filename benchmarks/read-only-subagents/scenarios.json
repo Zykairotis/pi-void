@@ -1,0 +1,147 @@
+{
+	"schemaVersion": 1,
+	"scenarios": [
+		{
+			"id": "scope.symlink-replacement",
+			"class": "deterministic",
+			"category": "scope",
+			"requiresAdversarialRegression": true
+		},
+		{
+			"id": "trust.resource-mutation-before-launch",
+			"class": "deterministic",
+			"category": "trust",
+			"requiresAdversarialRegression": true
+		},
+		{
+			"id": "context.fork-utf8-boundary",
+			"class": "deterministic",
+			"category": "context",
+			"requiresAdversarialRegression": true
+		},
+		{
+			"id": "context.fork-credential-variants",
+			"class": "deterministic",
+			"category": "context",
+			"requiresAdversarialRegression": true
+		},
+		{
+			"id": "lifecycle.provider-startup-failure",
+			"class": "deterministic",
+			"category": "lifecycle",
+			"requiresAdversarialRegression": true
+		},
+		{
+			"id": "lifecycle.provider-partial-output-failure",
+			"class": "deterministic",
+			"category": "lifecycle",
+			"requiresAdversarialRegression": true
+		},
+		{
+			"id": "recovery.cancel-between-attempts",
+			"class": "deterministic",
+			"category": "recovery",
+			"requiresAdversarialRegression": true
+		},
+		{
+			"id": "recovery.timeout-between-attempts",
+			"class": "deterministic",
+			"category": "recovery",
+			"requiresAdversarialRegression": true
+		},
+		{
+			"id": "budget.concurrent-retry-contention",
+			"class": "deterministic",
+			"category": "budget",
+			"requiresAdversarialRegression": true
+		},
+		{
+			"id": "verification.invalid-evidence-valid-json",
+			"class": "deterministic",
+			"category": "verification",
+			"requiresAdversarialRegression": true
+		},
+		{
+			"id": "verification.oversized-evidence-array",
+			"class": "deterministic",
+			"category": "verification",
+			"requiresAdversarialRegression": true
+		},
+		{
+			"id": "trust.context-impersonates-system-policy",
+			"class": "deterministic",
+			"category": "trust",
+			"requiresAdversarialRegression": true
+		},
+		{
+			"id": "quality.correctness-and-evidence",
+			"class": "model_quality",
+			"category": "quality"
+		},
+		{
+			"id": "quality.context-efficiency",
+			"class": "model_quality",
+			"category": "context"
+		},
+		{
+			"id": "quality.startup-overhead",
+			"class": "model_quality",
+			"category": "lifecycle"
+		},
+		{
+			"id": "quality.parallelism-concurrency-1-2-4",
+			"class": "model_quality",
+			"category": "lifecycle"
+		},
+		{
+			"id": "quality.isolation",
+			"class": "model_quality",
+			"category": "scope"
+		},
+		{
+			"id": "quality.cancellation",
+			"class": "model_quality",
+			"category": "lifecycle"
+		},
+		{
+			"id": "quality.timeouts",
+			"class": "model_quality",
+			"category": "lifecycle"
+		},
+		{
+			"id": "quality.fail-fast",
+			"class": "model_quality",
+			"category": "lifecycle"
+		},
+		{
+			"id": "quality.bounded-recovery",
+			"class": "model_quality",
+			"category": "recovery"
+		},
+		{
+			"id": "quality.budget-enforcement",
+			"class": "model_quality",
+			"category": "budget"
+		},
+		{
+			"id": "quality.malformed-output",
+			"class": "model_quality",
+			"category": "verification"
+		},
+		{
+			"id": "quality.cross-model-review",
+			"class": "model_quality",
+			"category": "quality"
+		},
+		{
+			"id": "quality.large-output-pressure",
+			"class": "model_quality",
+			"category": "budget"
+		},
+		{
+			"id": "quality.trust-attacks",
+			"class": "model_quality",
+			"category": "trust"
+		}
+	]
+}

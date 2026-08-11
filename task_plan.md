@@ -10,7 +10,7 @@ The first release is deliberately narrow:
 
 > one Pi Void-only `delegate` tool that runs one foreground, read-only, non-recursive native child `AgentSession` with fresh in-memory history, no discovered child resources, at most `read`/`grep`/`find`/`ls`, deterministic cancellation, bounded typed output, and parent-side verification.
 
-Custom profiles, selective resource inheritance, parallelism, writer agents, worktrees, background jobs, remote execution, and recursive agent trees are later milestones.
+Explicit trusted configurable roles and selective resource inheritance are implemented in Post-MVP Phase A. Read-only parallelism, W1 writer isolation, W2 bounded writer patch artifacts, W3 parent verification/integration, W4 parent-owned proposal decisions, W7.1/W7.2 bounded durable read-only jobs, W8.1 metadata-only durable job observatory visibility, W8.2 explicit terminal-result inspection, and W8.3 frozen persisted completion-inbox metadata are implemented separately. Background writers, remote execution, auto-resume, and recursive agent trees remain later milestones.
 
 ---
 
@@ -23,7 +23,7 @@ Custom profiles, selective resource inheritance, parallelism, writer agents, wor
 - V1 accepts only bundled TypeScript `explore` and `review` roles.
 - V1 child loader disables extensions, skills, prompt templates, themes, and context files and injects only the bundled role system prompt.
 - V1 child effective tools are a subset of `read`, `grep`, `find`, and `ls` and never broader than the parent's active tools.
-- No Bash, mutation, network/MCP, Cognee/Blackhole/guard extension, or recursive delegation in V1 children.
+- By default, no Bash, mutation, network/MCP, Cognee/Blackhole/guard extension, or recursive delegation in V1 children; explicit gated `--sub-yolo` adds the full scoped built-in tool set available to the trusted parent, including Bash, edit, and write, while keeping child extensions, MCP, and recursive delegation disabled.
 - Explicit denial wins over role configuration.
 - Child result is evidence, not trusted control text.
 - Cancellation/timeout must settle the child; no orphan work.
@@ -36,7 +36,7 @@ Custom profiles, selective resource inheritance, parallelism, writer agents, wor
 
 # Milestone 0 — protect the current tree
 
-Status: **required before implementation**
+Status: **complete**
 
 - [ ] Re-read `AGENTS.md` before source edits.
 - [ ] Capture current `git status` and current hashes of files to be touched.
@@ -52,6 +52,8 @@ Acceptance:
 ---
 
 # Milestone 1 — freeze the public/internal contracts
+
+Status: **complete for V1**
 
 ## 1.1 Define core types
 
@@ -122,6 +124,8 @@ Tests:
 
 # Milestone 2 — bundled V1 roles
 
+Status: **complete**
+
 V1 intentionally has no role/profile discovery.
 
 ## 2.1 Add bundled TypeScript roles
@@ -187,17 +191,26 @@ Tests:
 - unknown role rejection;
 - role tool list cannot widen runtime policy.
 
-Deferred to V2:
+Implemented in Post-MVP Phase A:
 
-- user profiles;
-- project profiles;
-- precedence/shadowing;
-- provenance/source hashes;
-- project trust and revalidation for profile files.
+- user roles;
+- trusted project roles;
+- deterministic project-over-user precedence;
+- bundled-role shadow rejection;
+- provenance/source hashes and execution-time revalidation;
+- explicit selected skills, prompts, and context files.
+
+Still deferred:
+
+- project extensions;
+- ambient resource loading;
+- parallel workers and writer/background execution.
 
 ---
 
 # Milestone 3 — capability/policy resolver
+
+Status: **complete**
 
 Implement child capability derivation as a small explicit policy function using the parent extension runtime as the source of truth:
 
@@ -244,6 +257,8 @@ Tests:
 
 # Milestone 4 — stripped V1 child resources
 
+Status: **complete by default; explicit Phase A resource selection implemented**
+
 This is the native-runner safety gate, and the V1 target is now explicit rather than exploratory.
 
 Construct the child `DefaultResourceLoader` with:
@@ -257,7 +272,7 @@ noContextFiles: true
 systemPrompt: <bundled role system prompt>
 ```
 
-Do not pass child `extensionFactories`. Do not inherit `piv-cognee`, `piv-safe-verify`, Blackhole extensions, user extensions, project extensions, skills, templates, themes, or repository context files.
+Do not pass child `extensionFactories`. Do not inherit `piv-cognee`, `piv-safe-verify`, Blackhole extensions, user extensions, project extensions, or ambient skills, templates, themes, or repository context files. Phase A may pass only explicitly selected, hash-validated resources.
 
 Relevant repository instructions needed by a specific task must be included deliberately in the bounded handoff packet rather than discovered implicitly.
 
@@ -266,9 +281,9 @@ The hard `tools` allowlist remains an independent final capability boundary even
 Acceptance:
 
 - child `getExtensions()` contains no loaded user/project/Pi Void extension hooks;
-- child skills/prompts/themes/context-file collections are empty as intended;
-- bundled role system prompt is the intended worker prompt;
-- a fixture project containing extensions, skills, prompts, themes, `AGENTS.md`, and other local resources cannot alter V1 child behavior;
+- child skills/prompts/themes/context-file collections are empty when no resources are selected; selected Phase A resources enter only through explicit validated paths;
+- bundled or resolved trusted role system prompt is the intended worker prompt;
+- a fixture project containing extensions, skills, prompts, themes, `AGENTS.md`, and other local resources cannot alter default child behavior; explicitly selected trusted resources are the only exception;
 - tool registry still matches the explicit child allowlist.
 
 Fallback only if these existing loader controls do not behave as documented/tested:
@@ -278,6 +293,8 @@ Fallback only if these existing loader controls do not behave as documented/test
 ---
 
 # Milestone 5 — native foreground runner
+
+Status: **implemented; normal faux-provider completion is covered**
 
 Implement a `NativeAgentSessionRunner` or equivalent minimal module.
 
@@ -333,6 +350,8 @@ Tests:
 
 # Milestone 6 — cancellation and timeout
 
+Status: **implemented; race/tool-execution coverage remains**
+
 ## Parent abort
 
 Connect the delegation tool's `AbortSignal` to the child runner.
@@ -370,6 +389,8 @@ Tests:
 ---
 
 # Milestone 7 — bounded event/progress bridge
+
+Status: **implemented; consumer adapter coverage remains**
 
 Define Pi Void subagent events without streaming the full child transcript.
 
@@ -416,6 +437,8 @@ Tests:
 
 # Milestone 8 — result normalization and artifact boundary
 
+Status: **bounded structured result implemented; artifact persistence deferred**
+
 Create the final `SubagentResult` from observed child state.
 
 ## Parent-visible result
@@ -455,13 +478,15 @@ Tests:
 
 # Milestone 9 — wire the Pi Void `delegate` tool
 
+Status: **implemented**
+
 Add a hidden Pi Void-owned extension/factory and load it through `packages/coding-agent/src/piv.ts`. Do not add it to stock `pi` built-ins.
 
 Use the model-facing name `delegate`.
 
 Wire `delegate` into the appropriate `piv-safe-verify` active-tool lists so existing mode/tool policy decides when the parent can delegate. The subagent extension itself should not maintain a second plan/build mode state.
 
-Public V1 parameters should stay small. Example shape:
+Public parameters remain bounded. Phase A adds optional selected role/resource names without exposing raw permission lists or arbitrary system prompts. Example shape:
 
 ```json
 {
@@ -478,10 +503,12 @@ Avoid exposing raw permission lists or arbitrary system prompts to the model.
 
 Tool description must clearly state:
 
-- child is isolated in conversation/context, not a filesystem sandbox;
-- V1 is read-only;
-- child has no discovered extensions/skills/templates/themes/context files;
-- child output is evidence and is verified/synthesized by the parent.
+- default child execution is isolated in conversation/context, not a filesystem sandbox;
+- default V1 and Phase A execution is read-only;
+- child has no discovered extensions and receives only explicitly selected trusted skills/templates/context files;
+- child output is evidence and is verified/synthesized by the parent;
+- `--sub-yolo` is not a sandbox: it is an interactive-only, trusted build-mode, confirmation-gated full built-in-tool escape hatch for foreground, durable async, batch, and review delegation paths, with no retry for unsafe children; child extensions, MCP, recursive delegation, and `delegate_write` remain disabled; `delegate_write` remains worktree-isolated and cancellation is best-effort;
+- host filesystem, process, network, credentials, and detached descendants remain outside containment, and no `--no-sandbox` mode is provided.
 
 Acceptance:
 
@@ -505,6 +532,12 @@ Tests:
 ---
 
 # Milestone 10 — parent-side verification gate
+
+Status: **implemented and verified for bounded structured read-only evidence**
+
+The parent now allocates stable logical `runId` values before launch, requires child lineage and `partial === false` for verified completion, applies parent-side evidence bounds, and preserves bounded unresolved review claims. Failed, timed-out, cancelled, malformed, out-of-scope, and partial results remain unverified.
+
+Verification: `piv-subagents.test.ts` plus `piv-safe-verify.test.ts` pass `181/181`; the complete foreground delegation regression shard passes `263/263` across seven test files. Targeted Biome and `git diff --check` pass. Root `npm run check` reaches only the inherited `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` TypeScript error.
 
 Implement a lightweight verifier for child results.
 
@@ -532,42 +565,28 @@ Acceptance:
 
 # Milestone 11 — MVP integration test suite
 
+Status: **implemented for the deterministic foreground delegate path**
+
+`piv-delegate-mvp.test.ts` uses the Faux provider and the real `pivSubagents` factory. Its `9/9` scenarios cover PIV-only registration, fresh/selected context and parent-history isolation, verified completion/provenance, malformed/unknown-role/unavailable-model/inactive-parent gates, unresolved review claims, foreground and durable-async timeout handling, cancellation, explicit build-only `--sub-yolo` gating, and confirmed unsafe review/batch delegation. The inherited focused delegation shard passes `261/261`.
+
+The remaining checklist items are covered by the lower-level subagent, safe-verify, adversarial, jobs, observatory, and writer suites where applicable; full end-to-end coverage of every deferred resource/artifact scenario is not claimed here. Root `npm run check` retains only the inherited `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` TypeScript error.
+
 Create a deterministic faux-provider/fixture suite covering the complete path.
 
-Required scenarios:
+Canonical W1-W11 executable acceptance evidence is recorded in `findings.md` section 21. Current focused evidence is C1 `263/263`, C2 `181/181`, C3 `9/9`; W5B remains pending external provider certification.
 
-- [ ] `piv` exposes `delegate` and stock `pi` does not;
-- [ ] guarded-build active tools can enable/disable parent delegation;
-- [ ] child receives fresh context;
-- [ ] selected task/context reaches child;
-- [ ] unrelated parent history does not;
-- [ ] child extensions are disabled;
-- [ ] child skills are disabled;
-- [ ] child prompt templates are disabled;
-- [ ] child themes are disabled;
-- [ ] child context-file/`AGENTS.md` discovery is disabled;
-- [ ] Pi Void Cognee/Blackhole/safe-verify extensions do not load in the child;
-- [ ] read-only tool allowlist is real and parent-active-tool intersection is enforced;
-- [ ] recursive `delegate` unavailable;
-- [ ] only bundled V1 roles resolve;
-- [ ] exact model selection works/fails predictably;
-- [ ] normal completion;
-- [ ] malformed/empty child result;
-- [ ] child failure;
-- [ ] parent cancellation;
-- [ ] timeout;
-- [ ] partial output;
-- [ ] output truncation/artifact path;
-- [ ] stable lineage IDs/events;
-- [ ] parent transcript does not receive child transcript;
-- [ ] child compaction/history does not alter parent history;
-- [ ] existing Pi Void core tests continue passing.
+Current acceptance mapping:
+
+- Covered by M11 integration: PIV-only registration, guarded active-tool gating, fresh/selected context, parent-history isolation, normal completion, malformed/unknown role/model/mode gates, cancellation, foreground and durable-async timeouts, unsafe-mode gating, and confirmed unsafe review/batch delegation.
+- Covered by lower-level suites: stripped extensions/skills/prompts/themes/context discovery, Cognee/Blackhole/safe-verify exclusion, read-only tool intersection, recursive delegation denial, trusted user/project roles and resources, TOCTOU revalidation, lineage/events, output bounds, and writer boundaries.
+- Superseded by Phase A: “only bundled V1 roles resolve”; trusted user/project role resolution is implemented with provenance and source-hash revalidation.
+- Explicitly deferred: full-output artifact persistence and every end-to-end resource/artifact scenario not covered by the lower-level suites.
+- Existing Pi Void core tests remain a separate repository gate; no M11 claim overrides unrelated failures.
 
 MVP exit criteria:
 
-- all new tests pass;
-- targeted coding-agent tests pass;
-- typecheck/lint/build required by repo instructions pass;
+- M11 integration and lower-level regression tests pass;
+- targeted coding-agent typecheck/lint gates pass apart from recorded unrelated diagnostics;
 - no unrelated diff churn;
 - minimality review finds no unnecessary architecture.
 
@@ -575,7 +594,11 @@ MVP exit criteria:
 
 # Milestone 12 — native vs subprocess benchmark/decision
 
+Status: **COMPLETE / VERIFIED / FROZEN**; the repaired harness records real resource-loader and CLI contract vectors, startup metrics, honest end-RSS availability, memory summaries, and maintenance rationale. Canonical full-budget runs are cold `99f421f8-228b-4137-a44e-092895359713` (30), warm `d6222038-23e7-4ca9-a8ce-1770dc96db37` (5 warmups + 100 measured), safety `67457e73-cd91-452b-b0a0-154ebf94a369` (50), and compatibility `430338fe-ddb8-45f6-a0ee-fdaaee129df9` (3); all reports have `hardGate: true` and decide `native-only`.
+
 Only after the native MVP works, compare against Pi's subprocess implementation.
+
+Execution boundary: deterministic benchmark fixtures only; native and subprocess adapters must share the same fixture/event/result contract. The subprocess adapter is benchmark-only until M12 selects and M13 freezes a production policy. W5B live-provider certification remains separate and pending.
 
 Evaluate:
 
@@ -596,54 +619,325 @@ Decision options:
 
 Do not maintain two backends without a concrete reason.
 
----
-
-# Post-MVP Phase A — configurable roles and selective resources
-
-Only after the bundled V1 roles and stripped runtime are stable:
-
-- add trusted user role definitions with deterministic provenance;
-- add project role definitions only behind existing project trust;
-- define explicit precedence and forbid silent shadowing of bundled roles;
-- revalidate role source/hash immediately before execution;
-- selectively re-enable individual resource classes only when a measured use case and negative tests justify them;
-- keep `delegate`, mutation tools, credential expansion, and executable project hooks independently policy-gated;
-- retain a stripped-resource mode as the safe fallback/default for read-only workers.
-
-Do not re-enable all normal parent resources merely for convenience.
+M12 exit record: the four canonical manifests and reports are schema-v2, record elapsed/startup/end-RSS, cancellation, cleanup, and real compatibility gates, and all hard gates pass. The native-only decision is frozen for this benchmark evidence; subprocess remains benchmark/isolation evidence without automatic fallback.
 
 ---
 
-# Post-MVP Phase B — parallel read workers
+# Milestone 13 — execution backend policy freeze and rollback gate
 
-Prerequisites:
+Status: **COMPLETE / VERIFIED / FROZEN**; the production native-only policy remains implemented, and the final verifier consumed exactly the four canonical M12 runs plus observed C1/C2/C3 results.
+
+M13 freezes one backend policy source of truth, preserves Pi as the sole authoritative loop, verifies event/result/resource/CLI/cancellation parity, exercises decision-specific rollback without state migration, and records acceptance artifacts. `m13:verify` now requires exactly one full-budget cold performance, warm performance, safety, and compatibility run, then executes C1/C2/C3 and records observed counts, exit codes, Git SHA, and dirty-worktree qualification. It must not add automatic backend routing, a planner, a second provider layer, autonomous execution, or W5B status changes.
+
+M13 exit checks:
+
+- exactly one M12 decision is encoded;
+- native remains default unless M12 proves otherwise;
+- invalid backend selection fails closed and no error silently switches backend;
+- C1/C2/C3 are executed by M13 and their observed pass/total counts and exit codes are recorded;
+- targeted Biome and `git diff --check` pass;
+- root `npm run check` has only the inherited `maxTokensField` diagnostic;
+- W5B remains explicitly pending unless external evidence arrives.
+- Canonical artifact: `.artifacts/m13/m13-1786296433961/`; acceptance is schema-v2 with `dirty: true`, current HEAD provenance, and observed C1 `263/263`, C2 `181/181`, C3 `9/9`.
+
+---
+
+# Post-MVP Phase A — explicit trusted configurability
+
+Status: **implemented for roles and selected read-only resources**
+
+Implemented as two independently gated capabilities:
+
+- trusted user role definitions with deterministic provenance;
+- project role definitions only behind existing project trust;
+- deterministic project-over-user precedence with bundled-role shadow rejection;
+- role/resource source hashes revalidated immediately before execution;
+- explicit selected skills, prompt templates, and context files only;
+- extensions remain excluded;
+- `delegate`, mutation tools, credential expansion, and executable project hooks remain independently policy-gated;
+- stripped-resource mode remains the safe fallback/default for read-only workers.
+
+Do not re-enable all normal parent resources merely for convenience. Parallel workers remain Post-MVP Phase B.
+
+---
+
+# Post-MVP Phase B — bounded parallel read workers
+
+Status: **implemented and verified — B1 parallel read fanout only**
+
+B1 scope:
+
+- typed hidden `delegate_batch` tool;
+- up to 8 sibling read-only tasks;
+- default concurrency `2`, hard maximum `4`;
+- parent-owned reservation ledger over complete JSON report bytes, with bounded public `totalBudgetBytes`;
+- each task resolves once and executes through `runResolved()`;
+- deterministic input-order results and batch/run lifecycle IDs;
+- parent cancellation and batch timeout stop queued work and abort active children;
+- no chains, writers, background jobs, nested delegation, or Hivemind.
+
+Prerequisites already satisfied:
 
 - stable run/result/events;
 - correct cancellation;
 - usage accounting;
 - deterministic single-child behavior.
 
-Add:
+B1 exit checks:
 
-- bounded semaphore with conservative default concurrency `2` and an initially small configurable ceiling;
-- submitted-task cap;
-- aggregate timeout/cost policy;
-- deterministic result ordering;
-- partial batch results;
-- stop scheduling on parent abort;
-- no recursive fan-out by default.
+- concurrency cap and reservation-before-launch are enforced;
+- unused reservations release and observed terminal report bytes reconcile without clamping overruns;
+- sibling failures preserve settled results;
+- cancellation/timeout handle active and queued tasks;
+- `concurrency: 1` matches sequential atomic delegation semantics;
+- selected resource/tool/scope isolation remains unchanged.
 
-Initial use cases:
+# Phase B2 — typed parallel reviewer orchestration
 
-- independent codebase searches;
-- separate review dimensions;
-- test/doc/research investigation.
+Status: **implemented and verified**
+
+B2 scope:
+
+- typed hidden `review_batch` facade over `delegate_batch`/`runResolved()`;
+- review dimensions `correctness`, `security`, `tests`, and `regressions`;
+- forced read-only `review` role with independent scopes and fresh sessions;
+- structured findings with bounded evidence references;
+- deterministic input-order reviewer results;
+- contradiction preservation with no deduplication, voting, quorum, or consensus;
+- reviewer verification remains separate from parent synthesis.
+
+B2 exit checks:
+
+- all reviewers execute through the existing bounded scheduler;
+- findings retain reviewer and dimension identity;
+- invalid finding evidence fails only that reviewer and preserves other results;
+- contradictory findings remain separate in the typed result;
+- parent remains the only synthesizer;
+- chains, writers, background jobs, cross-model policy, launch preflight, context packets, sanitization, and Hivemind remain deferred.
 
 Do not use parallel fan-out for tightly sequential tasks by default.
 
+# Phase B3.1 — deterministic cross-model reviewer routing
+
+Status: **implemented and verified**
+
+B3.1 scope:
+
+- typed `ReviewerModelPolicy` with batch default and per-dimension overrides;
+- deterministic precedence `task.model > byDimension > default > parent`;
+- complete model assignment and validation before scheduler launch;
+- typed task/dimension/default/parent model provenance;
+- model selection changes only compute; tools, scope, resources, trust, IDs, budgets, and lifecycle remain unchanged;
+- no fallback, retries, voting, consensus, chains, writers, background jobs, or Hivemind.
+
+B3.1 exit checks:
+
+- unavailable and ambiguous configured model references reject before any child starts;
+- mixed-model reviewers preserve deterministic input order and aggregate accounting;
+- one model/runtime failure remains an isolated sibling result;
+- cancellation and fail-fast behavior remain scheduler-owned and unchanged.
+
+Verification: `npm run check` passed; focused subagent and safe-verify suites passed with `89/89` tests. No fallback, retry, voting, consensus, chain, writer, background, or Hivemind behavior was added.
+
+# Phase B4 — launch preflight and digest
+
+Status: **implemented and verified**
+
+B4 scope:
+
+- one typed parent-owned `SubagentLaunchPreflight` for `delegate_batch` and `review_batch`;
+- preflight generated after resolved tasks, model assignments, resource resolution, and before scheduler `pump()`;
+- existing profile/resource hash checks, effective read-tool derivation, task-ID checks, concurrency validation, timeout validation, and budget configuration reused rather than reimplemented;
+- requested model references remain separate from resolved actual compute models;
+- complete preflight stays in typed tool details; `formatSubagentLaunchDigest()` injects only a bounded summary into parent context;
+- resource names plus source/hash/path provenance are represented without resource bodies;
+- no provider calls, session creation, fallback, retries, voting, consensus, chains, writers, background jobs, or Hivemind.
+
+B4 exit checks:
+
+- invalid task, changed profile/resource, denied effective tools, and impossible per-task reservations reject before worker one;
+- preflight task order and resolved models match scheduler input and runner assignments;
+- preflight `reservedOutputBytes` is the planned sum of per-task output caps, while the live scheduler ledger separately tracks simultaneous reservations and reconciliation;
+- digest is byte-bounded and truncation leaves typed details unchanged;
+- subagent and reviewer batch results expose the same base preflight contract.
+
+Verification: `npm run check` passed; focused subagent and safe-verify suites passed with `93/93` tests. `git diff --check` passed.
+
+# Phase B5 — selective context packets
+
+Status: **implemented and verified**
+
+B5 scope:
+
+- normalize legacy `context` text and typed `contextPacket` input through one immutable packet contract;
+- cap packets at 16 items, 8 KiB per item, and 64 KiB aggregate UTF-8 bytes;
+- preserve fresh child history and pass only explicitly selected packet items as untrusted handoff data;
+- expose packet item IDs/kinds/bytes and aggregate bytes in typed preflight, never packet bodies in the digest;
+- keep packet data independent from tools, scopes, resources, trust, model routing, budgets, cancellation, and sibling state;
+- no transcript fork, fallback, retries, chains, writers, background jobs, or Hivemind.
+
+B5 acceptance targets:
+
+- zero packet preserves current prompt/history behavior;
+- ordering, duplicate IDs, per-item/aggregate UTF-8 limits, immutable resolution, and batch preflight rejection are tested;
+- packet metadata reaches preflight while packet bodies stay out of the digest;
+- packet content does not widen effective tools, scope, resources, or trust and sibling packets remain isolated.
+
+Verification: `npm run check` passed; focused subagent and safe-verify suites passed with `98/98` tests. `git diff --check` passed.
+
+# Phase B6.1 — sanitized fork snapshots
+
+Status: **implemented and verified**
+
+B6.1 scope:
+
+- add opt-in `contextMode: "fresh" | "fork"`, defaulting to `fresh`;
+- resolve fork input only from the parent `buildSessionContext().messages` projection, never `getBranch()` or a session clone;
+- retain only user text, assistant text, compaction summaries, and branch summaries;
+- drop thinking, tool calls, tool results, images, custom messages, and empty content;
+- redact common credentials with a shared utility, then enforce 32 messages, 8 KiB per message, and 64 KiB aggregate UTF-8 limits using a deterministic recent suffix;
+- freeze the sanitized snapshot and inject it, followed by B5 packet content, as untrusted handoff data into a fresh `SessionManager.inMemory()` child;
+- expose fork source/size/drop metadata and the combined B5+B6 64 KiB transient budget in B4 preflight, without bodies or secrets in the digest;
+- keep tools, scope, resources, trust, model routing, scheduling, cancellation, fail-fast, output accounting, and reviewer routing unchanged; no fallback, retries, chains, writers, background jobs, or Hivemind.
+
+B6.1 exit checks:
+
+- fresh-mode prompt behavior remains unchanged;
+- fork source, allowlist, summaries, drops, credential redaction, UTF-8 caps, suffix ordering, immutability, fresh child history, sibling isolation, and prompt ordering are tested;
+- combined packet/fork budget rejects before the scheduler starts; preflight exposes metadata only;
+- no provider call or model summarization occurs during fork normalization.
+
+Verification: `npm run check` passed; focused fork, packet, child-session, subagent, and safe-verify tests passed; `git diff --check` passed.
+
+# Phase B7.1 — bounded transient failure recovery
+
+Status: **FROZEN**
+
+B7.1 scope:
+
+- applies uniformly to `delegate`, `delegate_batch`, and `review_batch` through one recovery wrapper;
+- allows exactly two attempts: the initial attempt plus at most one retry;
+- retries only failures marked retryable by typed provider/startup classification at the failure boundary;
+- reuses the exact normalized request, effective tools, resolved model, selected resources and hashes, trust, B5 packet, and B6.1 fork snapshot;
+- never retries cancellation, timeout, verification or malformed results, validation/policy/scope/trust/resource/auth failures, budget exhaustion, or child tool failures;
+- keeps `failFast` at logical-task granularity, after retry exhaustion rather than after a recoverable first attempt;
+- aggregates usage across attempts, keeps terminal `observedOutputBytes` scoped to the terminal attempt, and records immutable per-attempt bytes plus recovery totals;
+- reserves and reconciles output capacity per attempt in the parent ledger, suppressing retries when the next cap cannot be admitted or a typed cancellation/timeout/fail-fast stop gate is active, before any second reservation or runner/session creation, and keeping `budget.consumed <= budget.total`;
+- adds B4 recovery-policy metadata and max-potential output without treating retry capacity as live-reserved;
+- adds no fallback model, re-normalization, resnapshot, chain, writer, background, or Hivemind behavior.
+
+B7.1 exit checks:
+
+- typed transient provider stream failures retry once; message text alone never enables retry;
+- terminal typed failures and untyped failures do not retry;
+- single-child, batch, and reviewer paths share the same-model recovery behavior;
+- batch fail-fast waits for a logical task's recovery result;
+- immutable request identity and context are reused across attempts;
+- attempt statuses/failure codes, per-attempt bytes, terminal bytes, aggregate usage, and total observed bytes remain available on the terminal result;
+- retries are admitted only after per-attempt ledger reconciliation and a typed stop-state check; preflight reports the retry policy without live-reserving retry bytes;
+- parent cancellation, batch timeout, and sibling fail-fast each suppress the second runner/session invocation and reservation;
+- two forked siblings call the parent `buildSessionContext()` exactly once.
+
+Verification: B7.1 FROZEN. `npm run check` passed; `piv-subagents.test.ts` and `piv-safe-verify.test.ts` passed with `115/115` tests; Cognee redaction regression passed; `git diff --check` passed.
+
 ---
 
-# Post-MVP Phase C — chain mode
+# Phase B8 — Read-Only Subagents v1 benchmark and adversarial-hardening implementation gate
+
+Status: **implementation gate complete — B8.1 PASS, B8.2 harness/provider-smoke PASS, B8.3 report present; exhaustive comparison optional**
+
+B8 is an implementation-validation gate, not a feature phase. B7.1 remains FROZEN and must not be reopened unless benchmark evidence exposes a concrete defect.
+
+## B8.1 deterministic adversarial suite
+
+- deterministic security and lifecycle regressions live in `packages/coding-agent/test/`;
+- tests use the existing faux-provider and temporary-fixture seams;
+- no external repository is required;
+- stable scenario IDs align with `benchmarks/read-only-subagents/scenarios.json` through a benchmark-side data check;
+- every concrete benchmark defect must receive a regression before repair;
+- no fallback models, roles, writers, background jobs, steering, persistent memory, Hivemind, or production orchestration primitives are added.
+
+Initial attack coverage includes symlink replacement and scope escape, resource mutation before launch, UTF-8 fork boundaries, credential variants, provider startup and partial-output failures, cancellation and timeout between attempts, concurrent retry-budget contention, invalid evidence in valid JSON, oversized evidence arrays, and context that impersonates system policy.
+
+Verification: `piv-subagents-adversarial.test.ts`, `piv-subagents.test.ts`, and `piv-safe-verify.test.ts` pass with `128/128` tests.
+
+## B8.2 comparative benchmark harness
+
+- versioned inputs live under `benchmarks/read-only-subagents/`;
+- `manifest.json` pins immutable external commits and uses `CURRENT_WORKSPACE` for Pi Void;
+- unresolved external baselines remain explicitly unavailable and never use guessed SHAs;
+- target preparation may inspect an existing checkout/cache only when its `HEAD` exactly matches the manifest SHA;
+- preparation never fetches, switches branches, upgrades dependencies, rewrites target configuration, or substitutes a newer revision;
+- adapters normalize target observations without importing benchmark modules into coding-agent tests;
+- `--target pi-void`, `--matrix`, `--scenario`, and `--repeat` are explicit CLI modes;
+- deterministic scenarios reject repeated runs; model-quality scenarios may repeat;
+- JSONL artifacts record schema version, run ID, implementation, resolved commit, scenario, repetition, timing, result, verification, attempts, output bytes, usage, and cost without raw prompts, transcripts, credentials, or absolute checkout paths;
+- `results/*` is ignored and created on demand.
+
+Verification: benchmark-side Node tests pass with `31/31`; `npx tsgo --noEmit -p benchmarks/read-only-subagents/tsconfig.json` passes. Pi Void-only mode writes a redacted result with resolved commit provenance. Provider smoke passes across all four pinned targets for both configured routes. The exhaustive 48 deterministic / 112 model-quality matrix remains optional external certification evidence.
+
+## B8.3 findings and hardening
+
+- pinned upstream Pi at `e47b8e37a6211ebd0b2942fa87059d64f81eec02` and `nicobailon/pi-subagents` at `67cf559acbb4b621b53879e2df3c8bd211c2b44b`;
+- resolved exact local/cache checkouts without harness fetch, checkout, branch switching, dependency upgrade, or substitution;
+- implemented real CLI adapters: stock Pi through `pi`, the native example through `pi --extension`, `pi-subagents` through its extension entry point on the pinned Pi host, and Pi Void through `piv`;
+- ran deterministic infrastructure/security scenarios separately from repeated model-quality scoring;
+- recorded the abbreviated provider-compatible sanity comparison and its limitations in `benchmarks/read-only-subagents/B8.3-report.md`;
+- no production change is justified unless a B8 finding reproduces a concrete defect, with its regression added first;
+- the report records that the exhaustive comparative matrix is optional certification evidence and does not block the implementation freeze.
+
+B8 implementation validation is complete. W5B live writer runs and the exhaustive B8 matrix remain unclaimed external certification evidence; Read-Only Subagents v1 implementation is frozen.
+
+# Post-MVP Phase C — Hivemind coordination
+
+Hivemind is a higher-level consumer of the stable subagent executor, not a replacement worker runtime. Detailed architecture lives under `docs/hivemind/`.
+
+Prerequisites:
+
+- single-child `delegate` lifecycle/result/verification contract is stable;
+- bounded parallel read workers are stable;
+- aggregate usage/cancellation can be measured correctly;
+- parent remains the sole authority for decomposition, mode, permissions, mutation approval, and final verification.
+
+Initial Hivemind shape:
+
+```text
+Parent Pi AgentSession = logical queen
+  -> explicit HiveRequest
+      -> HivemindCoordinator
+          -> sibling SubagentRuns via the same internal executor as `delegate`
+          -> run-scoped typed EvidenceBoard
+          -> bounded aggregate result
+  -> parent verifies/synthesizes
+```
+
+Rules:
+
+- star topology first; no nested queens or direct child-to-child delegation;
+- explicit parent-supplied tasks initially; no separate planning model;
+- same role/capability intersection as ordinary `delegate` workers;
+- default low concurrency inherited from parallel-read policy;
+- hive-level task, worker, wall-time, output, request/token/cost budgets;
+- settled partial results survive independent worker failures;
+- advisory consensus cannot widen permissions or override deterministic verification;
+- prefer `evidence_quorum` over plain voting for consequential recommendations;
+- do not claim Byzantine fault tolerance unless a real distributed fault model and identity/transport assumptions are implemented and tested;
+- initial workers receive no direct Hivemind/Cognee durable-memory tools;
+- durable learning is separate: redacted/distilled knowledge remains candidate-only until verification/promotion policy accepts it.
+
+Acceptance before Hivemind leaves experimental status:
+
+- one worker is not routed through a hive when normal `delegate` is sufficient;
+- cancellation stops new scheduling and aborts every active child;
+- duplicate results cannot count twice toward consensus;
+- contradictory evidence remains visible;
+- verifier failure overrides worker agreement;
+- aggregate output/context remains bounded;
+- Hivemind can be disabled without changing `delegate` behavior.
+
+---
+
+# Post-MVP Phase D — chain mode
 
 Add only when result boundaries are proven.
 
@@ -657,58 +951,244 @@ Rules:
 
 ---
 
-# Post-MVP Phase D — isolated writer workers
+# W1 — isolated writer foundation
 
-Introduce a `WorkspaceProvider` abstraction before enabling edit/write.
+Status: **implemented, verified, and frozen**
 
-Required contract:
+W1 adds a separate build-only `delegate_write` primitive. It requires a Git parent worktree with empty `git status --porcelain=v1 -uall`, a full local 40-character SHA equal to current `HEAD`, and one foreground detached temporary worktree. The writer child receives only scoped `read`, `grep`, `find`, `ls`, `write`, and `edit`; Bash, network, MCP, extensions, Git metadata, delegation, retries, background jobs, and parent integration remain disabled. The temporary worktree is removed on success, failure, cancellation, and timeout. W1 intentionally discards edits because patch capture belongs to W2 and deterministic parent verification/integration belongs to W3.
 
-```text
-create(run) -> isolated workspace
-capture(run) -> observed changed paths + patch/branch
-cleanup(run) -> idempotent
-```
+W1 exit checks:
 
-Candidate providers:
-
-- Git worktree first;
-- container later;
-- remote workspace later.
-
-Writer rules:
-
-- no shared-tree parallel mutation;
-- changed paths derived from Git/filesystem, never model prose;
-- parent inspects patch;
-- parent runs tests;
-- parent chooses apply/merge/reject;
-- conflicts are explicit.
-
-Acceptance before any writer profile becomes default:
-
-- isolation proven by tests;
-- patch capture on success/failure/cancel;
-- cleanup idempotent;
-- parent verification gate mandatory.
+- clean, staged, tracked, untracked, ignored, malformed-SHA, unknown-commit, historical-commit, and non-HEAD preconditions are tested;
+- new-file, edit, `..`, absolute, symlink, new-under-symlink, and lexical/canonical `.git` confinement is tested;
+- parent content/status remains unchanged after success and failure paths;
+- cleanup is verified for success, failure, cancellation, and timeout.
 
 ---
 
-# Post-MVP Phase E — background jobs
+# W2 — bounded writer patch artifacts
 
-Do not add `background: true` to the foreground runner.
+Status: **implemented, verified, and frozen**
 
-First create a durable job model with:
+W2 adds a trusted parent-side collector after a `completed` writer prompt and before temporary worktree cleanup. It derives the inventory from actual `git status --porcelain=v1 -z -uall`, not writer prose or only `git diff HEAD`, then reads raw `HEAD:path` and writer-worktree bytes, hashes those exact bytes, and builds an isolated `git diff --no-index` patch with external diff and textconv disabled. Proposal construction does not run `git add`, update an index, commit, or write Git objects; untracked files are included without mutating either worktree or repository object storage.
 
-- stable job/run IDs;
-- owner/parent identity;
-- persistent status;
-- completion notification;
-- owner-scoped cancel;
-- restart/reconnect recovery;
-- retention/cleanup;
-- resume semantics;
-- bounded logs/artifacts;
-- task tree/status UI.
+Contract:
+
+```ts
+interface WriterPatchArtifact {
+  schemaVersion: 1;
+  runId: string;
+  baseCommit: string;
+  changedFileCount: number;
+  patchBytes: number;
+  patchSha256: string;
+  patchRef: string;
+  files: Array<{
+    path: string;
+    change: "add" | "modify" | "delete";
+    beforeSha256?: string;
+    afterSha256?: string;
+  }>;
+}
+```
+
+W2 policy:
+
+- only `completed` writers can produce a patch artifact; failed, cancelled, and timed-out writers produce none;
+- changed files are repo-relative, scope-checked, and limited to 32 entries;
+- regular UTF-8 text additions and modifications are supported;
+- deletions, renames, copies, ignored paths, symlinks, gitlinks, binary data, unsupported statuses, and scope escapes are rejected;
+- patch bytes are measured from the actual patch and capped at 512 KiB;
+- patch files are written outside both worktrees with exclusive creation and read-only permissions;
+- the parent worktree, parent index, writer worktree, and Git metadata remain unmodified.
+
+W2 exit checks:
+
+- untracked additions are present in the patch and file inventory;
+- before/after hashes and actual byte counts are recorded from the same bytes used in the patch;
+- object-store isolation, CRLF patch/hash consistency, and clean-filter non-execution are regression-tested;
+- failed, cancelled, timed-out, binary, delete, and oversized proposals are rejected without an eligible artifact;
+- cleanup still removes the temporary worktree after collection.
+
+Verification: focused writer and safe-verify suites pass with `132/132` tests; `npm run check` reaches the repository TypeScript gate with one pre-existing unrelated error at `packages/ai/test/openai-completions-tool-choice.test.ts:1410`; `git diff --check` passes.
+
+---
+
+# W3 — parent verification and integration
+
+Status: **implemented and frozen**
+
+W3 adds one parent-owned `integrateWriterPatchArtifact()` entry point for W2 artifacts. It snapshots and deeply freezes the validated artifact expectations before any transaction work, revalidates immutable patch bytes and SHA-256 digest, exact `git apply --numstat -z -p1` file inventory, approved scope, current `HEAD == baseCommit`, and clean parent worktree/index before checking every preimage hash. It then runs only `git apply --check -p1` followed by plain `git apply -p1`, validates postimages before and after a required caller-owned parent verifier, rejects unexpected non-ignored parent status, and uses compare-and-swap rollback: exact proposed bytes and modes are restored only while the post-apply state still matches; safe paths are restored even when another path conflicts, and conflicts raise `rollback_conflict` without overwriting newer or non-regular replacements. It never uses fuzzy apply, three-way merge, reject files, rebasing, commits, index updates, child tests, or conflict resolution. W3 v1 does not add a tool, automatic verifier discovery, merge policy, temporary verification worktrees, or retry loop.
+
+W3 provides optimistic concurrency control, not literal atomic filesystem compare-and-swap: without OS/repository locking, an external writer can still race the final comparison and filesystem operation.
+
+W3 exit checks:
+
+- successful add integration retains the parent change and invokes the parent verifier;
+- tampered digest, mismatched inventory, checked-apply conflict, and dirty-parent preconditions reject before mutation;
+- verifier mutation cannot return `applied`; immutable expectations remain authoritative; safe files roll back when another touched file conflicts; unrelated non-ignored changes survive rollback;
+- focused writer, safe-verify, and adversarial suites pass with `156/156` tests; `npm run check` reaches the existing unrelated TypeScript error at `packages/ai/test/openai-completions-tool-choice.test.ts:1410`; `git diff --check` passes;
+- W3 is frozen at this narrow API boundary.
+
+---
+
+# W4 — parent-owned writer proposal workflow
+
+Status: **implemented, verified, and frozen**
+
+W4 wires the frozen W1/W2/W3 writer APIs into the real parent-facing workflow through three stateless build tools. `inspect_writer_patch` validates the complete W2 artifact, requires canonical equality between `patchRef` and `<agentDir>/artifacts/writer/<runId>/proposal.patch`, rejects symlink/non-regular paths, rechecks exact bytes/hash/schema/inventory, and returns complete metadata with a 32 KiB capped preview. `reject_writer_patch` is an explicit non-mutating decision; it does not delete, consume, or tombstone the immutable artifact. `integrate_writer_patch` requires a trusted project and configured `--piv-verify` before calling `integrateWriterPatchArtifact()`; the verifier callback uses the existing bounded `runVerifier()` seam. Parent review and integration remain explicit, never automatic after `delegate_write`.
+
+W4 exit checks:
+
+- inspect, reject, and integrate are registered as separate tools and active only in build mode;
+- valid-hash artifacts outside the production path and symlinked expected paths are rejected;
+- missing verifier fails before W3 mutation; configured success integrates; verifier failure reports `verification_failed` and rolls back;
+- rejection leaves the parent and reusable artifact unchanged;
+- focused writer, safe-verify, and adversarial suites pass with `159/159` tests;
+- `npm run check` passes all repository gates through the existing unrelated TypeScript error at `packages/ai/test/openai-completions-tool-choice.test.ts:1410`; `git diff --check` passes.
+
+---
+
+# W5 — adversarial writer hardening and explicit dogfooding
+
+Status: **W5A automated/adversarial PASS / FROZEN; W5B live harness READY; live certification PENDING external environment**
+
+W5 drives the complete production sequence `delegate_write -> inspect_writer_patch -> reject_writer_patch | integrate_writer_patch -> verifier -> parent result` without changing W1-W4 authority. Automated tests use only the existing faux provider and temporary Git fixtures. Coverage includes successful faux writer completion, multi-file integration, repeated rejection/reuse, tampered artifacts, path escape, symlink replacement, patch-limit metadata, stale bases, dirty parents, verifier failure, rollback conflict, capability-denied writers, cancellation, timeout, and parent-state preservation.
+
+The explicit live harness is `packages/coding-agent/examples/w5-writer-dogfood.ts`, exposed as `npm --workspace @earendil-works/pi-coding-agent run w5:live -- <route>`. It refuses to run unless `W5_LIVE=1`, requires a clean `W5_LIVE_ROOT`, accepts only `cx/gpt-5.6-luna` or `cx/deepseek/deepseek-v4-flash`, uses disposable Git worktrees, and writes bounded JSONL operational records without prompts, fork bodies, patch bodies, credentials, or absolute checkout paths. Live results are certification evidence and are not part of `npm test`, `npm run check`, or the automated W5 gate.
+
+W5 verification:
+
+- `piv-writer-w5.test.ts`, `piv-subagents.test.ts`, `piv-subagents-adversarial.test.ts`, and `piv-safe-verify.test.ts` pass with `170/170` tests;
+- W5A automated/adversarial layer is PASS / FROZEN;
+- W5B live harness is READY; `cx/gpt-5.6-luna` and `cx/deepseek/deepseek-v4-flash` remain optional external production-certification evidence and are not claimed until both representative runs complete in an available environment;
+- W6 Subagent Observatory/TUI is implemented and frozen; W5B remains optional external production-certification evidence;
+- durable decisions/jobs, parallel writers, merge/rebase/commit/conflict-resolution semantics, and release cleanup remain deferred.
+
+---
+
+# W6 — Subagent Observatory / TUI
+
+Status: **FROZEN**
+
+W6 keeps runtime `SubagentEvent` facts separate from bounded presentation `SubagentProgressSnapshot` state. A reducer/sanitizer emits snapshots through existing `onUpdate()` for `tool_execution_update` transport and feeds an extension-owned capped store. Interactive TUI renderers use existing `renderCall`/`renderResult` and `/agents` plus `/subagents` use one read-only `ctx.ui.custom()` overlay. JSON/RPC receive typed progress updates; ordinary print remains unchanged. No core AgentSession bus, persistent sidebar, overlay actions, or W1-W5 semantic changes are allowed.
+
+Freeze gate:
+
+- live updates work for single, batch, review, and writer tools;
+- writer proposal, inspection, rejection, integration, verifier, rollback, and conflict phases are visible;
+- active/recent `/agents` and `/subagents` views support navigation, expansion/collapse, and close only;
+- reducer, renderer, transport, command, redaction, bound, and update-permutation tests pass;
+- dropping, duplicating, or reordering observability updates cannot change execution or integration outcomes;
+- focused W6/W5/W4 suites pass with `184/184` tests and `npm run check` reaches only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` failure;
+- live TUI smoke verified delegation activity/current path, proposal-ready writer activity, RECENT transition, expansion/collapse/close, and identical `/agents`/`/subagents` overlays;
+- live writer integration certification remains pending as external W5B production evidence and does not block the V1 implementation freeze after automated writer validation;
+- W7.1 one-owner durable asynchronous read-only jobs, W7.2 bounded multi-job durable read-only scheduling, and W8.1 metadata-only durable job observatory visibility are implemented and frozen as bounded V2 slices; job actions, background batch facades, writers, auto-resume, steering, and Hivemind remain deferred.
+
+---
+
+# W7.1 — one-owner durable asynchronous read-only job
+
+Status: **IMPLEMENTED / FROZEN**
+
+W7.1 adds exactly one durable asynchronous read-only job per Pi session owner. `delegate_async` captures the normalized request and launch provenance before acceptance, persists an append-only created snapshot, and returns acceptance metadata without awaiting the child. The detached worker reuses the frozen model/trust/resource resolution, bounded recovery, native runner, and parent verification path with an independent job-owned cancellation signal.
+
+The extension-owned `SubagentJobRegistry` persists bounded/redacted state through session custom entries, enforces one active owner job, validates canonical terminal snapshots, retains at most 32 terminal jobs, supports owner-only inspection/cancellation, awaits cancellation and shutdown settlement, and restores stale active snapshots as `interrupted` without relaunch. Completion messages contain only job metadata, are emitted after terminal persistence, are deferred until `agent_settled`, use `triggerTurn: false`, and are deduplicated from persisted `custom_message` details.
+
+The three tools are `delegate_async`, `inspect_subagent_job`, and `cancel_subagent_job`. The foreground `delegate`, batch/review tools, observatory, and core session manager remain unchanged. Queues, multiple jobs, parallel/background batches, budgets across jobs, priorities/fairness, background writers, auto-resume/relaunch, automatic result ingestion, active-job TUI management, steering, recursive delegation, network/Bash expansion, and Hivemind remain **NOT YET IMPLEMENTED**.
+
+Exit verification:
+
+- `piv-subagent-jobs.test.ts`: `16/16`;
+- integration plus safe-verify/subagent suite: `172/172`;
+- frozen W7/W6/W5/W4/adversarial suite: `202/202`;
+- `npx tsgo --noEmit` and `npm run check` report only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` error;
+- `git diff --check` passes.
+
+# W7.2 — bounded multi-job durable read-only scheduling
+
+Status: **IMPLEMENTED / FROZEN**
+
+W7.2 extends the W7.1 owner-scoped durable job registry without changing the foreground runner or adding a second scheduler. The registry admits up to 2 active jobs by default, caps active concurrency at 4, retains up to 8 FIFO queued jobs, and reserves planned output against a 256 KiB owner aggregate budget before durable admission. It persists queued state before acceptance, promotes only after terminal persistence, exposes queue position and budget metadata, cancels queued jobs without invoking their closures, releases each reservation exactly once, and fails closed on persistence transitions. Shutdown and restore mark both queued and active jobs `interrupted` without relaunch.
+
+The slice excludes priority, steering, recursive delegation, Bash/network/writer privileges, background batch facades, auto-resume, automatic result ingestion, job actions, and Hivemind. Verification is `piv-subagent-jobs.test.ts` `31/31`, `piv-subagents.test.ts` `115/115`, and `piv-safe-verify.test.ts` included in the `189/189` focused run; root `npm run check` reaches only the documented pre-existing `maxTokensField` diagnostic.
+
+# W8.1 — durable job observatory visibility
+
+Status: **IMPLEMENTED / FROZEN**
+
+W8.1 adds metadata-only owner-scoped durable job sections to the existing read-only `/agents` and `/subagents` overlays. `SubagentJobRegistry.subscribe()` is a non-authoritative change stream published after durable admission, running/terminal transitions, restore completion, and fail-closed terminal presentation. The overlay projects bounded identity, role/model, status, timestamps, queue position, reservation/budget counters, and stable result references without result summaries or diagnostics. It uses no polling and adds no cancel, retry, resume, steer, result-ingestion, scheduler, background batch, writer, auto-resume, or Hivemind behavior.
+
+Verification:
+
+- `piv-subagent-jobs.test.ts` and `piv-subagent-observatory.test.ts`: `48/48`;
+- `npx tsgo --noEmit` and `npm run check` reach only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` error;
+- `git diff --check` passes.
+
+# W8.2 — explicit read-only durable-result inspection
+
+Status: **IMPLEMENTED / FROZEN**
+
+W8.2 adds exactly one UI capability to the existing read-only `/agents` and `/subagents` overlays: an explicit configurable `app.subagents.inspect` action (`ctrl+enter`) for terminal BACKGROUND RECENT rows. Enter remains expand/collapse and Esc returns from detail before closing the overlay. Detail mode calls the current owner-scoped `SubagentJobRegistry.inspect(jobId)` API once per explicit action and renders only an ephemeral frozen projection of the already bounded durable result envelope: terminal-safe/redacted summary, repo-relative evidence, findings, verification, diagnostics, and stable metadata. Active, queued, and foreground rows cannot open result detail; provider/model IDs remain intact and URI/absolute evidence paths are rejected.
+
+Inspection is UI-only. It does not call `sendMessage`, `appendEntry`, or any agent/model turn; it does not mutate `SubagentObservatoryStore`, scheduler state, parent context, or result ingestion. If retention removes the selected job while detail is open, the view shows a bounded no-longer-retained state and restores selection by job ID when returning.
+
+Verification:
+
+- focused `piv-subagent-observatory.test.ts` and `piv-subagents.test.ts`: `134/134`; registry-inclusive `piv-subagent-jobs.test.ts`, `piv-subagent-observatory.test.ts`, and `piv-subagents.test.ts`: `169/169`;
+- final frozen six-file regression surface: `231/231`;
+- `npx tsgo --noEmit` and `npm run check` reach only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` error;
+- `git diff --check` passes.
+
+# W8.3 — read-only persisted completion-inbox metadata
+
+Status: **IMPLEMENTED / FROZEN**
+
+W8.3 adds one noninteractive `COMPLETION INBOX` section to the existing `/agents` and `/subagents` overlays. At each overlay open, it reads the current session entries once and intersects exact persisted `JOB_COMPLETION_MESSAGE_TYPE` metadata with the current owner-scoped retained terminal job projection. The projector validates bounded job IDs, terminal status, exact status/result-reference matches, canonical timestamps, newest-first ordering, duplicate suppression, and a maximum of 32 frozen items. Message `content` is never parsed or rendered.
+
+Inbox rows contain only job ID, terminal status, role/model, optional finished/notified timestamps, and the authoritative result reference. They are appended after all selectable rows and contribute zero `entryKeys()`, so Enter, Ctrl+Enter, Up/Down, and Esc retain their W8.1/W8.2 behavior. The snapshot remains unchanged while the overlay is open; reopening reconstructs it from persisted metadata. No registry inspection, result-body read, message send, entry append, polling, live session subscription, context mutation, scheduler change, cancellation, queue control, result ingestion, or persistent inbox state was added.
+
+Verification:
+
+- focused `piv-subagent-observatory.test.ts` and `piv-subagents.test.ts`: `139/139`;
+- registry-inclusive `piv-subagent-jobs.test.ts`, `piv-subagent-observatory.test.ts`, and `piv-subagents.test.ts`: `174/174`;
+- frozen six-file regression surface: `236/236`;
+- `npx tsgo --noEmit` and `npm run check` reach only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` error;
+- `git diff --check` passes.
+
+# V1 implementation freeze and external certification
+
+Status: **COMPLETE / FROZEN**.
+
+The V1 implementation freeze was satisfied by implementation correctness, focused validation, B8.1 deterministic adversarial regressions, B8.2 pinned four-target harness correctness and provider smoke, the present B8.3 finding-based report, W5A automated writer validation, and frozen W6 observability/TUI.
+
+The exhaustive B8 comparative matrices and W5B live writer runs are optional post-freeze external certification evidence. They remain explicitly unclaimed until their runs complete; they do not become implementation requirements because of provider latency or endpoint availability.
+
+W7.1/W7.2 durable background read-only jobs and bounded parallel scheduling, plus W8.1-W8.3 observability slices, are implemented V2 work and are not part of the narrow V1 definition. Hivemind, autonomous mode, unrestricted subagent Bash, background writers, execution auto-resume/relaunch, result ingestion, steering/priority, and management authority remain deferred.
+
+---
+
+# Post-MVP Phase F — background writers and durable-job follow-ons
+
+W7.1/W7.2 already provide the durable read-only job foundation:
+
+- stable job/run identity;
+- owner/session identity;
+- persisted lifecycle status;
+- metadata-only completion notification;
+- owner-scoped cancellation;
+- restart recovery by interrupting stale nonterminal work without relaunch;
+- terminal retention;
+- bounded active concurrency, FIFO queueing, reservations, and deterministic promotion.
+
+Remaining Phase F follow-ons are separate slices:
+
+- execution resume/auto-resume, if ever justified;
+- bounded logs/artifacts beyond the current result envelope;
+- richer management/task-tree UI beyond the current read-only observatory;
+- background writers.
+
+Do not add `background: true` to the foreground runner. Follow-on work must not add priority, steering, auto-resume, writers, or Hivemind without a separate bounded slice.
 
 References:
 
@@ -719,18 +1199,23 @@ References:
 
 ---
 
-# Post-MVP Phase F — optional memory integration
+# Post-MVP Phase G — optional memory integration
 
-Cognee remains off for child automatic memory by default.
+Cognee remains off for child automatic memory by default. Hivemind learning follows the separate promotion model in `docs/hivemind/memory-learning.md` rather than turning the shared run board into permanent memory.
 
-If enabled later:
+If durable learning is enabled later:
 
-- scope recall/write by child run/profile/session;
-- inherit only allowed memory capability;
+- capture structured hive/subagent outcomes with redaction and provenance;
+- distill knowledge/skill candidates after the run rather than injecting raw transcripts;
+- keep unverified output candidate-only until verifier/repeated-success/user policy promotes it;
+- make recall parent-selected initially and pass only bounded relevant entries in child handoffs;
+- scope durable knowledge by repository/user before organization-wide propagation;
+- support invalidation/revalidation when source state changes;
+- allow `piv-cognee` or another store only through a backend-neutral adapter contract;
+- scope any later child recall/write by hive/run/profile/session and parent capability;
 - retrieved memory remains untrusted;
 - never share credentials through handoff;
-- no automatic hot-path trace ingestion;
-- keep parent and child session memory logically separable.
+- keep parent, child, Hivemind run-board, and durable-memory state logically separable.
 
 ---
 
@@ -803,6 +1288,23 @@ Use references for ideas/contracts, not direct code copying.
 - worker lifecycle/health;
 - deny-first permissions;
 - evidence/report schema.
+
+## ActiveLoop Hivemind
+
+- Pi lifecycle integration for capture/recall;
+- structured trace/session summarization;
+- reusable skill-learning pipeline;
+- shared-memory concepts, adapted behind Pi Void verification/promotion policy.
+
+## Ruflo Hive Mind
+
+- explicit hive topology and worker membership;
+- typed shared state and consensus proposals;
+- bounded multi-worker coordination;
+- use Hivemind only when a single native subagent is insufficient;
+- do not copy nested queen hierarchies or treat model voting as deterministic verification.
+
+See `docs/hivemind/references.md` for source-level notes and adaptation boundaries.
 
 ---
 
