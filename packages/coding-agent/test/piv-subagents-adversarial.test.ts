@@ -21,6 +21,7 @@ import {
 	runSubagentWithRecovery,
 	SUBAGENT_CONTEXT_PACKET_LIMITS,
 	SUBAGENT_FORK_CONTEXT_LIMITS,
+	SubagentError,
 	type SubagentRequest,
 	type SubagentResult,
 	verifySubagentResult,
@@ -121,6 +122,37 @@ describe("Pi Void B8.1 deterministic adversarial invariants", () => {
 		expect(createSession).not.toHaveBeenCalled();
 	});
 
+	it("scope.targets rejects traversal, symlinks, directories, missing files, and outside-root files", async () => {
+		const cwd = await createWorkspace();
+		const outside = await mkdtemp(join(tmpdir(), "piv-adversarial-target-outside-"));
+		tempDirs.push(outside);
+		await writeFile(join(cwd, "src", "target.ts"), "target\n");
+		await writeFile(join(outside, "outside.ts"), "outside\n");
+		await symlink(join(cwd, "src", "target.ts"), join(cwd, "src", "link.ts"));
+
+		const cases = [
+			{ path: "src/../src/target.ts", reason: /traversal/i },
+			{ path: "src/link.ts", reason: /symlink/i },
+			{ path: "src", reason: /regular file|directory/i },
+			{ path: "src/missing.ts", reason: /exist|resolve/i },
+			{ path: join(outside, "outside.ts"), reason: /outside|scope root/i },
+		] as const;
+
+		for (const testCase of cases) {
+			let failure: unknown;
+			try {
+				normalizeSubagentRequest({ ...request(cwd), scope: { roots: ["src"], targets: [testCase.path] } }, cwd);
+			} catch (error) {
+				failure = error;
+			}
+			expect(failure).toBeInstanceOf(SubagentError);
+			if (!(failure instanceof SubagentError)) throw new Error("expected a structured target error");
+			expect(failure.code).toBe("invalid_scope");
+			expect(failure.details).toMatchObject({ field: "scope.targets", path: testCase.path });
+			expect(failure.message).toMatch(testCase.reason);
+		}
+	});
+
 	it("context.fork-utf8-boundary truncates without producing replacement characters", () => {
 		const content = `${"a".repeat(SUBAGENT_FORK_CONTEXT_LIMITS.maxMessageBytes - 3)}😀`;
 		const snapshot = normalizeSubagentForkContext({
@@ -169,14 +201,21 @@ describe("Pi Void B8.1 deterministic adversarial invariants", () => {
 	it("lifecycle.provider-partial-output-failure remains terminal and retains observed bytes", async () => {
 		const cwd = await createWorkspace();
 		const partial = '{"summary":"partial","evidence":{"paths":["src"]}}';
+		const messages: AgentMessage[] = [];
 		const fakeSession = {
 			sessionId: "child-partial",
 			model: {} as Model<Api>,
-			messages: [{ role: "assistant", content: partial, stopReason: "error" }],
+			messages,
 			subscribe: vi.fn(() => vi.fn()),
-			prompt: vi.fn(async () => {}),
+			prompt: vi.fn(async () => {
+				messages.push({ role: "assistant", content: partial, stopReason: "error" } as unknown as AgentMessage);
+			}),
 			abort: vi.fn(async () => {}),
 			dispose: vi.fn(),
+			extensionRunner: {
+				hasHandlers: vi.fn(() => false),
+				emit: vi.fn(async () => undefined),
+			},
 			getSessionStats: vi.fn(() => ({ tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, cost: 0 })),
 		} as unknown as CreateAgentSessionResult["session"];
 		const result = await new NativeSubagentRunner({

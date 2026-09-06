@@ -186,8 +186,25 @@ Options:
 	}
 }
 
+function stripLeadingPivModeArgs(args: string[]): string[] {
+	const rest = [...args];
+	while (rest.length > 0) {
+		const arg = rest[0]!;
+		if (arg === "--piv-mode" && rest[1] !== undefined && !rest[1].startsWith("-")) {
+			rest.splice(0, 2);
+			continue;
+		}
+		if (arg.startsWith("--piv-mode=")) {
+			rest.shift();
+			continue;
+		}
+		break;
+	}
+	return rest;
+}
+
 function parsePackageCommand(args: string[]): PackageCommandOptions | undefined {
-	const [rawCommand, ...rest] = args;
+	const [rawCommand, ...rest] = stripLeadingPivModeArgs(args);
 	let command: PackageCommand | undefined;
 	if (rawCommand === "uninstall") {
 		command = "remove";
@@ -605,7 +622,7 @@ export async function handleConfigCommand(
 	args: string[],
 	runtimeOptions: PackageCommandRuntimeOptions = {},
 ): Promise<boolean> {
-	const [command, ...rest] = args;
+	const [command, ...rest] = stripLeadingPivModeArgs(args);
 	if (command !== "config") {
 		return false;
 	}

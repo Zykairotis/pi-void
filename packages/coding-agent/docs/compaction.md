@@ -55,7 +55,7 @@ Blackhole supports one automatic threshold at a time:
 }
 ```
 
-Use `/settings` to tune all Blackhole fields while the extension is loaded, or use `/blackhole percent 20` and `/blackhole tokens 54400` for direct threshold commands. Percentage mode resolves against the active model on every turn, so `272000 * 20% = 54400` for a 272k context model. `compactAfterPercent` and `compactAfterTokens` are mutually exclusive. `tailBehavior: "pi-default"` preserves Pi's normal retained tail.
+Use `/settings` to tune all Blackhole fields while the extension is loaded, or use `/blackhole percent 20` and `/blackhole tokens 54400` for direct threshold commands. Percentage mode resolves against the active model on every turn, so `272000 * 20% = 54400` for a 272k context model. `compactAfterPercent` and `compactAfterTokens` are mutually exclusive. `tailBehavior: "minimal"` (default) summarizes Pi's retained tail and keeps only the new compact entry plus later resume/user messages. `tailBehavior: "pi-default"` keeps Pi's normal `keepRecentTokens` tail (~20k by default), which is why context can stay large after compact.
 
 If both native and Blackhole mid-run triggers are enabled, Blackhole yields to native Pi Void and displays a warning. This prevents duplicate compaction and abort races.
 
@@ -77,13 +77,14 @@ Pi supports this through the **extension event API** (not Claude's `hooks.json` 
 | (extra) | `session_compact` | Redacted compaction summary → durable remember queue |
 
 - Continuous capture defaults **on** (`captureSession` / `captureTools` / `autoImprove`). Toggle with `/cognee capture|tools|improve on|off` if cost is a concern.
-- Compaction summaries still queue under `~/.pi/agent/pi-cognee/pending/` when `autoRemember` is `compaction`.
+- Recall is injected as a turn-scoped system-prompt append, not a durable `custom_message`.
+- Compaction summaries still queue under `~/.pi/agent/pi-cognee/pending/` when `autoRemember` is `compaction`. The latest compact summary is also prepended once to the next turn without waiting for Cognee.
 - Skills: `cognee-remember`, `cognee-search`, `cognee-sync`. Commands include `/cognee doctor` and statusline key `piv-cognee`.
 - Loads Layer A keys from env + `~/.cognee/.env` (shared with Claude/Codex). Default dataset remains **`pi-void`** (not `agent_sessions`).
 - The model receives only the read-only `cognee_search` tool. Manual `/cognee remember ...` remains available.
 - Soft-fail on network/auth/timeouts; failed session-cache writes buffer under `~/.pi/agent/pi-cognee/warmup/`.
 
-Blackhole is independent of Cognee. Native Pi compaction and a saved Blackhole compaction both produce valid remember sources; Cognee does not trigger or implement compaction.
+Blackhole is independent of Cognee. Native Pi compaction and a saved Blackhole compaction both produce valid remember sources. Cognee `auto`/`defer` never implement the compact summary; only explicit `own` may return one, and it must summarize the messages being compacted.
 
 ### How It Works
 

@@ -25,6 +25,7 @@ export type SubagentJobStatus =
 	| "created"
 	| "queued"
 	| "running"
+	| "needs_time"
 	| "completed"
 	| "failed"
 	| "cancelled"
@@ -32,7 +33,7 @@ export type SubagentJobStatus =
 	| "verification_failed"
 	| "interrupted";
 
-export type TerminalSubagentJobStatus = Exclude<SubagentJobStatus, "created" | "queued" | "running">;
+export type TerminalSubagentJobStatus = Exclude<SubagentJobStatus, "created" | "queued" | "running" | "needs_time">;
 
 export interface SubagentJobRecord {
 	schemaVersion: 1;
@@ -72,6 +73,37 @@ export interface SubagentJobResultEnvelope {
 		code: string;
 		message?: string;
 	}[];
+	/** Runtime-owned bounded work projection preserved across report-protocol failures. */
+	workArtifact?: SubagentJobWorkArtifactView;
+}
+
+export interface SubagentJobWorkArtifactView {
+	schemaVersion: 1;
+	observedOutputBytes: number;
+	touchedPaths: readonly string[];
+	candidateEvidencePaths: readonly string[];
+	reportProtocol: {
+		status: "valid" | "malformed" | "missing" | "truncated";
+		diagnostic?: string;
+	};
+	lastActivities?: readonly {
+		toolName: string;
+		action?: string;
+		status: string;
+		exitCode?: number;
+		errorClass?: string;
+	}[];
+}
+
+/**
+ * Bounded terminal tombstone retained after full result retention expires so an
+ * owner can distinguish "expired from retention" from an unknown job ID.
+ */
+export interface SubagentJobTombstone {
+	jobId: string;
+	terminalStatus: TerminalSubagentJobStatus;
+	finishedAt?: string;
+	expiredAt: string;
 }
 
 export interface PersistedSubagentJobSnapshot {
@@ -96,6 +128,8 @@ export interface SubagentJobInspection {
 		ownerBudgetBytes: number;
 	}>;
 	result?: Readonly<SubagentJobResultEnvelope>;
+	/** Present when the full result expired from retention; final status stays visible. */
+	tombstone?: Readonly<SubagentJobTombstone>;
 }
 
 export interface SubagentJobAccepted {
@@ -155,6 +189,7 @@ const JOB_STATUSES = new Set<SubagentJobStatus>([
 	"created",
 	"queued",
 	"running",
+	"needs_time",
 	"completed",
 	"failed",
 	"cancelled",
@@ -305,6 +340,59 @@ function isCanonicalFinding(value: unknown): value is ReviewFinding {
 	);
 }
 
+function validWorkArtifactView(value: unknown): value is SubagentJobWorkArtifactView {
+	if (!isRecord(value) || value.schemaVersion !== 1) return false;
+	if (
+		typeof value.observedOutputBytes !== "number" ||
+		!Number.isSafeInteger(value.observedOutputBytes) ||
+		value.observedOutputBytes < 0
+	)
+		return false;
+	if (
+		!Array.isArray(value.touchedPaths) ||
+		value.touchedPaths.length > 64 ||
+		value.touchedPaths.some((path) => boundedPath(path) === undefined)
+	)
+		return false;
+	if (
+		!Array.isArray(value.candidateEvidencePaths) ||
+		value.candidateEvidencePaths.length > 16 ||
+		value.candidateEvidencePaths.some((path) => boundedPath(path) === undefined)
+	)
+		return false;
+	if (!isRecord(value.reportProtocol)) return false;
+	const status = value.reportProtocol.status;
+	if (status !== "valid" && status !== "malformed" && status !== "missing" && status !== "truncated") return false;
+	if (
+		value.reportProtocol.diagnostic !== undefined &&
+		boundedText(value.reportProtocol.diagnostic, MAX_DURABLE_DIAGNOSTIC_BYTES) !== value.reportProtocol.diagnostic
+	)
+		return false;
+	if (value.lastActivities !== undefined) {
+		if (!Array.isArray(value.lastActivities) || value.lastActivities.length > 12) return false;
+		for (const activity of value.lastActivities) {
+			if (!isRecord(activity) || typeof activity.toolName !== "string" || activity.toolName.length === 0)
+				return false;
+			if (Buffer.byteLength(activity.toolName) > 128) return false;
+			if (activity.action !== undefined && boundedText(activity.action, 512) !== activity.action) return false;
+			if (
+				typeof activity.status !== "string" ||
+				activity.status.length === 0 ||
+				Buffer.byteLength(activity.status) > 32
+			)
+				return false;
+			if (
+				activity.exitCode !== undefined &&
+				(typeof activity.exitCode !== "number" || !Number.isSafeInteger(activity.exitCode))
+			)
+				return false;
+			if (activity.errorClass !== undefined && boundedText(activity.errorClass, 128) !== activity.errorClass)
+				return false;
+		}
+	}
+	return true;
+}
+
 function validResultEnvelope(value: unknown, jobId: string): value is SubagentJobResultEnvelope {
 	if (!isRecord(value) || value.schemaVersion !== 1 || value.jobId !== jobId) return false;
 	if (value.runId !== undefined && !isJobId(value.runId)) return false;
@@ -331,6 +419,7 @@ function validResultEnvelope(value: unknown, jobId: string): value is SubagentJo
 		}
 	}
 	if (value.usage !== undefined && !validUsage(value.usage)) return false;
+	if (value.workArtifact !== undefined && !validWorkArtifactView(value.workArtifact)) return false;
 	if (!Array.isArray(value.diagnostics) || value.diagnostics.length > 32) return false;
 	return value.diagnostics.every(
 		(diagnostic) =>
@@ -390,10 +479,15 @@ function validJobRecord(value: unknown): value is SubagentJobRecord {
 	if (value.startedAt !== undefined && !isIsoDate(value.startedAt)) return false;
 	if (value.finishedAt !== undefined && !isIsoDate(value.finishedAt)) return false;
 	if (value.runId !== undefined && !isJobId(value.runId)) return false;
-	if ((status === "created" || status === "queued" || status === "running") && value.runId !== undefined) return false;
+	if ((status === "created" || status === "queued") && value.runId !== undefined) return false;
 	if (status === "created" && (value.startedAt !== undefined || value.finishedAt !== undefined)) return false;
 	if (status === "queued" && (value.startedAt !== undefined || value.finishedAt !== undefined)) return false;
 	if (status === "running" && (value.startedAt === undefined || value.finishedAt !== undefined)) return false;
+	if (
+		status === "needs_time" &&
+		(value.startedAt === undefined || value.finishedAt !== undefined || value.runId === undefined)
+	)
+		return false;
 	if (
 		(status === "completed" || status === "failed" || status === "timed_out" || status === "verification_failed") &&
 		(value.startedAt === undefined || value.finishedAt === undefined)
@@ -496,6 +590,7 @@ function projectResult(
 		: undefined;
 	const runtimeMessage =
 		runtimeError instanceof Error ? runtimeError.message : runtimeError ? String(runtimeError) : undefined;
+	const artifactView = projectWorkArtifactView(result);
 	return {
 		schemaVersion: 1,
 		jobId,
@@ -506,7 +601,51 @@ function projectResult(
 		...(findings && findings.length > 0 ? { findings } : {}),
 		...(verification ? { verification } : {}),
 		...(cloneUsage(result?.usage) ? { usage: cloneUsage(result?.usage) } : {}),
+		...(artifactView ? { workArtifact: artifactView } : {}),
 		diagnostics: resultDiagnostics(result, runtimeError ? "job_runtime_failure" : undefined, runtimeMessage),
+	};
+}
+
+/**
+ * Project the runtime-owned work artifact into the durable envelope when the
+ * final report failed the protocol. Verified completions do not need it.
+ */
+function projectWorkArtifactView(result: SubagentResult | undefined): SubagentJobWorkArtifactView | undefined {
+	const artifact = result?.workArtifact;
+	if (!artifact || result?.status === "completed") return undefined;
+	const boundedPaths = (paths: readonly string[], limit: number): string[] =>
+		paths
+			.map((path) => boundedPath(path))
+			.filter((path): path is string => path !== undefined)
+			.slice(0, limit);
+	return {
+		schemaVersion: 1,
+		observedOutputBytes:
+			typeof artifact.observedOutputBytes === "number" && Number.isSafeInteger(artifact.observedOutputBytes)
+				? Math.max(0, artifact.observedOutputBytes)
+				: 0,
+		touchedPaths: boundedPaths(artifact.touchedPaths, 64),
+		candidateEvidencePaths: boundedPaths(artifact.candidateEvidencePaths, 16),
+		reportProtocol: {
+			status: artifact.reportProtocol.status,
+			...(artifact.reportProtocol.diagnostic
+				? {
+						diagnostic:
+							boundedText(artifact.reportProtocol.diagnostic, MAX_DURABLE_DIAGNOSTIC_BYTES) ?? undefined,
+					}
+				: {}),
+		},
+		...(artifact.lastActivities.length > 0
+			? {
+					lastActivities: artifact.lastActivities.slice(-12).map((activity) => ({
+						toolName: activity.toolName.slice(0, 128),
+						...(activity.action ? { action: boundedText(activity.action, 512) } : {}),
+						status: activity.status.slice(0, 32),
+						...(activity.exitCode !== undefined ? { exitCode: activity.exitCode } : {}),
+						...(activity.errorClass ? { errorClass: boundedText(activity.errorClass, 128) } : {}),
+					})),
+				}
+			: {}),
 	};
 }
 
@@ -522,6 +661,7 @@ export class SubagentJobRegistry {
 	private schedulerBlocked = false;
 	private readonly records = new Map<string, JobState>();
 	private readonly live = new Map<string, LiveJob>();
+	private readonly tombstones = new Map<string, SubagentJobTombstone>();
 	private readonly sequences = new Map<string, number>();
 	private readonly order = new Map<string, number>();
 	private orderCounter = 0;
@@ -658,8 +798,27 @@ export class SubagentJobRegistry {
 	inspect(jobId: string, requesterSessionId = this.ownerSessionId): SubagentJobInspection {
 		this.assertOwner(requesterSessionId);
 		const state = this.records.get(jobId);
-		if (!state) throw new SubagentJobError("job_not_found", "Subagent job was not found.");
-		return this.inspectionFor(state);
+		if (state) return this.inspectionFor(state);
+		// An accepted job ID must stay owner-inspectable even after its full result
+		// expired from retention: report the bounded tombstone, not generic not-found.
+		const tombstone = this.tombstones.get(jobId);
+		if (tombstone) {
+			return Object.freeze({
+				job: cloneJob({
+					schemaVersion: 1,
+					jobId: tombstone.jobId,
+					ownerSessionId: this.ownerSessionId,
+					launchLeafId: null,
+					role: "expired",
+					status: tombstone.terminalStatus,
+					createdAt: tombstone.expiredAt,
+					...(tombstone.finishedAt ? { finishedAt: tombstone.finishedAt } : {}),
+					resultRef: `job:${tombstone.jobId}`,
+				}),
+				tombstone: Object.freeze({ ...tombstone }),
+			});
+		}
+		throw new SubagentJobError("job_not_found", "Subagent job was not found.");
 	}
 
 	async cancel(jobId: string, requesterSessionId = this.ownerSessionId): Promise<SubagentJobInspection> {
@@ -670,6 +829,11 @@ export class SubagentJobRegistry {
 		if (!live || isTerminal(state.job.status)) return this.inspectionFor(state);
 		if (!live.requestedStop) live.requestedStop = "cancelled";
 		if (state.job.status === "queued") {
+			await this.settle(live);
+			return this.inspect(jobId);
+		}
+		if (state.job.status === "needs_time") {
+			live.controller.abort();
 			await this.settle(live);
 			return this.inspect(jobId);
 		}
@@ -692,10 +856,15 @@ export class SubagentJobRegistry {
 			}
 			await Promise.all(selected.filter((live) => live.job.status === "queued").map((live) => this.settle(live)));
 			const active = selected.filter(
-				(live) => !live.settled && (live.job.status === "created" || live.job.status === "running"),
+				(live) =>
+					!live.settled &&
+					(live.job.status === "created" || live.job.status === "running" || live.job.status === "needs_time"),
 			);
 			for (const live of active) live.controller.abort();
-			await Promise.all(active.map((live) => live.promise ?? Promise.resolve()));
+			await Promise.all(active.filter((live) => live.job.status === "needs_time").map((live) => this.settle(live)));
+			await Promise.all(
+				active.filter((live) => live.job.status !== "needs_time").map((live) => live.promise ?? Promise.resolve()),
+			);
 		} finally {
 			this.schedulerPauseDepth--;
 			if (this.schedulerPauseDepth === 0) this.pump();
@@ -708,6 +877,7 @@ export class SubagentJobRegistry {
 		}
 		this.records.clear();
 		this.live.clear();
+		this.tombstones.clear();
 		this.sequences.clear();
 		this.order.clear();
 		this.orderCounter = 0;
@@ -762,7 +932,28 @@ export class SubagentJobRegistry {
 	}
 
 	list(): readonly SubagentJobInspection[] {
-		return Object.freeze([...this.records.values()].map((state) => this.inspectionFor(state)));
+		const inspections = [...this.records.values()].map((state) => this.inspectionFor(state));
+		const recordedIds = new Set(this.records.keys());
+		for (const [jobId, tombstone] of this.tombstones) {
+			if (recordedIds.has(jobId)) continue;
+			inspections.push(
+				Object.freeze({
+					job: cloneJob({
+						schemaVersion: 1,
+						jobId: tombstone.jobId,
+						ownerSessionId: this.ownerSessionId,
+						launchLeafId: null,
+						role: "expired",
+						status: tombstone.terminalStatus,
+						createdAt: tombstone.expiredAt,
+						...(tombstone.finishedAt ? { finishedAt: tombstone.finishedAt } : {}),
+						resultRef: `job:${tombstone.jobId}`,
+					}),
+					tombstone: Object.freeze({ ...tombstone }),
+				}),
+			);
+		}
+		return Object.freeze(inspections);
 	}
 
 	shutdown(): Promise<void> {
@@ -779,13 +970,16 @@ export class SubagentJobRegistry {
 			await this.settle(live);
 		}
 		const active = [...this.live.values()].filter(
-			(live) => live.job.status === "created" || live.job.status === "running",
+			(live) => live.job.status === "created" || live.job.status === "running" || live.job.status === "needs_time",
 		);
 		for (const live of active) {
 			if (!live.requestedStop) live.requestedStop = "interrupted";
 			live.controller.abort();
 		}
-		await Promise.all(active.map((live) => live.promise ?? Promise.resolve()));
+		await Promise.all(active.filter((live) => live.job.status === "needs_time").map((live) => this.settle(live)));
+		await Promise.all(
+			active.filter((live) => live.job.status !== "needs_time").map((live) => live.promise ?? Promise.resolve()),
+		);
 	}
 
 	private assertOwner(requesterSessionId: string): void {
@@ -845,6 +1039,47 @@ export class SubagentJobRegistry {
 			runResult = await live.run(live.controller.signal);
 		} catch (error) {
 			runtimeError = error;
+		}
+		await this.handleRunOutcome(live, runResult, runtimeError);
+	}
+
+	/** Keep a durable job aligned with a retained runtime supervisor. */
+	markManagedRunState(runId: string, state: "running" | "needs_time"): boolean {
+		const live = [...this.live.values()].find((candidate) => candidate.job.runId === runId);
+		if (!live || live.settled) return false;
+		if (state === "running" && live.job.status !== "needs_time") return false;
+		live.job = { ...live.job, status: state, runId };
+		this.records.set(live.job.jobId, live);
+		this.persistState(live);
+		this.publishChange();
+		this.pump();
+		return true;
+	}
+
+	async resolveManagedRun(runId: string, runResult: SubagentJobRunResult): Promise<boolean> {
+		const live = [...this.live.values()].find((candidate) => candidate.job.runId === runId);
+		if (!live || live.settled) return false;
+		await this.handleRunOutcome(live, runResult);
+		return true;
+	}
+
+	private async handleRunOutcome(
+		live: LiveJob,
+		runResult?: SubagentJobRunResult,
+		runtimeError?: unknown,
+	): Promise<void> {
+		if (live.settled) return;
+		if (!live.requestedStop && runResult?.result.status === "needs_time") {
+			live.job = {
+				...live.job,
+				status: "needs_time",
+				runId: runResult.result.runId,
+			};
+			this.records.set(live.job.jobId, live);
+			this.persistState(live);
+			this.publishChange();
+			this.pump();
+			return;
 		}
 		await this.settle(live, runResult, runtimeError);
 	}
@@ -987,9 +1222,26 @@ export class SubagentJobRegistry {
 			})
 			.sort((left, right) => (this.order.get(right) ?? 0) - (this.order.get(left) ?? 0));
 		for (const jobId of terminal.slice(SUBAGENT_JOB_RETENTION_LIMIT)) {
+			const state = this.records.get(jobId);
+			if (state) {
+				// Retention expiry is explicit, not silent: keep a bounded tombstone so
+				// owner inspection can report "expired from full retention; final status X".
+				this.tombstones.set(jobId, {
+					jobId,
+					terminalStatus: state.job.status as TerminalSubagentJobStatus,
+					...(state.job.finishedAt ? { finishedAt: state.job.finishedAt } : {}),
+					expiredAt: this.now().toISOString(),
+				});
+			}
 			this.records.delete(jobId);
 			this.sequences.delete(jobId);
 			this.order.delete(jobId);
+		}
+		// Tombstones are bounded memory: evict the oldest when over capacity.
+		while (this.tombstones.size > SUBAGENT_JOB_RETENTION_LIMIT) {
+			const oldest = this.tombstones.keys().next().value;
+			if (oldest === undefined) break;
+			this.tombstones.delete(oldest);
 		}
 	}
 }

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
 import {
+	appendMemoryToSystemPrompt,
 	buildLocalPrecompactAnchor,
 	canAttemptCircuit,
 	cogneeSessionId,
@@ -14,10 +15,13 @@ import {
 	extractMessageText,
 	loadPivCogneeConfig,
 	noteCircuitFailure,
+	PROJECT_DATASET_SENTINEL,
 	readPendingRemember,
 	redactMemoryText,
 	resolveCogneeApiKey,
 	resolvePivCogneeConfig,
+	resolveProjectCogneeDataset,
+	resolveRuntimeCogneeDataset,
 	shouldOwnCompactionSummary,
 	truncateForCapture,
 	updatePendingRememberState,
@@ -207,6 +211,13 @@ describe("piv-cognee state helpers", () => {
 			dataset: "repo-memory",
 		});
 		expect(() => resolvePivCogneeConfig(undefined, { PI_COGNEE_ENABLED: "sometimes" })).toThrow(/PI_COGNEE_ENABLED/);
+		expect(resolvePivCogneeConfig({ dataset: PROJECT_DATASET_SENTINEL }, {}).dataset).toBe(PROJECT_DATASET_SENTINEL);
+		const project = resolveProjectCogneeDataset("/home/mewtwo/ZSSD/pi-void");
+		expect(project).toMatch(/^piv-pi-void-[0-9a-f]{8}$/);
+		expect(resolveRuntimeCogneeDataset(PROJECT_DATASET_SENTINEL, "/home/mewtwo/ZSSD/pi-void")).toBe(project);
+		expect(resolveRuntimeCogneeDataset("pi-void")).toBe("pi-void");
+		expect(appendMemoryToSystemPrompt("base prompt", "<mem>x</mem>")).toContain("base prompt");
+		expect(appendMemoryToSystemPrompt("base prompt", "<mem>x</mem>")).toContain("<mem>x</mem>");
 	});
 
 	it("redacts common credentials and respects the memory cap", () => {
@@ -382,6 +393,58 @@ describe("piv-cognee extension hooks", () => {
 		}
 	});
 
+	it("stops the activity spinner without an uncaught throw when ctx goes stale", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-stale-"));
+		let releaseRecall: (response: Response) => void = () => undefined;
+		const recallResponse = new Promise<Response>((resolve) => {
+			releaseRecall = resolve;
+		});
+		const uncaught: unknown[] = [];
+		const onUncaught = (error: unknown): void => {
+			uncaught.push(error);
+		};
+		process.on("uncaughtException", onUncaught);
+		try {
+			const runtime = extensionHookFixture(storageDir, false, {}, async (input) => {
+				if (String(input).endsWith("/recall")) return recallResponse;
+				return new Response(null, { status: 202 });
+			});
+			// Mimic the runner's guarded ctx getter: `hasUI` reads true but any
+			// `ui` access throws after session replacement invalidated the ctx.
+			const staleCtx = Object.defineProperties(
+				{},
+				{
+					hasUI: { get: () => true },
+					ui: {
+						get: () => {
+							throw new Error("This extension ctx is stale after session replacement or reload.");
+						},
+					},
+					sessionManager: { value: runtime.ctx.sessionManager },
+					signal: { value: undefined },
+				},
+			) as unknown as ExtensionContext;
+			const prompt = runtime.handlers.get("before_agent_start")?.(
+				{
+					type: "before_agent_start",
+					prompt: "stale-ctx prompt",
+				},
+				staleCtx,
+			);
+			// Let the first spinner tick fire against the stale ctx.
+			await new Promise((resolve) => setTimeout(resolve, 30));
+			expect(uncaught).toEqual([]);
+			// A later tick must not resurrect the throw either.
+			await new Promise((resolve) => setTimeout(resolve, 250));
+			expect(uncaught).toEqual([]);
+			releaseRecall(new Response(JSON.stringify([{ text: "remembered context" }]), { status: 200 }));
+			await prompt;
+		} finally {
+			process.off("uncaughtException", onUncaught);
+			rmSync(storageDir, { recursive: true, force: true });
+		}
+	});
+
 	it("starts and closes the local observer through /cognee watch", async () => {
 		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-watch-"));
 		try {
@@ -406,11 +469,12 @@ describe("piv-cognee extension hooks", () => {
 			const runtime = extensionHookFixture(storageDir);
 			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
 			const recall = await runtime.handlers.get("before_agent_start")?.(
-				{ type: "before_agent_start", prompt: "What did we decide?" },
+				{ type: "before_agent_start", prompt: "What did we decide?", systemPrompt: "base system" },
 				runtime.ctx,
 			);
-			expect(recall).toMatchObject({ message: { customType: "piv-cognee-recall", display: false } });
-			expect((recall as { message: { content: string } }).message.content).toContain("remembered context");
+			expect(recall).toMatchObject({ systemPrompt: expect.stringContaining("base system") });
+			expect((recall as { systemPrompt: string }).systemPrompt).toContain("remembered context");
+			expect(recall).not.toHaveProperty("message");
 
 			await runtime.handlers.get("session_compact")?.(
 				{
@@ -428,6 +492,42 @@ describe("piv-cognee extension hooks", () => {
 			expect(records[0]?.text).toContain("We chose the queue.");
 			expect(runtime.appended[0]).toMatchObject({ customType: "piv-cognee" });
 			expect(runtime.appended[0]?.data).not.toHaveProperty("text");
+
+			const afterCompact = await runtime.handlers.get("before_agent_start")?.(
+				{ type: "before_agent_start", prompt: "continue", systemPrompt: "next turn" },
+				runtime.ctx,
+			);
+			expect((afterCompact as { systemPrompt: string }).systemPrompt).toContain("pi-void-last-compact");
+			expect((afterCompact as { systemPrompt: string }).systemPrompt).toContain("We chose the queue.");
+		} finally {
+			rmSync(storageDir, { recursive: true, force: true });
+		}
+	});
+
+	it("retries recall after a failed attempt for the same prompt", async () => {
+		const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-recall-retry-"));
+		let recalls = 0;
+		try {
+			const runtime = extensionHookFixture(storageDir, false, {}, async (input) => {
+				if (String(input).endsWith("/recall")) {
+					recalls += 1;
+					if (recalls === 1) return new Response("nope", { status: 500 });
+					return new Response(JSON.stringify([{ text: "second try" }]), { status: 200 });
+				}
+				return new Response(null, { status: 202 });
+			});
+			await runtime.handlers.get("session_start")?.({ type: "session_start", reason: "startup" }, runtime.ctx);
+			const first = await runtime.handlers.get("before_agent_start")?.(
+				{ type: "before_agent_start", prompt: "same prompt", systemPrompt: "sys" },
+				runtime.ctx,
+			);
+			expect(first).toBeUndefined();
+			const second = await runtime.handlers.get("before_agent_start")?.(
+				{ type: "before_agent_start", prompt: "same prompt", systemPrompt: "sys" },
+				runtime.ctx,
+			);
+			expect((second as { systemPrompt: string }).systemPrompt).toContain("second try");
+			expect(recalls).toBe(2);
 		} finally {
 			rmSync(storageDir, { recursive: true, force: true });
 		}
@@ -438,7 +538,7 @@ describe("piv-cognee extension hooks", () => {
 		expect(shouldOwnCompactionSummary("defer", false)).toBe(false);
 		expect(shouldOwnCompactionSummary("own", true)).toBe(true);
 		expect(shouldOwnCompactionSummary("auto", true)).toBe(false);
-		expect(shouldOwnCompactionSummary("auto", false)).toBe(true);
+		expect(shouldOwnCompactionSummary("auto", false)).toBe(false);
 		const local = buildLocalPrecompactAnchor(
 			{
 				previousSummary: "prior",
@@ -483,11 +583,10 @@ describe("piv-cognee extension hooks", () => {
 			);
 			// Defer: no compaction result — Blackhole/native keeps the Pi summary
 			expect(result).toBeUndefined();
-			// Fast path: no multi-scope recall when deferring
+			// Fast path: no multi-scope recall and no dummy precompact QA
 			expect(runtime.requests.filter((url) => url.includes("/recall")).length).toBe(recallBefore);
-			// Still captured to Cognee session cache
 			await new Promise((resolve) => setTimeout(resolve, 20));
-			expect(runtime.requests.some((url) => url.includes("/remember/entry"))).toBe(true);
+			expect(runtime.requests.some((url) => url.includes("/remember/entry"))).toBe(false);
 		} finally {
 			rmSync(agentRoot, { recursive: true, force: true });
 		}
@@ -509,7 +608,7 @@ describe("piv-cognee extension hooks", () => {
 						firstKeptEntryId: "keep-1",
 						tokensBefore: 42,
 						previousSummary: "What did we decide?",
-						messagesToSummarize: [{}],
+						messagesToSummarize: [{ content: "We chose the queue." }],
 					},
 					reason: "manual",
 				},
@@ -517,11 +616,12 @@ describe("piv-cognee extension hooks", () => {
 			);
 			expect(result).toMatchObject({
 				compaction: {
-					summary: expect.stringContaining("remembered context"),
+					summary: expect.stringContaining("We chose the queue."),
 					firstKeptEntryId: "keep-1",
 					tokensBefore: 42,
 				},
 			});
+			expect((result as { compaction: { summary: string } }).compaction.summary).not.toContain("remembered context");
 		} finally {
 			rmSync(agentRoot, { recursive: true, force: true });
 		}

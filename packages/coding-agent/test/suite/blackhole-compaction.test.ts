@@ -7,6 +7,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import piBlackholeExtension from "../../examples/extensions/pi-blackhole/index.ts";
+import { BLACKHOLE_MINIMAL_KEPT_SENTINEL } from "../../examples/extensions/pi-blackhole/src/core/tail.ts";
 import { loadConfig } from "../../examples/extensions/pi-blackhole/src/core/unified-config.ts";
 import type { SessionBeforeCompactEvent } from "../../src/core/extensions/types.ts";
 import { createPivCogneeExtension } from "../../src/piv-cognee.ts";
@@ -21,7 +22,10 @@ afterEach(() => {
 	delete process.env.PI_CODING_AGENT_DIR;
 });
 
-function configureBlackhole(midRunCompaction: "resume" | "pause" = "resume"): void {
+function configureBlackhole(
+	midRunCompaction: "resume" | "pause" = "resume",
+	tailBehavior: "pi-default" | "minimal" = "pi-default",
+): void {
 	const directory = mkdtempSync(join(tmpdir(), "pi-blackhole-suite-"));
 	configDirs.push(directory);
 	mkdirSync(join(directory, "pi-blackhole"));
@@ -32,7 +36,7 @@ function configureBlackhole(midRunCompaction: "resume" | "pause" = "resume"): vo
 			compactionEngine: "blackhole",
 			midRunCompaction,
 			compactAfterPercent: 20,
-			tailBehavior: "pi-default",
+			tailBehavior,
 			memory: false,
 		}),
 	);
@@ -188,6 +192,44 @@ describe("optional Blackhole compaction extension", () => {
 		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
 	});
 
+	it("minimal tail summarizes the kept window instead of leaving Pi's recent tokens", async () => {
+		configureBlackhole("resume", "minimal");
+		const harness = await createHarness({ extensionFactories: [piBlackholeExtension] });
+		harnesses.push(harness);
+		const result = await harness.session.extensionRunner.emit({
+			type: "session_before_compact",
+			preparation: {
+				firstKeptEntryId: "keep-entry",
+				messagesToSummarize: [
+					{ role: "user", content: "Old summarized turn", timestamp: Date.now() } as AgentMessage,
+				],
+				turnPrefixMessages: [],
+				isSplitTurn: false,
+				tokensBefore: 40000,
+				fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+				settings: { enabled: true, reserveTokens: 0, keepRecentTokens: 20000 },
+			},
+			branchEntries: [
+				{
+					type: "message",
+					id: "keep-entry",
+					parentId: null,
+					timestamp: new Date().toISOString(),
+					message: { role: "user", content: "x".repeat(8000), timestamp: Date.now() },
+				},
+			],
+			reason: "threshold",
+			willRetry: false,
+			signal: new AbortController().signal,
+		} as SessionBeforeCompactEvent);
+		expect(result).toMatchObject({
+			compaction: {
+				firstKeptEntryId: BLACKHOLE_MINIMAL_KEPT_SENTINEL,
+				details: { engine: "blackhole", tailBehavior: "minimal" },
+			},
+		});
+	});
+
 	it("uses the last compaction summary when Blackhole and Cognee are both enabled", async () => {
 		configureBlackhole();
 		const fakeFetch: typeof fetch = async (input) => {
@@ -236,7 +278,7 @@ describe("optional Blackhole compaction extension", () => {
 		};
 
 		const cogneeLast = await run([piBlackholeExtension, makeCognee()]);
-		expect(cogneeLast).toMatchObject({ compaction: { summary: expect.stringContaining("Compaction (manual)") } });
+		expect(cogneeLast).toMatchObject({ compaction: { details: { engine: "blackhole" } } });
 
 		const blackholeLast = await run([makeCognee(), piBlackholeExtension]);
 		expect(blackholeLast).toMatchObject({ compaction: { details: { engine: "blackhole" } } });

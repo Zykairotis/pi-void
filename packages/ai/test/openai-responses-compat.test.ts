@@ -304,6 +304,134 @@ describe("openai-responses provider defaults", () => {
 		expect(capturedPayload?.prompt_cache_key).toBe("x".repeat(64));
 	});
 
+	it("retries once without previous_response_id after a stale continuation 400", async () => {
+		const sse = `${[
+			`data: ${JSON.stringify({
+				type: "response.completed",
+				response: {
+					id: "resp_ok",
+					status: "completed",
+					usage: {
+						input_tokens: 10,
+						output_tokens: 4,
+						total_tokens: 14,
+						input_tokens_details: { cached_tokens: 0 },
+					},
+				},
+			})}`,
+		].join("\n\n")}\n\n`;
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						error: {
+							message: "Invalid `previous_response_id`.",
+							type: "invalid_request_error",
+							code: "invalid_request_error",
+						},
+					}),
+					{ status: 400, headers: { "content-type": "application/json" } },
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(sse, {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				}),
+			);
+		vi.spyOn(globalThis, "fetch").mockImplementation(fetchMock);
+
+		const stream = streamOpenAIResponses(
+			getModel("openai", "gpt-5.4"),
+			{
+				systemPrompt: "sys",
+				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+			},
+			{
+				apiKey: "test-key",
+				onPayload: (payload) => ({
+					...(payload as { previous_response_id?: string }),
+					previous_response_id: "resp_stale",
+				}),
+			},
+		);
+
+		const events = [];
+		for await (const event of stream) {
+			events.push(event.type);
+			if (event.type === "done" || event.type === "error") break;
+		}
+
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		const bodies = fetchMock.mock.calls.map((call) => {
+			const init = call[1] as { body?: string } | undefined;
+			return init?.body ? (JSON.parse(String(init.body)) as { previous_response_id?: string }) : {};
+		});
+		expect(bodies[0]?.previous_response_id).toBe("resp_stale");
+		expect(bodies[1]?.previous_response_id).toBeUndefined();
+		expect(events).toContain("done");
+		expect(events).not.toContain("error");
+	});
+
+	it("sends full local input with store:false and no previous_response_id", async () => {
+		let capturedPayload: {
+			previous_response_id?: string;
+			store?: boolean;
+			input?: unknown;
+		} = {};
+
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("data: [DONE]\n\n", {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			}),
+		);
+
+		const stream = streamOpenAIResponses(
+			getModel("openai", "gpt-5.4"),
+			{
+				systemPrompt: "sys",
+				messages: [
+					{ role: "user", content: "hi", timestamp: Date.now() },
+					{
+						role: "assistant",
+						content: [{ type: "text", text: "hello" }],
+						api: "openai-responses",
+						provider: "openai",
+						model: "gpt-5.4",
+						usage: {
+							input: 0,
+							output: 0,
+							cacheRead: 0,
+							cacheWrite: 0,
+							totalTokens: 0,
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+						},
+						stopReason: "stop",
+						timestamp: Date.now(),
+					},
+					{ role: "user", content: "again", timestamp: Date.now() },
+				],
+			},
+			{
+				apiKey: "test-key",
+				onPayload: (payload) => {
+					capturedPayload = payload as typeof capturedPayload;
+				},
+			},
+		);
+
+		for await (const event of stream) {
+			if (event.type === "done" || event.type === "error") break;
+		}
+
+		expect(capturedPayload.previous_response_id).toBeUndefined();
+		expect(capturedPayload.store).toBe(false);
+		expect(Array.isArray(capturedPayload.input)).toBe(true);
+		expect((capturedPayload.input as unknown[]).length).toBeGreaterThan(1);
+	});
+
 	it("sets cache-affinity headers for proxy OpenAI Responses requests with a sessionId", async () => {
 		const proxyModel: Model<"openai-responses"> = {
 			...getModel("openai", "gpt-5.4"),

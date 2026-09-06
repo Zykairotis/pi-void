@@ -1,6 +1,30 @@
 # Pi Void Subagent Progress
 
-_Last updated: 2026-08-08_
+_Last updated: 2026-08-13_
+
+## 2026-08-13 Cognee + Blackhole contract repair
+
+Implemented transient recall, `auto` never owns the Pi summary, local last-compact inject, project `$project` datasets, Blackhole `tailBehavior: "minimal"` actually dropping the kept tail, and host settings (native overflow compact on, Blackhole minimal, Cognee `$project`).
+
+Targeted tests: 39 passed (`piv-cognee`, blackhole suite, blackhole tail). Scoped biome clean. Root `npm run check` blocked by a nested `.worktrees/sub-cognee/biome.json` and pre-existing `packages/ai` model-id type errors.
+
+Live luna smoke (one print, plan-mode default): `codexlb/gpt-5.6-luna` replied `ok`; input **29629** tokens. That is the uncompactable system/tools/plan floor, not compact tail.
+
+Report: `agent_docs/piv-cognee-compaction-benchmark-2026-08-13.md`.
+
+## 2026-08-12 Cognee review
+
+Read-only pass over Cognee + Pi compaction + live config inventory. Other-model hygiene items (dead env keys, `lastRecallKey`, jsonl rotation, bash substring, doctor latency) are real but secondary. Highest-value defects: recall persists as `custom_message` (echo loop), default `auto` without Blackhole replaces native structured compaction with recall dumps, and the first post-compact prompt races the checkpoint write.
+
+Saved:
+
+- full report: `agent_docs/piv-cognee-findings-2026-08-12.md`
+- summary: `findings.md` §22
+- implementation order: `task_plan.md` (Cognee contract repair)
+
+No Cognee source edits in this pass. No secrets written.
+
+---
 
 ## Current status
 
@@ -10,8 +34,8 @@ Canonical W1-W11 executable acceptance ledger: `findings.md` section 21. It reco
 
 ### YOLO built-in capability expansion
 
-- Explicit `--sub-yolo` now grants confirmed unsafe children the full scoped built-in tool set available to the trusted parent: `read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write` across foreground, async, batch, and review paths.
-- Child extensions, MCP, recursive delegation, and `delegate_write` remain disabled; unsafe preflight now reports the expanded tools and one total attempt, matching runtime behavior.
+- Explicit `--sub-yolo` now permits confirmed unsafe children to use only capabilities requested by the selected profile and still active in the trusted parent; the eligible built-ins are `read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write` across foreground, async, batch, and review paths.
+- Child extensions, MCP, recursive delegation, and `delegate_write` remain disabled; unsafe preflight reports the profile-aware effective tools and one total attempt, matching runtime behavior.
 
 ## M12/M13 execution
 
@@ -223,8 +247,8 @@ Locked the following design constraints in `findings.md`:
 Status: **IMPLEMENTED / CONTRACT-HARDENED / NOT A SANDBOX**.
 
 - Extended `--sub-yolo` as an explicit PIV-only boolean flag for confirmed foreground, durable async, batch, and review delegation children.
-- Startup requires interactive TTYs, explicit `--piv-mode build`, `--piv-allow-bash`, and no print/JSON/RPC/headless or `--no-approve` mode; duplicate unsafe, build, Bash, and output-mode flags fail closed.
-- Runtime requires the current build mode, trusted project, active parent Bash, TUI confirmation, and a post-confirmation recheck of mode/trust/Bash capability before launch.
+- Startup requires explicit `--piv-mode build`, `--piv-allow-bash`, no print/JSON or other headless mode, and no `--no-approve`; interactive launches require TTYs, while explicit RPC startup is supported as session-wide authorization. Duplicate unsafe, build, Bash, and output-mode flags fail closed.
+- Runtime requires the current build mode, trusted project, active parent Bash, and a post-launch recheck of mode/trust/Bash capability; interactive launches use TUI confirmation, while RPC uses the explicit startup command instead.
 - Unsafe children receive only the existing scoped role tools plus host `bash`, no extensions, mutation tools, recursive delegation, MCP, or parent integration authority. Recovery retry is disabled for unsafe runs.
 - `delegate_async`, `delegate_batch`, and `review_batch` now accept `--sub-yolo` after the same confirmation gate; `delegate_write` remains worktree-isolated. Unsafe Bash is available to eligible resolved read/review roles; the warning states that host filesystem, process, network, credentials, and descendant cleanup are not isolated and that cancellation is best-effort; no `--no-sandbox` mode is advertised.
 - Verification: targeted `piv-subagents.test.ts` passes `138/138` and `piv-delegate-mvp.test.ts` passes `9/9`. Root `npm run check` reaches the unrelated `packages/ai/test/openai-completions-tool-choice.test.ts:1410` error.

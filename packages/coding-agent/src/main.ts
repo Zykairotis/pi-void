@@ -55,6 +55,7 @@ import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
+import type { PivAgentViewBridge } from "./piv-agent-view-bridge.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
 
@@ -526,6 +527,8 @@ async function promptForMissingSessionCwd(
 
 export interface MainOptions {
 	extensionFactories?: InlineExtension[];
+	/** Optional Pi Void-only view bridge; stock Pi leaves the interactive shell unchanged. */
+	agentViewBridge?: PivAgentViewBridge;
 }
 
 export async function main(args: string[], options?: MainOptions) {
@@ -888,6 +891,7 @@ export async function main(args: string[], options?: MainOptions) {
 		await runRpcMode(runtime);
 	} else if (appMode === "interactive") {
 		const interactiveMode = new InteractiveMode(runtime, {
+			agentViewBridge: options?.agentViewBridge,
 			migratedProviders,
 			modelFallbackMessage,
 			autoTrustOnReloadCwd,

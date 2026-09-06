@@ -703,7 +703,14 @@ function isWebSocketConnectionLimitReachedError(error: unknown): boolean {
 }
 
 function isPreviousResponseNotFoundError(error: unknown): boolean {
-	return error instanceof CodexApiError && error.code === PREVIOUS_RESPONSE_NOT_FOUND_CODE;
+	if (error instanceof CodexApiError && error.code === PREVIOUS_RESPONSE_NOT_FOUND_CODE) {
+		return true;
+	}
+	if (!(error instanceof CodexApiError) || error.code !== "invalid_request_error") {
+		return false;
+	}
+	const message = error.message.toLowerCase().replaceAll("`", "");
+	return message.includes("previous_response_id");
 }
 
 function extractCodexEventError(event: Record<string, unknown>): { code?: string; message?: string } {

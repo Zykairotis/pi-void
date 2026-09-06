@@ -636,10 +636,17 @@ describe("durable subagent jobs", () => {
 			if (index < 32) expect(registry.inspect(accepted.jobId).job.status).toBe("completed");
 		}
 
-		expect(registry.list().filter((job) => job.job.status === "completed")).toHaveLength(32);
+		expect(registry.list().filter((job) => job.job.status === "completed" && !job.tombstone)).toHaveLength(32);
 		expect(order[0]).toBe("persisted");
 		expect(order[1]).toBe("notified");
 		expect(snapshots.filter((snapshot) => snapshot.job.status === "completed")).toHaveLength(33);
+		// Retention expiry is explicit: the pruned 33rd job stays inspectable as a
+		// bounded tombstone instead of silently becoming not-found.
+		const firstJobId = snapshots[0]?.job.jobId;
+		const tombstoneInspection = registry.inspect(firstJobId!);
+		expect(tombstoneInspection.tombstone).toMatchObject({ jobId: firstJobId, terminalStatus: "completed" });
+		expect(tombstoneInspection.job.status).toBe("completed");
+		expect(tombstoneInspection.result).toBeUndefined();
 	});
 
 	it("shuts down active work as interrupted and leaves no active controller", async () => {
@@ -1069,7 +1076,8 @@ describe("durable subagent jobs", () => {
 		}
 
 		expect(registry.inspect(liveJob.jobId).job.status).toBe("running");
-		expect(registry.list().filter((inspection) => inspection.job.status === "completed")).toHaveLength(32);
+		expect(registry.list().filter((inspection) => inspection.job.status === "completed")).toHaveLength(33);
+		expect(registry.list().filter((inspection) => inspection.tombstone)).toHaveLength(1);
 		live.settle();
 		await flush();
 	});
@@ -1125,5 +1133,163 @@ describe("durable subagent jobs", () => {
 		]);
 		expect(listener).toHaveBeenCalledOnce();
 		expect(registry.inspect("restore-running").job.status).toBe("interrupted");
+	});
+});
+
+describe("durable job identity and artifact parity", () => {
+	it("keeps one accepted job ID inspectable across queued, running, and terminal states", async () => {
+		const registry = createRegistry(
+			() => {},
+			() => {},
+			{ maxActiveJobs: 1 },
+		);
+		const first = deferredRun();
+		const live = launch(registry, first.run);
+		await flush();
+		expect(registry.inspect(live.jobId).job).toMatchObject({ jobId: live.jobId, status: "running" });
+
+		const second = deferredRun();
+		const queued = launch(registry, second.run);
+		expect(registry.inspect(queued.jobId).job).toMatchObject({ jobId: queued.jobId, status: "queued" });
+		expect(registry.inspect(queued.jobId).queuePosition).toBe(1);
+
+		first.settle();
+		await flush();
+		expect(registry.inspect(queued.jobId).job).toMatchObject({ jobId: queued.jobId, status: "running" });
+		second.settle();
+		await flush();
+		expect(registry.inspect(queued.jobId).job).toMatchObject({ jobId: queued.jobId, status: "completed" });
+	});
+
+	it("keeps a needs_time job inspectable and marks it running again after extension", async () => {
+		const registry = createRegistry(
+			() => {},
+			() => {},
+		);
+		const needsTime: SubagentJobRunResult = {
+			result: {
+				...completedRun().result,
+				runId: "run-async",
+				status: "needs_time",
+				partial: true,
+				workArtifact: {
+					schemaVersion: 1,
+					runId: "run-async",
+					profile: "explore",
+					startedAtMs: 1,
+					lastActivities: [],
+					observedOutputBytes: 0,
+					touchedPaths: ["src/app.ts"],
+					candidateEvidencePaths: [],
+					reportProtocol: { status: "missing", diagnostic: "awaiting extension" },
+				},
+			},
+			verification: { verified: false, reason: "pending", paths: [], unresolvedClaims: [] },
+		};
+		const accepted = launch(registry, async () => needsTime);
+		await flush();
+		expect(registry.inspect(accepted.jobId).job).toMatchObject({ status: "needs_time", runId: "run-async" });
+
+		expect(registry.markManagedRunState("run-async", "running")).toBe(true);
+		expect(registry.inspect(accepted.jobId).job).toMatchObject({ status: "running", runId: "run-async" });
+
+		const completed: SubagentJobRunResult = {
+			result: { ...completedRun().result, runId: "run-async" },
+			verification: { verified: true, reason: "ok", paths: [], unresolvedClaims: [] },
+		};
+		await registry.resolveManagedRun("run-async", completed);
+		expect(registry.inspect(accepted.jobId).job).toMatchObject({ jobId: accepted.jobId, status: "completed" });
+	});
+
+	it("preserves the runtime work artifact when a durable job fails the report protocol", async () => {
+		const registry = createRegistry(
+			() => {},
+			() => {},
+		);
+		const protocolFailure: SubagentJobRunResult = {
+			result: {
+				...completedRun().result,
+				status: "verification_failed",
+				evidence: undefined,
+				workArtifact: {
+					schemaVersion: 1,
+					runId: "run-protocol",
+					profile: "explore",
+					startedAtMs: 1,
+					finishedAtMs: 2,
+					lastActivities: [
+						{
+							toolCallId: "c1",
+							toolName: "bash",
+							action: 'bash "npm run test:api"',
+							status: "error",
+							startedAtMs: 1,
+							finishedAtMs: 2,
+							exitCode: 1,
+							errorClass: "command_failed",
+						},
+					],
+					observedOutputBytes: 128,
+					touchedPaths: ["src/app.ts"],
+					candidateEvidencePaths: ["src/generated.ts"],
+					reportProtocol: { status: "malformed", diagnostic: "Child report was not valid JSON." },
+				},
+				diagnostics: [{ code: "report_protocol_failure", message: "Child report was not valid JSON." }],
+			},
+			verification: { verified: false, reason: "protocol failure", paths: [], unresolvedClaims: [] },
+		};
+		const accepted = launch(registry, async () => protocolFailure);
+		await flush();
+		const inspection = registry.inspect(accepted.jobId);
+		expect(inspection.job.status).toBe("verification_failed");
+		expect(inspection.result?.workArtifact).toBeDefined();
+		expect(inspection.result?.workArtifact?.reportProtocol).toMatchObject({ status: "malformed" });
+		expect(inspection.result?.workArtifact?.touchedPaths).toEqual(["src/app.ts"]);
+		// Candidate evidence stays bounded and never becomes verified evidence.
+		expect(inspection.result?.workArtifact?.candidateEvidencePaths).toEqual(["src/generated.ts"]);
+		expect(inspection.result?.evidence).toBeUndefined();
+	});
+
+	it("keeps expired terminal history inspectable as a bounded tombstone after restart", async () => {
+		const snapshots: PersistedSubagentJobSnapshot[] = [];
+		const persisted: PersistedSubagentJobSnapshot[] = [];
+		for (let index = 0; index < 33; index++) {
+			const jobId = `job-old-${index}`;
+			const job = {
+				schemaVersion: 1,
+				jobId,
+				ownerSessionId: "owner-a",
+				launchLeafId: "leaf-a",
+				role: "explore",
+				status: "completed",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				startedAt: "2026-01-01T00:00:01.000Z",
+				finishedAt: "2026-01-01T00:00:02.000Z",
+				runId: `run-old-${index}`,
+				resultRef: `job:${jobId}`,
+			};
+			snapshots.push({
+				schemaVersion: 1,
+				sequence: index + 1,
+				job,
+				result: {
+					schemaVersion: 1,
+					jobId,
+					runId: `run-old-${index}`,
+					status: "completed",
+					diagnostics: [],
+				},
+			} as unknown as PersistedSubagentJobSnapshot);
+			void persisted;
+		}
+		const registry = createRegistry((snapshot) => persisted.push(snapshot));
+		registry.restore(snapshots.map((snapshot) => ({ type: "custom", customType: JOB_ENTRY_TYPE, data: snapshot })));
+
+		// 32 full records remain; the oldest is a bounded tombstone, not not-found.
+		expect(registry.list().filter((inspection) => !inspection.tombstone)).toHaveLength(32);
+		const tombstone = registry.inspect("job-old-0");
+		expect(tombstone.tombstone).toMatchObject({ jobId: "job-old-0", terminalStatus: "completed" });
+		expect(tombstone.result).toBeUndefined();
+		expect(registry.inspect("job-old-1").result).toBeDefined();
 	});
 });

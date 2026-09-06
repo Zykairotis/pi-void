@@ -23,6 +23,11 @@ export interface AppKeybindings {
 	"app.subagents.attach": true;
 	"app.subagents.expand": true;
 	"app.subagents.inspect": true;
+	"app.subagents.open": true;
+	"app.subagents.parent": true;
+	"app.subagents.next": true;
+	"app.subagents.previous": true;
+	"app.subagents.takeControl": true;
 	"app.thinking.toggle": true;
 	"app.session.toggleNamedFilter": true;
 	"app.editor.external": true;
@@ -90,6 +95,12 @@ export const KEYBINDINGS = {
 	"app.subagents.attach": { defaultKeys: "right", description: "Attach to live subagent" },
 	"app.subagents.expand": { defaultKeys: "space", description: "Expand subagent details" },
 	"app.subagents.inspect": { defaultKeys: "ctrl+enter", description: "Inspect durable subagent job" },
+	"app.subagents.open": { defaultKeys: "ctrl+shift+a", description: "Open subagent chooser" },
+	"app.subagents.parent": { defaultKeys: "alt+left", description: "Return to parent session" },
+	"app.subagents.next": { defaultKeys: "alt+right", description: "Show next subagent view" },
+	"app.subagents.previous": { defaultKeys: "shift+alt+left", description: "Show previous subagent view" },
+	"app.subagents.takeControl": { defaultKeys: "ctrl+shift+enter", description: "Take control of live subagent" },
+
 	"app.thinking.toggle": {
 		defaultKeys: "ctrl+t",
 		description: "Toggle thinking blocks",

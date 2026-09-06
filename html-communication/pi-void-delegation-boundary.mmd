@@ -1,0 +1,13 @@
+flowchart LR
+  Request["delegation request"] --> Preflight["typed launch preflight"]
+  Preflight --> Gate{"default or sub-yolo"}
+  Gate -->|default| Read["read grep find ls"]
+  Read --> Evidence["bounded verified evidence"]
+  Gate -->|sub-yolo| Full["parent-scoped built-ins"]
+  Full --> Host["host process and filesystem"]
+  Full --> NoExt["no child extensions MCP or recursion"]
+  Host --> Risk["not a sandbox"]
+  Writer["writer request"] --> Worktree["temporary detached worktree"]
+  Worktree --> Patch["immutable bounded patch"]
+  Patch --> Verify["parent verifier"]
+  Verify --> Integrate["checked integration or rollback"]

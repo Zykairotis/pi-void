@@ -36,7 +36,8 @@
 			"!**/*.models.ts",
 			"!packages/mom/data/**/*",
 			"!agent_references/**/*",
-			"!!**/node_modules"
+			"!!**/node_modules",
+			"!.worktrees"
 		]
 	}
 }

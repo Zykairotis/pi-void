@@ -75,6 +75,7 @@ describe("Pi Void launcher isolation and startup parsing", () => {
 		expect(`${guarded.stdout}${guarded.stderr}`).toContain("--piv-verify");
 		expect(`${guarded.stdout}${guarded.stderr}`).toContain("--piv-plan-model");
 		expect(`${guarded.stdout}${guarded.stderr}`).toContain("--piv-build-model");
+		expect(`${guarded.stdout}${guarded.stderr}`).toContain("--allow-external");
 	});
 
 	it("accepts only exact plan and build modes", () => {
@@ -83,7 +84,15 @@ describe("Pi Void launcher isolation and startup parsing", () => {
 		expect(parsePivMode("build")).toBe("build");
 		expect(() => parsePivMode("read-only")).toThrow(/Invalid --piv-mode/);
 		expect(() => validatePivStartupArgs(["--piv-mode"])).toThrow(/requires plan or build/);
+		expect(() => validatePivStartupArgs(["--piv-mode", "plan", "--piv-mode", "build"])).toThrow(/duplicate/i);
+		expect(() => validatePivStartupArgs(["--piv-mode=build", "--piv-mode=build"])).toThrow(/duplicate/i);
 		expect(() => validatePivStartupArgs(["--piv-plan-model="])).toThrow(/requires a nonempty model/);
+		expect(() => validatePivStartupArgs(["--allow-external=false"])).toThrow(/boolean true/);
+		expect(() => validatePivStartupArgs(["--allow-external", "--allow-external"])).toThrow(/duplicate/i);
+		expect(() => validatePivStartupArgs(["--allow-external", "--piv-mode", "plan"])).toThrow(/build/);
+		expect(() => validatePivStartupArgs(["--allow-external", "--piv-mode", "build", "--no-approve"])).toThrow(
+			/--no-approve/,
+		);
 	});
 
 	it("rejects unsafe subagent host execution before headless startup", () => {
@@ -144,6 +153,17 @@ describe("Pi Void guarded mutation paths", () => {
 		symlinkSync(outsideFile, join(root, "linked-file"), "file");
 		expect(validateMutationPath("linked-dir/new.txt", root, root)).toMatch(/outside guarded root/);
 		expect(validateMutationPath("linked-file", root, root)).toMatch(/outside guarded root/);
+	});
+
+	it("allows unrestricted external mutation paths only with the explicit capability", () => {
+		const { root, outside } = fixture();
+		const externalFile = join(outside, "external.txt");
+		writeFileSync(externalFile, "external");
+		expect(validateMutationPath(externalFile, root, root)).toMatch(/outside guarded root/);
+		expect(validateMutationPath(externalFile, root, root, true)).toBeUndefined();
+		expect(validateMutationPath(join(outside, ".env"), root, root, true)).toBeUndefined();
+		expect(validateMutationPath(join(outside, ".git", "config"), root, root, true)).toBeUndefined();
+		expect(validateMutationPath(join(outside, "credentials.json"), root, root, true)).toBeUndefined();
 	});
 });
 
@@ -354,10 +374,43 @@ describe("Pi Void guarded extension", () => {
 		});
 		await runtime.emit("session_start");
 		expect(snapshots).toHaveLength(1);
-		expect(snapshots[0]).toMatchObject({ mode: "build", bashEnabledInRecordedProcess: true });
+		expect(snapshots[0]).toMatchObject({
+			mode: "build",
+			bashEnabledInRecordedProcess: true,
+			allowExternal: false,
+		});
 		expect(snapshots[0]?.tools).toEqual(expect.arrayContaining(["bash", "edit", "write"]));
 		expect(Object.isFrozen(snapshots[0])).toBe(true);
 		expect(Object.isFrozen(snapshots[0]?.tools)).toBe(true);
+	});
+
+	it("publishes external capability only for an approved trusted build", async () => {
+		const snapshots: PivCapabilityState[] = [];
+		const runtime = extensionFixture({
+			flags: { "piv-mode": "build", "allow-external": true },
+			hasUI: true,
+			onCapabilityChange: async (capabilities) => {
+				snapshots.push(capabilities);
+			},
+		});
+		await runtime.emit("session_start");
+		expect(snapshots.at(-1)).toMatchObject({ mode: "build", allowExternal: true });
+		expect(runtime.notifications).toContain(
+			"External filesystem access is enabled for this process. This is unrestricted host access, not a sandbox.",
+		);
+	});
+
+	it("keeps external capability disabled for untrusted processes", async () => {
+		const snapshots: PivCapabilityState[] = [];
+		const runtime = extensionFixture({
+			flags: { "piv-mode": "build", "allow-external": true },
+			trusted: false,
+			onCapabilityChange: async (capabilities) => {
+				snapshots.push(capabilities);
+			},
+		});
+		await runtime.emit("session_start");
+		expect(snapshots.at(-1)).toMatchObject({ mode: "build", allowExternal: false });
 	});
 
 	it("injects OMP-style planning instructions while in plan mode", async () => {
@@ -409,6 +462,15 @@ describe("Pi Void guarded extension", () => {
 			"cancel_subagent_job",
 			"delegate_batch",
 			"review_batch",
+			"goal_question",
+			"goal_questionnaire",
+			"propose_goal_draft",
+			"propose_task_list",
+			"create_goal",
+			"get_goal",
+			"set_goal_tasks",
+			"update_goal_task",
+			"update_goal",
 		]);
 		expect(await plan.emit("tool_call", { toolCallId: "1", toolName: "edit", input: { path: "x" } })).toMatchObject({
 			block: true,
@@ -434,6 +496,15 @@ describe("Pi Void guarded extension", () => {
 			"cancel_subagent_job",
 			"delegate_batch",
 			"review_batch",
+			"goal_question",
+			"goal_questionnaire",
+			"propose_goal_draft",
+			"propose_task_list",
+			"create_goal",
+			"get_goal",
+			"set_goal_tasks",
+			"update_goal_task",
+			"update_goal",
 			"delegate_write",
 			"inspect_writer_patch",
 			"reject_writer_patch",
@@ -446,6 +517,19 @@ describe("Pi Void guarded extension", () => {
 		expect(
 			await build.emit("tool_call", { toolCallId: "3", toolName: "bash", input: { command: "true" } }),
 		).toBeUndefined();
+		expect(
+			await build.emit("tool_call", {
+				toolCallId: "4",
+				toolName: "goal_question",
+				input: { question: "What next?" },
+			}),
+		).toBeUndefined();
+		expect(
+			await build.emit("tool_call", { toolCallId: "5", toolName: "propose_goal_draft", input: {} }),
+		).toBeUndefined();
+		expect(await build.emit("tool_call", { toolCallId: "6", toolName: "mcp", input: {} })).toMatchObject({
+			block: true,
+		});
 		expect(build.notifications).toContain(
 			"Bash is enabled for this process. Direct path guards do not contain shell commands.",
 		);
@@ -908,6 +992,15 @@ describe("Pi Void guarded extension", () => {
 			"cancel_subagent_job",
 			"delegate_batch",
 			"review_batch",
+			"goal_question",
+			"goal_questionnaire",
+			"propose_goal_draft",
+			"propose_task_list",
+			"create_goal",
+			"get_goal",
+			"set_goal_tasks",
+			"update_goal_task",
+			"update_goal",
 			"delegate_write",
 			"inspect_writer_patch",
 			"reject_writer_patch",
@@ -1037,6 +1130,54 @@ describe("Pi Void guarded extension", () => {
 		}
 	});
 
+	it("completes verification without touching a stale ctx after session replacement", async () => {
+		let releaseVerifier: (() => void) | undefined;
+		const verifierGate = new Promise<void>((resolve) => {
+			releaseVerifier = resolve;
+		});
+		const command = JSON.stringify([process.execPath, "-e", "process.exit(0)"]);
+		const runtime = extensionFixture({
+			flags: { "piv-mode": "build", "piv-verify": command },
+			hasUI: true,
+			verifyResult: { stdout: "ok", stderr: "", code: 0, killed: false },
+		});
+		// Delay the verifier exec so we can stale the ctx while it is awaiting.
+		runtime.verifierExec.mockImplementation(async () => {
+			await verifierGate;
+			return { stdout: "ok", stderr: "", code: 0, killed: false };
+		});
+		await runtime.emit("session_start");
+		await successfulMutation(runtime);
+		const settling = runtime.emit("agent_settled");
+		await vi.waitFor(() => {
+			const data = runtime.appended.at(-1)?.data as { verifier?: { status?: string } } | undefined;
+			expect(data?.verifier?.status).toBe("running");
+		});
+		// Mimic the runner's guarded getters after session replacement: hasUI
+		// reads true but any ui access throws, and mode reads throw as well.
+		Object.defineProperties(runtime.ctx, {
+			hasUI: { get: () => true },
+			ui: {
+				get: () => {
+					throw new Error("This extension ctx is stale after session replacement or reload.");
+				},
+			},
+			mode: {
+				get: () => {
+					throw new Error("This extension ctx is stale after session replacement or reload.");
+				},
+			},
+		});
+		releaseVerifier?.();
+		// The verifier completes after the ctx went stale; the handler must not
+		// throw from a guarded getter and must still persist the verified state.
+		await expect(settling).resolves.not.toThrow();
+		expect(runtime.appended.at(-1)?.data).toMatchObject({
+			checkedGeneration: 1,
+			verifier: { status: "passed", generation: 1 },
+		});
+	});
+
 	it("converts an interrupted durable running state to cancelled on restore", async () => {
 		const command = JSON.stringify([process.execPath, "-e", "process.exit(0)"]);
 		const initial = extensionFixture({ flags: { "piv-mode": "build", "piv-verify": command } });
@@ -1080,6 +1221,15 @@ describe("Pi Void guarded extension", () => {
 			"cancel_subagent_job",
 			"delegate_batch",
 			"review_batch",
+			"goal_question",
+			"goal_questionnaire",
+			"propose_goal_draft",
+			"propose_task_list",
+			"create_goal",
+			"get_goal",
+			"set_goal_tasks",
+			"update_goal_task",
+			"update_goal",
 			"delegate_write",
 			"inspect_writer_patch",
 			"reject_writer_patch",

@@ -22,7 +22,7 @@ import {
 	SubagentObservatoryStore,
 	type SubagentProgressSnapshot,
 } from "../src/piv-subagent-observatory.ts";
-import type { SubagentEvent, SubagentUsage } from "../src/piv-subagents.ts";
+import type { SubagentBatchTaskLifecycleEvent, SubagentEvent, SubagentUsage } from "../src/piv-subagents.ts";
 
 const usage: SubagentUsage = {
 	inputTokens: 10,
@@ -242,7 +242,7 @@ describe("subagent observatory reducer", () => {
 
 		expect(state.recent).toHaveLength(OBSERVATORY_RECENT_LIMIT);
 		expect(state.recent[0]?.runId).toBe("run-2");
-		expect(state.recent.at(-1)?.runId).toBe(`run-${OBSERVATORY_RECENT_LIMIT + 1}`);
+		expect(state.recent[state.recent.length - 1]?.runId).toBe(`run-${OBSERVATORY_RECENT_LIMIT + 1}`);
 	});
 
 	it("keeps integrate workflow active after inspection until integration completes", () => {
@@ -346,6 +346,90 @@ describe("subagent observatory reducer", () => {
 		});
 		expect(notifications).toBe(1);
 		expect(store.getState().recent[0]?.status).toBe("completed");
+	});
+
+	it("projects queued batch tasks and typed aggregate counts", () => {
+		const store = new SubagentObservatoryStore();
+		store.applyWorkflow({
+			streamKey: "batch-call",
+			toolName: "delegate_batch",
+			role: "batch",
+			phase: "created",
+			status: "running",
+			batchCounts: {
+				total: 3,
+				queued: 0,
+				starting: 0,
+				running: 0,
+				completed: 0,
+				failed: 0,
+				cancelled: 0,
+				timedOut: 0,
+			},
+			nowMs: 1,
+		});
+		const lifecycle: readonly SubagentBatchTaskLifecycleEvent[] = [
+			{ type: "task_queued", batchId: "batch-1", taskId: "task-a", role: "explore", index: 0 },
+			{ type: "task_queued", batchId: "batch-1", taskId: "task-b", role: "review", index: 1 },
+			{ type: "task_queued", batchId: "batch-1", taskId: "task-c", role: "review", index: 2 },
+			{ type: "task_admitted", batchId: "batch-1", taskId: "task-b", role: "review", index: 1 },
+			{
+				type: "task_skipped",
+				batchId: "batch-1",
+				taskId: "task-c",
+				status: "failed",
+				reason: "Batch budget cannot reserve this task.",
+			},
+		];
+		for (const [index, event] of lifecycle.entries()) {
+			store.applyBatchTaskLifecycle({
+				aggregateStreamKey: "batch-call",
+				toolName: "delegate_batch",
+				event,
+				nowMs: index + 2,
+			});
+		}
+		store.applyRuntime({
+			streamKey: "batch-call/task-b",
+			toolName: "delegate_batch",
+			nowMs: 7,
+			cwd: "/repo",
+			event: {
+				type: "subagent_tool_start",
+				runId: "run-b",
+				parentSessionId: "parent-1",
+				profile: "review",
+				status: "running",
+				toolName: "read",
+				path: "src/piv-subagents.ts",
+				taskId: "task-b",
+				batchId: "batch-1",
+			},
+		});
+
+		const state = store.getState();
+		const rows = formatObservatoryRows(state, 0, new Set(), [], [], new Set(["run-b"]), "run-b");
+		const text = rows.join("\n");
+		expect(state.active[0]?.batchCounts).toEqual({
+			total: 3,
+			queued: 1,
+			starting: 0,
+			running: 1,
+			completed: 0,
+			failed: 1,
+			cancelled: 0,
+			timedOut: 0,
+		});
+		expect(text).toContain("task-a");
+		expect(text).toContain("task-b review running");
+		expect(text).toContain("read src/piv-subagents.ts");
+		expect(text).toContain("→ attach");
+		expect(text).toContain("← viewing");
+		expect(text).toContain("task-c review failed");
+		expect(text).toContain("3 tasks");
+		expect(text.indexOf("task-a")).toBeLessThan(text.indexOf("task-b"));
+		expect(text.indexOf("task-b")).toBeLessThan(text.indexOf("task-c"));
+		expect(text.match(/→ attach/g)).toHaveLength(1);
 	});
 
 	it("truncates multibyte display paths on UTF-8 boundaries", () => {
@@ -519,7 +603,7 @@ describe("subagent observatory reducer", () => {
 
 		expect(inbox).toHaveLength(32);
 		expect(inbox[0]?.jobId).toBe("job-39");
-		expect(inbox.at(-1)?.jobId).toBe("job-8");
+		expect(inbox[inbox.length - 1]?.jobId).toBe("job-8");
 		expect(new Set(inbox.map((item) => item.jobId)).size).toBe(32);
 		expect(inbox.every((item) => Object.isFrozen(item))).toBe(true);
 	});

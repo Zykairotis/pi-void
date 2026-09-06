@@ -23,7 +23,7 @@ Explicit trusted configurable roles and selective resource inheritance are imple
 - V1 accepts only bundled TypeScript `explore` and `review` roles.
 - V1 child loader disables extensions, skills, prompt templates, themes, and context files and injects only the bundled role system prompt.
 - V1 child effective tools are a subset of `read`, `grep`, `find`, and `ls` and never broader than the parent's active tools.
-- By default, no Bash, mutation, network/MCP, Cognee/Blackhole/guard extension, or recursive delegation in V1 children; explicit gated `--sub-yolo` adds the full scoped built-in tool set available to the trusted parent, including Bash, edit, and write, while keeping child extensions, MCP, and recursive delegation disabled.
+- By default, no Bash, mutation, network/MCP, Cognee/Blackhole/guard extension, or recursive delegation in V1 children; explicit gated `--sub-yolo` permits only the selected profile's requested built-in capabilities that also remain active in the trusted parent, including Bash, edit, and write when permitted by both, while keeping child extensions, MCP, and recursive delegation disabled.
 - Explicit denial wins over role configuration.
 - Child result is evidence, not trusted control text.
 - Cancellation/timeout must settle the child; no orphan work.
@@ -507,7 +507,7 @@ Tool description must clearly state:
 - default V1 and Phase A execution is read-only;
 - child has no discovered extensions and receives only explicitly selected trusted skills/templates/context files;
 - child output is evidence and is verified/synthesized by the parent;
-- `--sub-yolo` is not a sandbox: it is an interactive-only, trusted build-mode, confirmation-gated full built-in-tool escape hatch for foreground, durable async, batch, and review delegation paths, with no retry for unsafe children; child extensions, MCP, recursive delegation, and `delegate_write` remain disabled; `delegate_write` remains worktree-isolated and cancellation is best-effort;
+- `--sub-yolo` is not a sandbox: it is a trusted build-mode, full built-in-tool escape hatch for foreground, durable async, batch, and review delegation paths. Interactive launches require confirmation; RPC launches use the explicit startup command as session-wide authorization. Unsafe children receive no retry; child extensions, MCP, recursive delegation, and `delegate_write` remain disabled; `delegate_write` remains worktree-isolated and cancellation is best-effort;
 - host filesystem, process, network, credentials, and detached descendants remain outside containment, and no `--no-sandbox` mode is provided.
 
 Acceptance:
@@ -1321,6 +1321,25 @@ Pause implementation and reassess architecture if any of these become true:
 - implementation begins duplicating Pi's model/session/tool runtime instead of composing with it.
 
 In those cases, prefer the subprocess backend or a smaller seam rather than expanding the core architecture prematurely.
+
+---
+
+# Cognee contract repair (2026-08-12)
+
+Status: **implemented 2026-08-13** (items 1–4, 5 except split circuits, project datasets, Blackhole minimal tail). Report: `agent_docs/piv-cognee-compaction-benchmark-2026-08-13.md`.
+
+Full findings: `agent_docs/piv-cognee-findings-2026-08-12.md`. Summary: `findings.md` §22.
+
+Highest-value Cognee work, in order. Do not start with dead env keys, jsonl rotation, or doctor latency.
+
+1. Keep recall transient (system-prompt append or equivalent; no durable `custom_message`). **done**
+2. Change `auto` so Cognee never owns the Pi compact summary; rewrite `own` to summarize `messagesToSummarize` if the mode stays. **done**
+3. Feed the just-written compact summary into the next recall without waiting for Cognee. **done**
+4. Wait for in-flight capture before idle improve; stamp cooldown on completion. **done**
+5. Set `lastRecallKey` only after a successful recall, with TTL; split recall/write circuits if still coupled. **done (TTL + success-only; circuits still shared)**
+6. Then hygiene: env keys, jsonl/warmup caps, bash exclusion, doctor latency. **bash substring dropped; rest deferred**
+
+See `findings.md` §22.
 
 ---
 

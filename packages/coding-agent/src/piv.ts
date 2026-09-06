@@ -4,8 +4,10 @@ import { getAgentDir } from "./config.ts";
 import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { main } from "./main.ts";
 import { formatAgentPackImportResult, importRufloAgentPack } from "./piv-agent-packs.ts";
+import { PivAgentViewBridge } from "./piv-agent-view-bridge.ts";
 import pivCogneeExtension from "./piv-cognee.ts";
 import { refreshLocalModelsForStartup } from "./piv-provider.ts";
+import pivProviderSettings from "./piv-provider-settings.ts";
 import {
 	createPivSafeVerify,
 	type PivCapabilityState,
@@ -69,6 +71,7 @@ await refreshLocalModelsForStartup(getAgentDir(), {
 
 let currentPivMode: PivMode | undefined;
 let currentPivCapabilityState: PivCapabilityState | undefined;
+const agentViewBridge = new PivAgentViewBridge();
 const pivSafeVerify = createPivSafeVerify({
 	onModeChange: async (mode) => {
 		currentPivMode = mode;
@@ -80,13 +83,16 @@ const pivSafeVerify = createPivSafeVerify({
 });
 
 await main(args, {
+	agentViewBridge,
 	extensionFactories: [
 		{ name: "piv-safe-verify", factory: pivSafeVerify, hidden: true, priority: "before-user" },
+		{ name: "piv-provider-settings", factory: pivProviderSettings, hidden: true, priority: "before-user" },
 		{ name: "piv-cognee", factory: pivCogneeExtension, hidden: true, priority: "before-user" },
 		{
 			name: "piv-subagents",
 			factory: (pi) =>
 				pivSubagents(pi, {
+					agentViewBridge,
 					getPivMode: () => currentPivMode,
 					getPivCapabilityState: () => currentPivCapabilityState,
 				}),

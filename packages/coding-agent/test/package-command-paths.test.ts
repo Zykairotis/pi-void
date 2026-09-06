@@ -147,6 +147,22 @@ describe("package commands", () => {
 		}
 	});
 
+	it("recognizes list after the piv launcher injects --piv-mode build", async () => {
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: ["npm:@user/pkg"] }));
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+		try {
+			await expect(main(["--piv-mode", "build", "list"])).resolves.toBeUndefined();
+
+			const stdout = logSpy.mock.calls.map(([message]) => String(message)).join("\n");
+			expect(stdout).toContain("User packages:");
+			expect(stdout).toContain("npm:@user/pkg");
+			expect(process.exitCode).toBeUndefined();
+		} finally {
+			logSpy.mockRestore();
+		}
+	});
+
 	it("uses remembered project trust for list", async () => {
 		mkdirSync(join(projectDir, ".pi"), { recursive: true });
 		writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify({ packages: ["npm:@project/pkg"] }));

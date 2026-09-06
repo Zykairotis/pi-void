@@ -3,15 +3,30 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { modelAwareReserveTokens } from "../src/core/compaction/compaction.ts";
-import { mapEndpointModels, refreshLocalModelsForStartup } from "../src/piv-provider.ts";
+import {
+	CX_MAX_CONTEXT_TOKENS,
+	DEFAULT_BASE_URL,
+	isCxModel,
+	mapEndpointModels,
+	refetchProviderCatalog,
+	refreshLocalModelsForStartup,
+	resolveBaseUrl,
+	summarizeProviderCatalogs,
+} from "../src/piv-provider.ts";
 
 const tempDirs: string[] = [];
 const originalLocalApiKey = process.env.PIV_LOCAL_API_KEY;
+const originalOmniBaseUrl = process.env.PIV_OMNI_BASE_URL;
+const originalLocalBaseUrl = process.env.PIV_LOCAL_BASE_URL;
 
 afterEach(() => {
 	for (const path of tempDirs.splice(0)) rmSync(path, { recursive: true, force: true });
 	if (originalLocalApiKey === undefined) delete process.env.PIV_LOCAL_API_KEY;
 	else process.env.PIV_LOCAL_API_KEY = originalLocalApiKey;
+	if (originalOmniBaseUrl === undefined) delete process.env.PIV_OMNI_BASE_URL;
+	else process.env.PIV_OMNI_BASE_URL = originalOmniBaseUrl;
+	if (originalLocalBaseUrl === undefined) delete process.env.PIV_LOCAL_BASE_URL;
+	else process.env.PIV_LOCAL_BASE_URL = originalLocalBaseUrl;
 });
 
 describe("piv provider model mapping", () => {
@@ -205,60 +220,118 @@ describe("piv provider model mapping", () => {
 	it("rejects incomplete limits instead of guessing", () => {
 		expect(() => mapEndpointModels({ data: [{ id: "broken", capabilities: {} }] })).toThrow("contextWindow");
 	});
+
+	it("maps OmniRoute top-level limits and skips models that still have none", () => {
+		const models = mapEndpointModels({
+			data: [
+				{
+					id: "inf/claude-sonnet-4-6",
+					context_length: 1000000,
+					max_output_tokens: 128000,
+					input_modalities: ["text", "image"],
+					capabilities: { reasoning: true, vision: true, thinking: true },
+				},
+				{
+					id: "un/glm-5.2",
+					context_length: 200000,
+					capabilities: { reasoning: true },
+				},
+				{ id: "aihorde/Dreamshaper", capabilities: { reasoning: false } },
+			],
+		});
+
+		expect(models.map((model) => model.id)).toEqual(["inf/claude-sonnet-4-6", "un/glm-5.2"]);
+		expect(models[0]).toMatchObject({
+			contextWindow: 1000000,
+			maxTokens: 128000,
+			input: ["text", "image"],
+			reasoning: true,
+		});
+		expect(models[1]).toMatchObject({ contextWindow: 200000, maxTokens: 200000, input: ["text"] });
+	});
+
+	it("caps all cx/ models to a maximum context window of 272000 tokens", () => {
+		expect(CX_MAX_CONTEXT_TOKENS).toBe(272000);
+		expect(isCxModel("cx/gpt-5.6-sol")).toBe(true);
+		expect(isCxModel("CX/GPT-5.6-LUNA")).toBe(true);
+		expect(isCxModel("other/gpt-5.6")).toBe(false);
+
+		const models = mapEndpointModels({
+			data: [
+				{
+					id: "cx/gpt-5.6-sol",
+					context_length: 872000,
+					max_output_tokens: 128000,
+					capabilities: { reasoning: true },
+				},
+				{
+					id: "cx/gpt-5.3-codex-spark",
+					capabilities: {
+						reasoning: true,
+						contextWindow: 400000,
+						maxOutput: 400000,
+					},
+				},
+				{
+					id: "cx/gpt-5.5",
+					capabilities: {
+						reasoning: true,
+						contextWindow: 272000,
+						maxOutput: 128000,
+					},
+				},
+				{
+					id: "non-cx/gpt-5.6",
+					capabilities: {
+						reasoning: true,
+						contextWindow: 872000,
+						maxOutput: 128000,
+					},
+				},
+			],
+		});
+
+		expect(models[0]?.contextWindow).toBe(272000);
+		expect(models[0]?.maxTokens).toBe(128000);
+		expect(models[1]?.contextWindow).toBe(272000);
+		expect(models[1]?.maxTokens).toBe(272000);
+		expect(models[2]?.contextWindow).toBe(272000);
+		expect(models[2]?.maxTokens).toBe(128000);
+		expect(models[3]?.contextWindow).toBe(872000);
+		expect(models[3]?.maxTokens).toBe(128000);
+	});
 });
 
 describe("piv startup model refresh", () => {
-	it("refreshes in the background when a cached local catalog exists", async () => {
+	it("does not fetch a catalog when a cached local catalog exists", async () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "piv-provider-cached-"));
 		tempDirs.push(agentDir);
 		delete process.env.PIV_LOCAL_API_KEY;
-		writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ local: { type: "api_key", key: "cached-secret" } }));
-		writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { local: { models: [{}] } } }));
-		let resolveRefresh: ((result: { updated: boolean; count?: number; error?: string }) => void) | undefined;
-		const refresh = vi.fn(
-			() =>
-				new Promise<{ updated: boolean; count?: number; error?: string }>((resolve) => {
-					resolveRefresh = resolve;
-				}),
-		);
+		writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ omni: { type: "api_key", key: "cached-secret" } }));
+		writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { omni: { models: [{}] } } }));
+		const refresh = vi.fn(async () => ({ updated: true, count: 1 }));
 		const onFailure = vi.fn();
 
 		await expect(refreshLocalModelsForStartup(agentDir, { refresh, onFailure })).resolves.toBeUndefined();
-		expect(refresh).toHaveBeenCalledOnce();
+		expect(refresh).not.toHaveBeenCalled();
 		expect(process.env.PIV_LOCAL_API_KEY).toBe("cached-secret");
 		expect(onFailure).not.toHaveBeenCalled();
-
-		resolveRefresh?.({ updated: false, error: "endpoint unavailable" });
-		await vi.waitFor(() => expect(onFailure).toHaveBeenCalledWith("endpoint unavailable"));
 	});
 
-	it("waits for refresh when no cached local catalog exists", async () => {
+	it("does not block or fetch when no cached local catalog exists", async () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "piv-provider-cold-"));
 		tempDirs.push(agentDir);
-		let resolveRefresh: ((result: { updated: boolean; count?: number; error?: string }) => void) | undefined;
-		const refresh = vi.fn(
-			() =>
-				new Promise<{ updated: boolean; count?: number; error?: string }>((resolve) => {
-					resolveRefresh = resolve;
-				}),
-		);
-		let ready = false;
-		const startup = refreshLocalModelsForStartup(agentDir, { refresh, onFailure: vi.fn() }).then(() => {
-			ready = true;
-		});
+		const refresh = vi.fn(async () => ({ updated: true, count: 1 }));
 
-		await new Promise((resolve) => setTimeout(resolve, 10));
-		expect(ready).toBe(false);
-		resolveRefresh?.({ updated: true, count: 1 });
-		await startup;
-		expect(ready).toBe(true);
+		await expect(refreshLocalModelsForStartup(agentDir, { refresh, onFailure: vi.fn() })).resolves.toBeUndefined();
+		expect(refresh).not.toHaveBeenCalled();
 	});
 
 	it("does not refresh in explicit offline mode but keeps cached auth usable", async () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "piv-provider-offline-"));
 		tempDirs.push(agentDir);
 		delete process.env.PIV_LOCAL_API_KEY;
-		writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ local: { type: "api_key", key: "offline-secret" } }));
+		writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ omni: { type: "api_key", key: "offline-secret" } }));
 		const refresh = vi.fn(async () => ({ updated: true, count: 1 }));
 
 		await refreshLocalModelsForStartup(agentDir, { skip: true, refresh, onFailure: vi.fn() });
@@ -266,18 +339,110 @@ describe("piv startup model refresh", () => {
 		expect(refresh).not.toHaveBeenCalled();
 		expect(process.env.PIV_LOCAL_API_KEY).toBe("offline-secret");
 	});
+});
 
-	it("reports unexpected refresh failures without rejecting startup", async () => {
-		const agentDir = mkdtempSync(join(tmpdir(), "piv-provider-failure-"));
-		tempDirs.push(agentDir);
-		const onFailure = vi.fn();
+describe("piv provider catalog refetch", () => {
+	it("resolves base URL with default fallback, config, and environment overrides", () => {
+		expect(DEFAULT_BASE_URL).toBe("http://127.0.0.1:20128/v1");
+		expect(resolveBaseUrl()).toBe("http://127.0.0.1:20128/v1");
 
-		await refreshLocalModelsForStartup(agentDir, {
-			refresh: () => Promise.reject(new Error("refresh crashed")),
-			onFailure,
+		expect(
+			resolveBaseUrl({
+				providers: { omni: { baseUrl: "http://127.0.0.1:20128/v1" } },
+			}),
+		).toBe("http://127.0.0.1:20128/v1");
+
+		process.env.PIV_LOCAL_BASE_URL = "http://127.0.0.1:9999/v1";
+		expect(resolveBaseUrl()).toBe("http://127.0.0.1:9999/v1");
+
+		process.env.PIV_OMNI_BASE_URL = "http://127.0.0.1:8888/v1";
+		expect(resolveBaseUrl()).toBe("http://127.0.0.1:8888/v1");
+	});
+
+	it("summarizes configured providers with model counts and base URLs", () => {
+		expect(
+			summarizeProviderCatalogs({
+				getProviders: () => [
+					{ id: "omni", name: "omni", baseUrl: "http://127.0.0.1:20128/v1" },
+					{ id: "anthropic", name: "Anthropic" },
+				],
+				getModels: (providerId) => (providerId === "omni" ? [{}, {}] : [{}]),
+			}),
+		).toEqual([
+			{ id: "omni", name: "omni", modelCount: 2, baseUrl: "http://127.0.0.1:20128/v1" },
+			{ id: "anthropic", name: "Anthropic", modelCount: 1 },
+		]);
+	});
+
+	it("writes the OmniRoute catalog then reloads models.json without a network runtime refresh", async () => {
+		const refreshLocal = vi.fn(async () => ({ updated: true, count: 4 }));
+		const refreshRuntime = vi.fn(async () => ({ aborted: false, errors: new Map<string, Error>() }));
+
+		await expect(
+			refetchProviderCatalog({
+				providerId: "omni",
+				agentDir: "/tmp/piv-agent",
+				refreshLocal,
+				refreshRuntime,
+				countModels: () => 99,
+			}),
+		).resolves.toEqual({ ok: true, providerId: "omni", count: 4 });
+
+		expect(refreshLocal).toHaveBeenCalledWith("/tmp/piv-agent");
+		expect(refreshRuntime).toHaveBeenCalledWith({ providers: ["omni"], allowNetwork: false });
+	});
+
+	it("force-refreshes a non-local provider and never writes the local catalog", async () => {
+		const refreshLocal = vi.fn(async () => ({ updated: true, count: 1 }));
+		const refreshRuntime = vi.fn(async () => ({ aborted: false, errors: new Map<string, Error>() }));
+		const signal = new AbortController().signal;
+
+		await expect(
+			refetchProviderCatalog({
+				providerId: "anthropic",
+				agentDir: "/tmp/piv-agent",
+				refreshLocal,
+				refreshRuntime,
+				countModels: (providerId) => (providerId === "anthropic" ? 7 : 0),
+				signal,
+			}),
+		).resolves.toEqual({ ok: true, providerId: "anthropic", count: 7 });
+
+		expect(refreshLocal).not.toHaveBeenCalled();
+		expect(refreshRuntime).toHaveBeenCalledWith({
+			providers: ["anthropic"],
+			allowNetwork: true,
+			force: true,
+			signal,
 		});
+	});
 
-		expect(onFailure).toHaveBeenCalledWith("refresh crashed");
+	it("does not reload the runtime when the local endpoint write fails", async () => {
+		const refreshRuntime = vi.fn(async () => ({ aborted: false, errors: new Map<string, Error>() }));
+
+		await expect(
+			refetchProviderCatalog({
+				providerId: "omni",
+				agentDir: "/tmp/piv-agent",
+				refreshLocal: async () => ({ updated: false, error: "model endpoint returned HTTP 503" }),
+				refreshRuntime,
+			}),
+		).resolves.toEqual({
+			ok: false,
+			providerId: "omni",
+			error: "model endpoint returned HTTP 503",
+		});
+		expect(refreshRuntime).not.toHaveBeenCalled();
+	});
+
+	it("returns a timeout error when the runtime refresh is aborted", async () => {
+		await expect(
+			refetchProviderCatalog({
+				providerId: "anthropic",
+				agentDir: "/tmp/piv-agent",
+				refreshRuntime: async () => ({ aborted: true, errors: new Map<string, Error>() }),
+			}),
+		).resolves.toEqual({ ok: false, providerId: "anthropic", error: "timed out" });
 	});
 });
 

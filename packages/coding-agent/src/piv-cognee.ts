@@ -2,11 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { chmod, mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { getAgentDir } from "./config.ts";
-import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "./core/extensions/types.ts";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, ExtensionUIContext } from "./core/extensions/types.ts";
 import { type CogneeClient, type CogneeClientConfig, CogneeError, createCogneeClient } from "./piv-cognee-client.ts";
 import { loadMergedCogneeEnv } from "./piv-cognee-env.ts";
 import {
@@ -48,9 +48,15 @@ export type AutoRememberMode = "off" | "compaction";
  * Who writes the Pi compaction summary text:
  * - defer: never override (Blackhole / native Pi own the summary; Cognee only stores memory)
  * - own: Cognee returns a session_before_compact summary (standalone, no Blackhole)
- * - auto: own only when Blackhole is not active; otherwise defer
+ * - auto: always defer (Pi or Blackhole owns the chat checkpoint)
  */
 export type CompactionSummaryMode = "defer" | "own" | "auto";
+
+/** Config value that resolves to a git-root / cwd dataset at session start. */
+export const PROJECT_DATASET_SENTINEL = "$project";
+
+/** Skip identical-prompt recall for this long after a successful attempt. */
+export const RECALL_DEDUP_TTL_MS = 15_000;
 
 export interface PivCogneeConfig extends Omit<CogneeClientConfig, "maxResponseChars"> {
 	enabled: boolean;
@@ -64,7 +70,7 @@ export interface PivCogneeConfig extends Omit<CogneeClientConfig, "maxResponseCh
 	autoImprove: boolean;
 	/**
 	 * How Cognee cooperates with Blackhole/native compaction.
-	 * Default "auto": Blackhole keeps the chat summary; Cognee stores anchors + permanent remember.
+	 * Default "auto": never replace the Pi compact summary; store the final checkpoint only.
 	 */
 	compactionSummaryMode: CompactionSummaryMode;
 	topK: number;
@@ -83,7 +89,7 @@ export const DEFAULT_PIV_COGNEE_CONFIG: PivCogneeConfig = {
 	captureSession: true,
 	captureTools: true,
 	autoImprove: true,
-	// Best with Blackhole: do not steal the compact summary unless Blackhole is off.
+	// Never steal the Pi compact summary unless the user sets "own".
 	compactionSummaryMode: "auto",
 	topK: 5,
 	baseUrl: "http://127.0.0.1:8211",
@@ -120,12 +126,11 @@ export function isBlackholeCompactionActive(agentDir: string = getAgentDir()): b
 /** Whether Cognee should return a Pi compaction summary for this run. */
 export function shouldOwnCompactionSummary(
 	mode: CompactionSummaryMode,
-	blackholeActive: boolean = isBlackholeCompactionActive(),
+	_blackholeActive: boolean = isBlackholeCompactionActive(),
 ): boolean {
-	if (mode === "own") return true;
-	if (mode === "defer") return false;
-	// auto
-	return !blackholeActive;
+	// auto always defers so a default install cannot replace Pi/Blackhole's checkpoint
+	// with a recall dump. Explicit "own" remains available.
+	return mode === "own";
 }
 
 /**
@@ -255,10 +260,43 @@ function parseUrl(value: unknown, name: string): string | undefined {
 
 function parseDataset(value: unknown, name: string): string | undefined {
 	if (value === undefined) return undefined;
-	if (typeof value !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(value.trim())) {
+	if (typeof value !== "string") {
 		throw new Error(`${name} must contain 1-128 letters, numbers, dots, underscores, or hyphens`);
 	}
-	return value.trim();
+	const trimmed = value.trim();
+	if (trimmed === PROJECT_DATASET_SENTINEL) return PROJECT_DATASET_SENTINEL;
+	if (!/^[A-Za-z0-9._-]{1,128}$/.test(trimmed)) {
+		throw new Error(`${name} must contain 1-128 letters, numbers, dots, underscores, or hyphens`);
+	}
+	return trimmed;
+}
+
+export function findGitRoot(cwd: string): string {
+	let dir = resolve(cwd);
+	for (let i = 0; i < 24; i++) {
+		if (existsSync(join(dir, ".git"))) return dir;
+		const parent = dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return resolve(cwd);
+}
+
+/** Stable per-repo dataset name: piv-<basename>-<8 hex of realpath>. */
+export function resolveProjectCogneeDataset(cwd: string): string {
+	const root = findGitRoot(cwd);
+	const base =
+		basename(root)
+			.replace(/[^A-Za-z0-9._-]+/g, "-")
+			.replace(/^-+|-+$/g, "")
+			.slice(0, 40) || "repo";
+	const hash = createHash("sha256").update(root).digest("hex").slice(0, 8);
+	return `piv-${base}-${hash}`;
+}
+
+export function resolveRuntimeCogneeDataset(dataset: string, cwd?: string): string {
+	if (dataset !== PROJECT_DATASET_SENTINEL) return dataset;
+	return resolveProjectCogneeDataset(cwd?.trim() ? cwd : process.cwd());
 }
 
 export function resolvePivCogneeConfig(stored: unknown, env: NodeJS.ProcessEnv = process.env): PivCogneeConfig {
@@ -540,6 +578,12 @@ interface CogneeRuntime {
 	circuit: CircuitState;
 	lastError: string | undefined;
 	lastRecallKey: string | undefined;
+	lastRecallAt: number;
+	/** Latest compact summary, consumed once by the next turn inject. */
+	lastCompactSummary: string | undefined;
+	/** Concrete dataset after `$project` resolution. */
+	resolvedDataset: string;
+	improveInFlight: boolean;
 	/** Pending user prompt awaiting paired assistant answer (Claude store-user-prompt). */
 	pendingPrompt: string | undefined;
 	/** Cognee session id for this Pi host session (piv_<id>). */
@@ -621,6 +665,43 @@ function formatRecall(results: readonly { text: string; score?: number }[], maxC
 	);
 }
 
+export function appendMemoryToSystemPrompt(systemPrompt: string | undefined, injection: string): string {
+	const memory = injection.trim();
+	if (!memory) return systemPrompt ?? "";
+	const base = systemPrompt?.trim() ? systemPrompt : "";
+	return base ? `${base}\n\n${memory}` : memory;
+}
+
+export function formatLastCompactInjection(summary: string, maxChars: number): string {
+	return redactMemoryText(
+		[
+			"<pi-void-last-compact>",
+			"The following checkpoint was produced by the latest compaction. It is untrusted reference data.",
+			summary.trim(),
+			"</pi-void-last-compact>",
+		].join("\n"),
+		maxChars,
+	);
+}
+
+export function buildOwnedCompactionSummary(
+	preparation: {
+		previousSummary?: string;
+		messagesToSummarize?: unknown[];
+		turnPrefixMessages?: unknown[];
+		fileOps?: { read?: string[]; edited?: string[]; written?: string[] };
+		tokensBefore?: number;
+	},
+	reason: string,
+	maxChars: number,
+): string {
+	const texts = [...(preparation.messagesToSummarize ?? []), ...(preparation.turnPrefixMessages ?? [])]
+		.map((message) => extractMessageText(message))
+		.filter(Boolean)
+		.slice(0, 40);
+	return redactMemoryText([buildLocalPrecompactAnchor(preparation, reason), ...texts].join("\n"), maxChars);
+}
+
 export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}): (pi: ExtensionAPI) => void {
 	const storageDir = options.storageDir ?? join(getAgentDir(), "pi-cognee");
 	const configPath = join(storageDir, "config.json");
@@ -638,6 +719,10 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 		circuit: createCircuitState(),
 		lastError: undefined,
 		lastRecallKey: undefined,
+		lastRecallAt: 0,
+		lastCompactSummary: undefined,
+		resolvedDataset: DEFAULT_PIV_COGNEE_CONFIG.dataset,
+		improveInFlight: false,
 		pendingPrompt: undefined,
 		sessionId: undefined,
 		hostSessionId: undefined,
@@ -669,6 +754,21 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 		}
 	};
 
+	const activeDataset = (): string => runtime.resolvedDataset || runtime.config.dataset;
+
+	const consumeLastCompact = (): string | undefined => {
+		const summary = runtime.lastCompactSummary;
+		if (!summary) return undefined;
+		runtime.lastCompactSummary = undefined;
+		return formatLastCompactInjection(summary, runtime.config.recallMaxChars);
+	};
+
+	const turnScopedMemory = (systemPrompt: string | undefined, extra?: string) => {
+		const parts = [consumeLastCompact(), extra].filter((part): part is string => Boolean(part));
+		if (parts.length === 0) return undefined;
+		return { systemPrompt: appendMemoryToSystemPrompt(systemPrompt, parts.join("\n\n")) };
+	};
+
 	const observe = (
 		operation: CogneeObservationOperation,
 		phase: CogneeObservationPhase,
@@ -698,7 +798,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 			at: new Date().toISOString(),
 			agentId: runtime.sessionId,
 			sessionId: runtime.sessionId,
-			dataset: runtime.config.dataset,
+			dataset: activeDataset(),
 			endpoint,
 			operation,
 			phase,
@@ -722,7 +822,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 			const body = {
 				host_key: hostId,
 				session_id: id,
-				dataset: runtime.config.dataset,
+				dataset: activeDataset(),
 				base_url: runtime.config.baseUrl,
 				updated_at: new Date().toISOString(),
 			};
@@ -743,7 +843,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 			const path = join(warmupDir, name);
 			await writeFile(
 				path,
-				`${JSON.stringify({ sessionId: runtime.sessionId, dataset: runtime.config.dataset, entry })}\n`,
+				`${JSON.stringify({ sessionId: runtime.sessionId, dataset: activeDataset(), entry })}\n`,
 				{ mode: 0o600 },
 			);
 		} catch {
@@ -775,7 +875,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 						if (!record.sessionId || !record.entry) continue;
 						await client.rememberEntry({
 							sessionId: record.sessionId,
-							dataset: record.dataset ?? runtime.config.dataset,
+							dataset: record.dataset ?? activeDataset(),
 							entry: record.entry,
 						});
 						await unlink(path);
@@ -787,9 +887,12 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 		);
 	};
 
-	/** Fire-and-forget session-cache write (Claude PostToolUse / Stop / prompt pair). */
-	const storeEntry = (entry: Record<string, unknown>, kind: "prompt" | "trace" | "answer"): void => {
-		if (!runtime.client || !runtime.sessionId || runtime.shuttingDown) return;
+	/** Session-cache write (Claude PostToolUse / Stop / prompt pair). Tracked in background. */
+	const storeEntry = (
+		entry: Record<string, unknown>,
+		kind: "prompt" | "trace" | "answer",
+	): Promise<void> | undefined => {
+		if (!runtime.client || !runtime.sessionId || runtime.shuttingDown) return undefined;
 		const sessionId = runtime.sessionId;
 		const client = runtime.client;
 		const requestId = randomUUID();
@@ -797,7 +900,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 		const operation: CogneeObservationOperation = kind === "trace" ? "trace" : "remember_entry";
 		observe(operation, "started", { requestId, preview: entry, meta: { kind } });
 		const work = client
-			.rememberEntry({ entry, sessionId, dataset: runtime.config.dataset })
+			.rememberEntry({ entry, sessionId, dataset: activeDataset() })
 			.then(() => {
 				runtime.saves[kind] += 1;
 				observe(operation, "succeeded", { requestId, latencyMs: Date.now() - startedAt, meta: { kind } });
@@ -814,43 +917,65 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 				await bufferWarmupEntry(entry);
 			});
 		trackBackground(work);
+		return work;
 	};
 
 	const updateStatusLine = (ctx: ExtensionContext): void => {
-		if (!ctx.hasUI || typeof ctx.ui.setStatus !== "function") return;
+		// The ctx may be stale after session replacement or reload; never let a
+		// guarded getter throw here (it would surface as an uncaught exception).
+		let ui: ExtensionUIContext | undefined;
+		try {
+			ui = ctx.hasUI ? ctx.ui : undefined;
+		} catch {
+			return;
+		}
+		if (!ui || typeof ui.setStatus !== "function") return;
 		if (!runtime.config.enabled) {
-			ctx.ui.setStatus("piv-cognee", undefined);
+			ui.setStatus("piv-cognee", undefined);
 			return;
 		}
 		if (runtime.activity) {
-			ctx.ui.setStatus("piv-cognee", `cognee:${runtime.activity} ...`);
+			ui.setStatus("piv-cognee", `cognee:${runtime.activity} ...`);
 			return;
 		}
 		const state = runtime.connected ? "ok" : runtime.lastError ? "err" : "…";
-		ctx.ui.setStatus(
+		ui.setStatus(
 			"piv-cognee",
-			`cognee:${runtime.config.dataset} ${state} cap=${runtime.config.captureSession ? "on" : "off"}`,
+			`cognee:${activeDataset()} ${state} cap=${runtime.config.captureSession ? "on" : "off"}`,
 		);
 	};
 
-	const startActivity = (ctx: ExtensionContext, activity: string): void => {
-		if (!ctx.hasUI || typeof ctx.ui.setStatus !== "function") return;
+	// Clear any in-flight activity timer and reset the activity state without
+	// touching a possibly-stale extension ctx (e.g. after session replacement
+	// or reload invalidated the captured ctx).
+	const clearActivity = (): void => {
 		if (runtime.activityTimer) clearInterval(runtime.activityTimer);
+		runtime.activityTimer = undefined;
+		runtime.activity = undefined;
+	};
+
+	const startActivity = (ctx: ExtensionContext, activity: string): void => {
+		clearActivity();
 		runtime.activity = activity;
 		let frame = 0;
 		const frames = [".", "..", "..."];
 		const render = (): void => {
 			if (!runtime.activity) return;
-			ctx.ui.setStatus("piv-cognee", `cognee:${runtime.activity} ${frames[frame++ % frames.length]}`);
+			// Guard against the ctx being invalidated by session replacement or
+			// reload while the timer is alive: a throw from the guarded ctx.ui
+			// getter would surface as an uncaught exception from setInterval.
+			try {
+				ctx.ui.setStatus("piv-cognee", `cognee:${runtime.activity} ${frames[frame++ % frames.length]}`);
+			} catch {
+				clearActivity();
+			}
 		};
 		render();
 		runtime.activityTimer = setInterval(render, 180);
 	};
 
 	const stopActivity = (ctx: ExtensionContext): void => {
-		if (runtime.activityTimer) clearInterval(runtime.activityTimer);
-		runtime.activityTimer = undefined;
-		runtime.activity = undefined;
+		clearActivity();
 		updateStatusLine(ctx);
 	};
 
@@ -870,16 +995,17 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 
 	const runImprove = (reason: string): Promise<void> | undefined => {
 		if (!runtime.client || !runtime.sessionId || !runtime.config.autoImprove) return undefined;
+		if (runtime.improveInFlight) return undefined;
 		const now = options.now?.() ?? Date.now();
 		if (reason === "idle" && now - runtime.lastImproveAt < IDLE_IMPROVE_COOLDOWN_MS) return undefined;
-		runtime.lastImproveAt = now;
+		runtime.improveInFlight = true;
 		const client = runtime.client;
 		const sessionId = runtime.sessionId;
 		const requestId = randomUUID();
 		const startedAt = Date.now();
 		observe("improve", "started", { requestId, meta: { reason } });
 		const work = client
-			.improve({ dataset: runtime.config.dataset, sessionIds: [sessionId] })
+			.improve({ dataset: activeDataset(), sessionIds: [sessionId] })
 			.then(() => {
 				observe("improve", "succeeded", { requestId, latencyMs: Date.now() - startedAt });
 			})
@@ -887,6 +1013,10 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 				const kind = errorKind(error);
 				runtime.lastError = kind;
 				observe("improve", "failed", { requestId, latencyMs: Date.now() - startedAt, error: kind });
+			})
+			.finally(() => {
+				runtime.improveInFlight = false;
+				runtime.lastImproveAt = options.now?.() ?? Date.now();
 			});
 		trackBackground(work);
 		return work;
@@ -903,6 +1033,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 					runtime.config = { ...DEFAULT_PIV_COGNEE_CONFIG };
 					runtime.lastError = "invalid_config";
 				}
+				runtime.resolvedDataset = resolveRuntimeCogneeDataset(runtime.config.dataset);
 				let cachedKey: string | undefined;
 				let piCachedKey: string | undefined;
 				if (!options.apiKey) {
@@ -966,7 +1097,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 			enabled: runtime.config.enabled,
 			mode: "http",
 			baseUrl: runtime.config.baseUrl,
-			dataset: runtime.config.dataset,
+			dataset: activeDataset(),
 			sessionId: runtime.sessionId,
 			apiKeySource: runtime.keySource,
 			health: health.ok ? "healthy" : "unreachable",
@@ -989,8 +1120,13 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 	};
 
 	const rebuildClient = (): void => {
+		runtime.resolvedDataset = resolveRuntimeCogneeDataset(runtime.config.dataset);
 		runtime.client = createCogneeClient(
-			{ ...runtime.config, apiKey: runtime.apiKey, maxResponseChars: runtime.config.recallMaxChars },
+			{
+				...runtime.config,
+				apiKey: runtime.apiKey,
+				maxResponseChars: Math.max(runtime.config.recallMaxChars, runtime.config.maxResponseChars),
+			},
 			{ fetch: options.fetch },
 		);
 	};
@@ -1132,7 +1268,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 				return;
 			}
 			try {
-				await runtime.client.remember({ dataset: runtime.config.dataset, nodeSet, text: safeText });
+				await runtime.client.remember({ dataset: activeDataset(), nodeSet, text: safeText });
 				runtime.circuit = resetCircuitState();
 				runtime.lastError = undefined;
 				notify(ctx, "Cognee memory stored", "info");
@@ -1140,12 +1276,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 				const kind = errorKind(error);
 				runtime.lastError = kind;
 				runtime.circuit = noteCircuitFailure(runtime.circuit, kind);
-				const record = createPendingRemember(
-					safeText,
-					runtime.config.dataset,
-					nodeSet,
-					options.now?.() ?? Date.now(),
-				);
+				const record = createPendingRemember(safeText, activeDataset(), nodeSet, options.now?.() ?? Date.now());
 				const queued = await enqueuePendingRemember(pendingDir, record, runtime.config.queueLimit);
 				notify(
 					ctx,
@@ -1166,7 +1297,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 				if (!runtime.config.enabled || !runtime.client) {
 					return {
 						content: [{ type: "text", text: "Cognee is disabled." }],
-						details: { enabled: false, count: 0, dataset: runtime.config.dataset },
+						details: { enabled: false, count: 0, dataset: activeDataset() },
 					};
 				}
 				try {
@@ -1185,7 +1316,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 										: formatRecall(results, runtime.config.recallMaxChars),
 							},
 						],
-						details: { enabled: true, count: results.length, dataset: runtime.config.dataset },
+						details: { enabled: true, count: results.length, dataset: activeDataset() },
 					};
 				} catch (error) {
 					const kind = errorKind(error);
@@ -1193,7 +1324,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 					runtime.circuit = noteCircuitFailure(runtime.circuit, kind);
 					return {
 						content: [{ type: "text", text: `Cognee search failed: ${kind}` }],
-						details: { enabled: true, count: 0, dataset: runtime.config.dataset, error: kind },
+						details: { enabled: true, count: 0, dataset: activeDataset(), error: kind },
 					};
 				}
 			},
@@ -1263,7 +1394,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 					await persistConfig({ ...runtime.config, compactionSummaryMode: value }, ctx);
 					notify(
 						ctx,
-						`Cognee compaction summary mode: ${value}${value === "auto" ? " (defer when Blackhole active)" : ""}`,
+						`Cognee compaction summary mode: ${value}${value === "auto" ? " (never owns the Pi summary)" : ""}`,
 						"info",
 					);
 					return;
@@ -1300,7 +1431,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 					try {
 						runtime.lastImproveAt = 0; // force allow
 						await runtime.client.improve({
-							dataset: runtime.config.dataset,
+							dataset: activeDataset(),
 							sessionIds: [runtime.sessionId],
 						});
 						runtime.lastImproveAt = options.now?.() ?? Date.now();
@@ -1348,6 +1479,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 		// ── Claude SessionStart equivalent ─────────────────────────────
 		pi.on("session_start", async (_event, ctx) => {
 			await ensureLoaded();
+			runtime.resolvedDataset = resolveRuntimeCogneeDataset(runtime.config.dataset, ctx.cwd);
 			applyToolState(pi);
 			const hostId = ctx.sessionManager.getSessionId();
 			const sessionId = await ensureSessionId(hostId);
@@ -1362,7 +1494,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 						notify(
 							ctx,
 							health.ok
-								? `Cognee Memory Connected · ${runtime.config.dataset} · ${runtime.config.baseUrl}`
+								? `Cognee Memory Connected · ${activeDataset()} · ${runtime.config.baseUrl}`
 								: `Cognee Memory offline · ${runtime.config.baseUrl} · ${health.detail}`,
 							health.ok ? "info" : "warning",
 						);
@@ -1376,7 +1508,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 						.registerAgent({
 							agentSessionName: sessionId,
 							sessionId,
-							datasetNames: [runtime.config.dataset],
+							datasetNames: [activeDataset()],
 						})
 						.then(() => {
 							runtime.agentRegistered = true;
@@ -1425,18 +1557,18 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 						latencyMs: Date.now() - startedAt,
 						meta: { skipped: true },
 					});
-					return;
+					return turnScopedMemory(event.systemPrompt);
 				}
 				const recallKey = `${sessionId}\n${event.prompt}`;
-				if (runtime.lastRecallKey === recallKey) {
+				const now = options.now?.() ?? Date.now();
+				if (runtime.lastRecallKey === recallKey && now - runtime.lastRecallAt < RECALL_DEDUP_TTL_MS) {
 					observe("recall", "succeeded", {
 						requestId,
 						latencyMs: Date.now() - startedAt,
 						meta: { duplicate: true },
 					});
-					return;
+					return turnScopedMemory(event.systemPrompt);
 				}
-				runtime.lastRecallKey = recallKey;
 				const results = await runtime.client.recall(event.prompt, {
 					topK: runtime.config.topK ?? 5,
 					sessionId,
@@ -1445,27 +1577,24 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 				});
 				runtime.circuit = resetCircuitState();
 				runtime.lastRecallHits = results.length;
+				runtime.lastRecallKey = recallKey;
+				runtime.lastRecallAt = now;
 				observe("recall", "succeeded", {
 					requestId,
 					latencyMs: Date.now() - startedAt,
 					preview: results.map((result) => result.text).join("\n"),
 					meta: { hits: results.length },
 				});
-				if (results.length === 0) return;
-				return {
-					message: {
-						customType: "piv-cognee-recall",
-						content: formatRecall(results, runtime.config.recallMaxChars),
-						display: false,
-						details: { count: results.length, dataset: runtime.config.dataset, sessionId },
-					},
-				};
+				return turnScopedMemory(
+					event.systemPrompt,
+					results.length > 0 ? formatRecall(results, runtime.config.recallMaxChars) : undefined,
+				);
 			} catch (error) {
 				const kind = errorKind(error);
 				runtime.lastError = kind;
 				runtime.circuit = noteCircuitFailure(runtime.circuit, kind);
 				observe("recall", "failed", { requestId, latencyMs: Date.now() - startedAt, error: kind });
-				return;
+				return turnScopedMemory(event.systemPrompt);
 			} finally {
 				stopActivity(ctx);
 			}
@@ -1485,11 +1614,6 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 			}
 
 			const input = event.input ?? {};
-			if (event.toolName === "bash" || event.toolName === "Bash") {
-				const command = typeof input.command === "string" ? input.command : "";
-				if (command.toLowerCase().includes("cognee")) return;
-			}
-
 			const max = runtime.config.captureMaxChars;
 			const params: Record<string, string> = {};
 			for (const [key, value] of Object.entries(input)) {
@@ -1560,15 +1684,15 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 		pi.on("agent_settled", async (_event, ctx) => {
 			await ensureLoaded();
 			if (!runtime.config.enabled || !runtime.config.autoImprove) return;
+			await waitForBackground();
 			runImprove("idle");
 			updateStatusLine(ctx);
 			drainWarmup();
 		});
 
-		// ── PreCompact: memory anchor (+ optional summary ownership) ───
-		// With Blackhole (default auto): Cognee stores anchors only and does NOT
-		// return a Pi compaction summary — Blackhole/native keeps the chat summary.
-		// Set compactionSummaryMode "own" to let Cognee write the Pi summary alone.
+		// ── PreCompact: optional summary ownership only ───
+		// auto/defer never return a Pi compaction summary. Explicit own summarizes
+		// messagesToSummarize locally and skips network on overflow/willRetry.
 		pi.on("session_before_compact", async (event, ctx) => {
 			await ensureLoaded();
 			if (!runtime.config.enabled || !runtime.client) return;
@@ -1577,100 +1701,39 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 			const agentDir = environment.PI_CODING_AGENT_DIR?.trim() || getAgentDir();
 			const blackholeActive = isBlackholeCompactionActive(agentDir);
 			const ownSummary = shouldOwnCompactionSummary(runtime.config.compactionSummaryMode, blackholeActive);
+			if (!ownSummary) return;
 
-			// Memory anchor for Cognee:
-			// - Deferring to Blackhole: local preparation only (fast; no extra recalls)
-			// - Owning Pi summary: multi-scope recall for a richer standalone summary
-			let answer = "";
-			if (runtime.config.captureSession || runtime.config.autoRemember === "compaction" || ownSummary) {
-				if (!ownSummary) {
-					answer = redactMemoryText(
+			const skipNetwork = event.reason === "overflow" || event.willRetry;
+			const fileOps = {
+				read: [...(event.preparation.fileOps?.read ?? [])],
+				edited: [...(event.preparation.fileOps?.edited ?? [])],
+				written: [...(event.preparation.fileOps?.written ?? [])],
+			};
+			const answer = skipNetwork
+				? redactMemoryText(
 						buildLocalPrecompactAnchor(
 							{
 								previousSummary: event.preparation.previousSummary,
 								messagesToSummarize: event.preparation.messagesToSummarize,
 								turnPrefixMessages: event.preparation.turnPrefixMessages,
-								fileOps: {
-									read: [...event.preparation.fileOps.read],
-									edited: [...event.preparation.fileOps.edited],
-									written: [...event.preparation.fileOps.written],
-								},
+								fileOps,
 								tokensBefore: event.preparation.tokensBefore,
 							},
 							event.reason,
 						),
 						runtime.config.captureMaxChars,
-					);
-				} else {
-					const query =
-						truncateForCapture(event.preparation.previousSummary ?? event.reason, 400) || "session progress";
-					const sections: string[] = [];
-					try {
-						const [sessionHits, traceHits, graphHits] = await Promise.all([
-							runtime.client.recall(query, { sessionId, scope: ["session"], topK: 5, timeoutMs: 4_000 }),
-							runtime.client.recall(query, { sessionId, scope: ["trace"], topK: 8, timeoutMs: 4_000 }),
-							runtime.client.recall(query, {
-								sessionId,
-								scope: ["graph"],
-								topK: 3,
-								timeoutMs: 6_000,
-							}),
-						]);
-						if (sessionHits.length)
-							sections.push(`## Session\n${sessionHits.map((hit) => `- ${hit.text}`).join("\n")}`);
-						if (traceHits.length)
-							sections.push(`## Traces\n${traceHits.map((hit) => `- ${hit.text}`).join("\n")}`);
-						if (graphHits.length)
-							sections.push(`## Graph\n${graphHits.map((hit) => `- ${hit.text}`).join("\n")}`);
-					} catch (error) {
-						runtime.lastError = errorKind(error);
-					}
-					answer = redactMemoryText(
-						sections.join("\n\n") ||
-							buildLocalPrecompactAnchor(
-								{
-									previousSummary: event.preparation.previousSummary,
-									messagesToSummarize: event.preparation.messagesToSummarize,
-									turnPrefixMessages: event.preparation.turnPrefixMessages,
-									fileOps: {
-										read: [...event.preparation.fileOps.read],
-										edited: [...event.preparation.fileOps.edited],
-										written: [...event.preparation.fileOps.written],
-									},
-									tokensBefore: event.preparation.tokensBefore,
-								},
-								event.reason,
-							),
-						runtime.config.captureMaxChars,
-					);
-				}
-				storeEntry(
-					{
-						type: "qa",
-						question: "Pre-compact memory anchor",
-						answer,
-						context: `reason=${event.reason}; session=${sessionId}; blackhole=${blackholeActive}; ownSummary=${ownSummary}`,
-					},
-					"answer",
-				);
-			}
-
-			// Defer: let Blackhole/native produce the Pi summary (best dual-stack mode).
-			if (!ownSummary) return;
-
-			if (!answer) {
-				answer = redactMemoryText(
-					buildLocalPrecompactAnchor(
+					)
+				: buildOwnedCompactionSummary(
 						{
 							previousSummary: event.preparation.previousSummary,
 							messagesToSummarize: event.preparation.messagesToSummarize,
+							turnPrefixMessages: event.preparation.turnPrefixMessages,
+							fileOps,
 							tokensBefore: event.preparation.tokensBefore,
 						},
 						event.reason,
-					),
-					runtime.config.captureMaxChars,
-				);
-			}
+						runtime.config.captureMaxChars,
+					);
 			return {
 				compaction: {
 					summary: answer,
@@ -1703,10 +1766,11 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 						: "native";
 			const hostId = ctx.sessionManager.getSessionId();
 			const sessionId = await ensureSessionId(hostId);
+			runtime.lastCompactSummary = redactMemoryText(summary, runtime.config.recallMaxChars);
 
-			// Session-cache copy so next-prompt recall can find the compact summary quickly
+			// Session-cache copy so later recall can find the compact summary
 			if (runtime.config.captureSession) {
-				storeEntry(
+				await storeEntry(
 					{
 						type: "qa",
 						question: `Compaction checkpoint (${engine})`,
@@ -1730,12 +1794,7 @@ export function createPivCogneeExtension(options: PivCogneeExtensionOptions = {}
 				].join("\n"),
 				runtime.config.rememberMaxChars,
 			);
-			const record = createPendingRemember(
-				text,
-				runtime.config.dataset,
-				"agent_actions",
-				options.now?.() ?? Date.now(),
-			);
+			const record = createPendingRemember(text, activeDataset(), "agent_actions", options.now?.() ?? Date.now());
 			const accepted = await enqueuePendingRemember(pendingDir, record, runtime.config.queueLimit);
 			if (!accepted) {
 				runtime.lastError = "queue_full";

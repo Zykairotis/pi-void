@@ -21,7 +21,7 @@ export const DEFAULTS: UnifiedConfig = {
 	compaction: "auto",
 	compactionEngine: "blackhole",
 	midRunCompaction: "off",
-	tailBehavior: "pi-default",
+	tailBehavior: "minimal",
 	compactAfterTokens: 81_000,
 	memory: false,
 };

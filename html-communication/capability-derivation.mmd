@@ -1,0 +1,8 @@
+flowchart LR
+    W["What this helper type<br/>asks to be allowed"] --> C{"Permission check"}
+    H["What the main agent<br/>already has"] --> C
+    C -->|"Everyday mode"| R["Look, search, and report.<br/>No changes, no commands"]
+    C -->|"Trusted mode, chosen by you"| Y["May also run commands<br/>and edit files, but only<br/>what both sides allow"]
+    R --> G["Helper gets to work"]
+    Y --> G
+    G --> V["Main agent double-checks<br/>the result before using it"]

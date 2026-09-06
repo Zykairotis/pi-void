@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { ModelsError } from "@earendil-works/pi-ai";
@@ -17,6 +17,7 @@ import { ModelRegistry } from "../src/core/model-registry.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
 import type { CreateAgentSessionOptions, CreateAgentSessionResult } from "../src/core/sdk.ts";
 import { importRufloAgentPack } from "../src/piv-agent-packs.ts";
+import { PivAgentViewBridge } from "../src/piv-agent-view-bridge.ts";
 import { JOB_COMPLETION_MESSAGE_TYPE, JOB_ENTRY_TYPE, SubagentJobRegistry } from "../src/piv-subagent-jobs.ts";
 import { getProgressSnapshot } from "../src/piv-subagent-observatory.ts";
 import * as pivSubagentsModule from "../src/piv-subagents.ts";
@@ -27,6 +28,7 @@ import pivSubagents, {
 	createNativeSubagentSession,
 	createNativeWriterSession,
 	createScopedWriterToolDefinitions,
+	createSubagentLaunchProvenance,
 	createWriterWorkspace,
 	deriveSubagentTools,
 	deriveWriterTools,
@@ -56,11 +58,16 @@ import pivSubagents, {
 	runResolvedReviewBatch,
 	runResolvedSubagentBatch,
 	runSubagentWithRecovery,
+	SUBAGENT_PROFILE_ALIASES,
+	SUBAGENT_PROFILE_LIMITS,
 	SUBAGENT_PROFILES,
+	type SubagentBatchTaskLifecycleEvent,
+	SubagentError,
 	SubagentLiveSessionRegistry,
 	type SubagentRequest,
 	type SubagentResourceSelection,
 	type SubagentResult,
+	SubagentViewSwitcher,
 	suggestSubagentProfiles,
 	truncateSubagentOutput,
 	validateWriterLaunchPreflight,
@@ -83,6 +90,13 @@ async function createWorkspace(): Promise<string> {
 	tempDirs.push(cwd);
 	await mkdir(join(cwd, "src"));
 	return cwd;
+}
+
+function createNoopExtensionRunner() {
+	return {
+		hasHandlers: vi.fn(() => false),
+		emit: vi.fn(async () => undefined),
+	};
 }
 
 type CommandHandler = (args: string, ctx: ExtensionContext) => Promise<unknown> | unknown;
@@ -178,6 +192,8 @@ async function createAsyncToolHarness(options: AsyncToolHarnessOptions = {}) {
 					: capabilityTools,
 			bashEnabledInRecordedProcess:
 				options.pivMode === "build" && options.trusted === true && options.flags?.["piv-allow-bash"] === true,
+			allowExternal:
+				options.pivMode === "build" && options.trusted === true && options.flags?.["allow-external"] === true,
 		}),
 	});
 	flagsReady = true;
@@ -333,12 +349,75 @@ afterEach(async () => {
 });
 
 describe("Pi Void subagent contracts", () => {
+	it("gives repository exploration enough time for multi-file architecture traces", () => {
+		expect(SUBAGENT_PROFILES.explore.timeoutMs).toBe(120_000);
+	});
+
+	it("treats profile timeout as a default while honoring the global ceiling", async () => {
+		const cwd = await createWorkspace();
+		expect(normalizeSubagentRequest(request(cwd), cwd).timeoutMs).toBe(120_000);
+		expect(normalizeSubagentRequest({ ...request(cwd), timeoutMs: 60_000 }, cwd).timeoutMs).toBe(60_000);
+		expect(normalizeSubagentRequest({ ...request(cwd), timeoutMs: 300_000 }, cwd).timeoutMs).toBe(300_000);
+		expect(normalizeSubagentRequest({ ...request(cwd), timeoutMs: 600_000 }, cwd).timeoutMs).toBe(600_000);
+		expect(normalizeSubagentRequest({ ...request(cwd), timeoutMs: 900_000 }, cwd).timeoutMs).toBe(
+			SUBAGENT_PROFILE_LIMITS.maxTimeoutMs,
+		);
+	});
+
 	it("parses full and split agents commands without aliases", () => {
 		expect(parseAgentsViewMode(undefined)).toBe("full");
 		expect(parseAgentsViewMode("")).toBe("full");
 		expect(parseAgentsViewMode("split")).toBe("split");
 		expect(parseAgentsViewMode("split extra")).toBe("split");
 		expect(parseAgentsViewMode("full")).toBe("full");
+	});
+
+	it("renders the default agent chooser and browses parent/live views with arrows", () => {
+		const bridge = new PivAgentViewBridge();
+		const parent = {
+			sessionId: "parent",
+			messages: [],
+			isStreaming: false,
+			sessionManager: { getCwd: () => "/repo" },
+		} as unknown as CreateAgentSessionResult["session"];
+		const child = {
+			sessionId: "child",
+			messages: [],
+			isStreaming: true,
+			sessionManager: { getCwd: () => "/repo" },
+		} as unknown as CreateAgentSessionResult["session"];
+		const registry = new SubagentLiveSessionRegistry();
+		bridge.setParentSession(parent);
+		bridge.connectLiveSessions(registry);
+		const release = registry.register({ runId: "run-coder", role: "coder", taskId: "repo-map", session: child });
+		const requestRender = vi.fn();
+		const done = vi.fn();
+		const fakeTheme = {
+			fg: (_color: string, text: string) => text,
+			bg: (_color: string, text: string) => text,
+		};
+		const switcher = new SubagentViewSwitcher(
+			{ requestRender } as never,
+			fakeTheme as never,
+			new KeybindingsManager(),
+			bridge,
+			done,
+		);
+		try {
+			const initial = switcher.render(90).join("\n");
+			expect(initial).toContain("Agents");
+			expect(initial).toContain("Main agent");
+			expect(initial).toContain("coder · repo-map");
+			expect(initial).toContain("↑↓/←→ browse");
+			switcher.handleInput("\x1b[B");
+			expect(requestRender).toHaveBeenCalled();
+			switcher.handleInput("\n");
+			expect(bridge.getDisplayedId()).toBe("run-coder");
+			expect(done).toHaveBeenCalledOnce();
+		} finally {
+			switcher.dispose();
+			release();
+		}
 	});
 
 	it("removes model overrides from every public child schema", async () => {
@@ -360,10 +439,228 @@ describe("Pi Void subagent contracts", () => {
 			};
 			expect(schema.properties?.tasks?.items?.additionalProperties).toBe(false);
 			expect(schema.properties?.tasks?.items?.properties).not.toHaveProperty("model");
+			expect(schema.properties?.tasks?.items?.properties).toHaveProperty("resources");
 		}
 	});
 
-	it("rejects profile-level model selection", async () => {
+	it("shares one directories-only scope schema across delegated tools", async () => {
+		const harness = await createAsyncToolHarness();
+		type DirectToolSchema = { properties?: { scope?: object } };
+		type BatchToolSchema = {
+			properties?: { tasks?: { items?: { properties?: { scope?: object } } } };
+		};
+		const directScope = (name: string) => (harness.tools.get(name)!.parameters as DirectToolSchema).properties?.scope;
+		const batchScope = (name: string) =>
+			(harness.tools.get(name)!.parameters as BatchToolSchema).properties?.tasks?.items?.properties?.scope;
+		const scope = directScope("delegate");
+
+		expect(scope).toBe(directScope("delegate_async"));
+		expect(scope).toBe(batchScope("delegate_batch"));
+		expect(scope).toBe(batchScope("review_batch"));
+		expect(scope).toMatchObject({
+			additionalProperties: false,
+			description: expect.stringMatching(/existing directories only/i),
+			properties: {
+				roots: {
+					minItems: 1,
+					maxItems: 16,
+					description: expect.stringMatching(/directories/i),
+					items: { description: expect.stringMatching(/do not pass file paths/i) },
+				},
+				targets: {
+					maxItems: 16,
+					description: expect.stringMatching(/regular files|exact files/i),
+					items: { description: expect.stringMatching(/regular files|exact files/i) },
+				},
+			},
+		});
+		for (const name of ["delegate", "delegate_async", "delegate_batch", "review_batch"] as const) {
+			expect(harness.tools.get(name)!.description).toMatch(/scope\.roots accepts existing directories only/i);
+		}
+	});
+
+	it("reports actionable structured details when a file is used as a scope root", async () => {
+		const cwd = await createWorkspace();
+		await writeFile(join(cwd, "src", "file.ts"), "file\n");
+		let failure: unknown;
+		try {
+			normalizeSubagentRequest({ ...request(cwd), scope: { roots: ["src/file.ts"] } }, cwd);
+		} catch (error) {
+			failure = error;
+		}
+
+		expect(failure).toBeInstanceOf(SubagentError);
+		if (!(failure instanceof SubagentError)) throw new Error("expected a structured subagent error");
+		expect(failure.code).toBe("invalid_scope");
+		expect(failure.details).toMatchObject({
+			field: "scope.roots",
+			path: "src/file.ts",
+			hint: expect.stringMatching(
+				/scope\.roots.*parent directory|parent directory.*scope\.targets|mention the exact file in task/i,
+			),
+		});
+		expect(failure.message).toMatch(/existing directories only|parent directory/i);
+	});
+
+	it("rejects a guessed workspace root with cwd and dot-scope retry guidance", async () => {
+		const cwd = await createWorkspace();
+		const guessedRoot = resolve(cwd, "..", "guessed-pi-void-root");
+		let failure: unknown;
+		try {
+			normalizeSubagentRequest({ ...request(cwd), scope: { roots: [guessedRoot] } }, cwd);
+		} catch (error) {
+			failure = error;
+		}
+
+		expect(failure).toBeInstanceOf(SubagentError);
+		if (!(failure instanceof SubagentError)) throw new Error("expected a structured subagent error");
+		expect(failure.code).toBe("invalid_scope");
+		expect(failure.message).toContain(`Current workspace: ${cwd}`);
+		expect(failure.message).toContain('Use "." for the current workspace');
+		expect(failure.details).toMatchObject({ field: "scope.roots", path: guessedRoot });
+		expect(failure.details?.hint).toContain('Use "." for the current workspace');
+	});
+
+	it("reports scope errors before any child launch and identifies invalid batch tasks", async () => {
+		const harness = await createAsyncToolHarness();
+		await writeFile(join(harness.context.cwd, "src", "file.ts"), "file\n");
+		const runResolved = vi.spyOn(NativeSubagentRunner.prototype, "runResolved");
+		try {
+			const cases = [
+				{
+					name: "delegate_async",
+					expectedText: "Background delegation rejected",
+					expectedDetails: { field: "scope.roots", path: "src/file.ts" },
+					params: { role: "explore", task: "Inspect the file.", scope: { roots: ["src/file.ts"] } },
+				},
+				{
+					name: "delegate_batch",
+					expectedText: 'Batch task "invalid-root" rejected',
+					expectedDetails: { taskId: "invalid-root", field: "scope.roots", path: "src/file.ts" },
+					params: {
+						tasks: [
+							{
+								id: "valid-before",
+								role: "explore",
+								task: "Inspect before.",
+								scope: { roots: ["src"] },
+							},
+							{
+								id: "invalid-root",
+								role: "explore",
+								task: "Inspect the file.",
+								scope: { roots: ["src/file.ts"] },
+							},
+							{
+								id: "valid-after",
+								role: "explore",
+								task: "Inspect after.",
+								scope: { roots: ["src"] },
+							},
+						],
+					},
+				},
+				{
+					name: "review_batch",
+					expectedText: 'Batch task "invalid-root" rejected',
+					expectedDetails: { taskId: "invalid-root", field: "scope.roots", path: "src/file.ts" },
+					params: {
+						tasks: [
+							{
+								id: "valid-before",
+								dimension: "correctness",
+								task: "Review before.",
+								scope: { roots: ["src"] },
+							},
+							{
+								id: "invalid-root",
+								dimension: "security",
+								task: "Review the file.",
+								scope: { roots: ["src/file.ts"] },
+							},
+							{
+								id: "valid-after",
+								dimension: "tests",
+								task: "Review after.",
+								scope: { roots: ["src"] },
+							},
+						],
+					},
+				},
+				{
+					name: "delegate_batch",
+					expectedText: 'Batch task "invalid-target" rejected',
+					expectedDetails: { taskId: "invalid-target", field: "scope.targets", path: "src/missing.ts" },
+					params: {
+						tasks: [
+							{
+								id: "valid-before-target",
+								role: "explore",
+								task: "Inspect before.",
+								scope: { roots: ["src"] },
+							},
+							{
+								id: "invalid-target",
+								role: "explore",
+								task: "Inspect the missing file.",
+								scope: { roots: ["src"], targets: ["src/missing.ts"] },
+							},
+							{
+								id: "valid-after-target",
+								role: "explore",
+								task: "Inspect after.",
+								scope: { roots: ["src"] },
+							},
+						],
+					},
+				},
+			] as const;
+
+			for (const [index, testCase] of cases.entries()) {
+				const result = await harness.tools
+					.get(testCase.name)!
+					.execute(`invalid-batch-${index}`, testCase.params, undefined, undefined, harness.context);
+				expect(result).toMatchObject({ isError: true });
+				expect(result.content[0]?.text).toContain(testCase.expectedText);
+				expect(result.details).toMatchObject({
+					error: {
+						code: "invalid_scope",
+						details: testCase.expectedDetails,
+					},
+				});
+			}
+			expect(runResolved).not.toHaveBeenCalled();
+		} finally {
+			runResolved.mockRestore();
+		}
+	});
+
+	it("rejects external child scopes unless the parent explicitly allows them", async () => {
+		const cwd = await createWorkspace();
+		const external = await mkdtemp(join(tmpdir(), "piv-subagents-external-"));
+		tempDirs.push(external);
+		await mkdir(join(external, "project"));
+		const childRequest = { ...request(cwd), scope: { roots: [resolve(external, "project")] } };
+		expect(() => normalizeSubagentRequest(childRequest, cwd)).toThrow(/outside the parent workspace/);
+		const normalized = normalizeSubagentRequest(childRequest, cwd, { allowExternal: true });
+		expect(normalized.scope.roots).toEqual([resolve(external, "project")]);
+		expect(normalized.allowExternal).toBe(true);
+	});
+
+	it("accepts external writer scopes only with the explicit capability", async () => {
+		const workspace = await createGitWorkspace();
+		const external = await mkdtemp(join(tmpdir(), "piv-writer-external-"));
+		tempDirs.push(external);
+		await mkdir(join(external, "project"));
+		const writer = writerRequest(workspace.cwd, workspace.head);
+		writer.scope = { roots: [resolve(external, "project")] };
+		expect(() => normalizeWriterRequest(writer, workspace.cwd)).toThrow(/outside the parent workspace/);
+		const normalized = normalizeWriterRequest(writer, workspace.cwd, { allowExternal: true });
+		expect(normalized.scope.roots).toEqual([resolve(external, "project")]);
+		expect(normalized.allowExternal).toBe(true);
+	});
+
+	it("records profile model metadata without overriding the parent model", async () => {
 		const cwd = await createWorkspace();
 		const agentDir = await mkdtemp(join(tmpdir(), "piv-subagents-agent-"));
 		tempDirs.push(agentDir);
@@ -372,9 +669,9 @@ describe("Pi Void subagent contracts", () => {
 			join(agentDir, "agents", "pinned.md"),
 			"---\nname: pinned\ndescription: Pinned model role\nmodel: provider/model\n---\nInspect.\n",
 		);
-		expect(() => resolveSubagentProfileResolution("pinned", { cwd, agentDir })).toThrowError(
-			/Subagent profiles may not specify a model; children always inherit the current parent model/,
-		);
+		const profile = resolveSubagentProfileResolution("pinned", { cwd, agentDir });
+		expect(profile).toMatchObject({ requestedModel: "provider/model", modelPolicy: "inherit-parent" });
+		expect(profile.diagnostics).toContain("configured model ignored; child inherits the current parent model");
 	});
 
 	it("normalizes unsafe subagent flags without consuming the following prompt", () => {
@@ -400,6 +697,12 @@ describe("Pi Void subagent contracts", () => {
 				stdoutIsTTY: true,
 			}),
 		).toEqual(["--piv-mode", "build", "--sub-yolo=true", "--piv-allow-bash=true", "Trace unsafe execution"]);
+		expect(
+			normalizer(["--mode", "rpc", "--piv-mode", "build", "--piv-allow-bash", "--sub-yolo"], {
+				stdinIsTTY: false,
+				stdoutIsTTY: false,
+			}),
+		).toEqual(["--mode", "rpc", "--piv-mode", "build", "--piv-allow-bash=true", "--sub-yolo=true"]);
 	});
 
 	it("rejects duplicate unsafe startup flags", () => {
@@ -489,11 +792,11 @@ describe("Pi Void subagent contracts", () => {
 				{
 					activeTools: ["delegate", "read", "bash"],
 					flags: { "sub-yolo": true, "piv-allow-bash": true },
-					mode: "rpc",
+					mode: "json",
 					pivMode: "build",
 					trusted: true,
 				},
-				/interactive TUI/,
+				/interactive TUI or an explicitly authorized RPC session/,
 			],
 		];
 		for (const [options, expected] of cases) {
@@ -509,6 +812,51 @@ describe("Pi Void subagent contracts", () => {
 				);
 			expect(result).toMatchObject({ isError: true });
 			expect(result.content[0].text).toMatch(expected);
+		}
+	});
+
+	it("allows startup-authorized unsafe delegation in RPC without TUI confirmation", async () => {
+		const harness = await createAsyncToolHarness({
+			activeTools: ["delegate", "read", "bash"],
+			flags: { "sub-yolo": true, "piv-allow-bash": true },
+			mode: "rpc",
+			pivMode: "build",
+			trusted: true,
+		});
+		let observedTools: readonly string[] | undefined;
+		const runResolved = vi
+			.spyOn(NativeSubagentRunner.prototype, "runResolved")
+			.mockImplementation(async (request, activeTools) => {
+				observedTools = [...activeTools];
+				return {
+					runId: request.runId,
+					parentSessionId: request.parentSessionId,
+					childSessionId: "child-rpc-unsafe-tools",
+					profile: request.role,
+					source: request.profile.source,
+					status: "completed",
+					summary: "ok",
+					observedOutputBytes: 2,
+					partial: false,
+					diagnostics: [],
+					evidence: { paths: ["src"] },
+				};
+			});
+		try {
+			const result = await harness.tools
+				.get("delegate")!
+				.execute(
+					"rpc-unsafe-tools",
+					{ role: "explore", task: "Inspect source.", scope: { roots: ["src"] } },
+					undefined,
+					undefined,
+					harness.context,
+				);
+			expect(result).toMatchObject({ isError: false });
+			expect(observedTools).toEqual(expect.arrayContaining(["read", "grep", "find", "ls", "edit", "write", "bash"]));
+			expect(harness.confirm).not.toHaveBeenCalled();
+		} finally {
+			runResolved.mockRestore();
 		}
 	});
 
@@ -922,6 +1270,31 @@ describe("Pi Void subagent contracts", () => {
 		expect(keybindings.matches("\x1be", "app.subagents.expand")).toBe(true);
 	});
 
+	it("defines configurable normal-shell agent switching and takeover actions", () => {
+		const definitions = KEYBINDINGS as Record<string, { defaultKeys?: unknown; description?: string }>;
+		for (const action of [
+			"app.subagents.open",
+			"app.subagents.parent",
+			"app.subagents.next",
+			"app.subagents.previous",
+			"app.subagents.takeControl",
+		]) {
+			expect(definitions[action]?.description).toBeTruthy();
+		}
+		const keybindings = new KeybindingsManager({
+			"app.subagents.open": "alt+o",
+			"app.subagents.parent": "alt+p",
+			"app.subagents.next": "alt+n",
+			"app.subagents.previous": "alt+b",
+			"app.subagents.takeControl": "alt+t",
+		});
+		expect(keybindings.matches("\x1bo", "app.subagents.open")).toBe(true);
+		expect(keybindings.matches("\x1bp", "app.subagents.parent")).toBe(true);
+		expect(keybindings.matches("\x1bn", "app.subagents.next")).toBe(true);
+		expect(keybindings.matches("\x1bb", "app.subagents.previous")).toBe(true);
+		expect(keybindings.matches("\x1bt", "app.subagents.takeControl")).toBe(true);
+	});
+
 	it("defines a configurable explicit durable-job inspect action", () => {
 		const definition = (KEYBINDINGS as Record<string, { defaultKeys?: unknown; description?: string }>)[
 			"app.subagents.inspect"
@@ -956,11 +1329,84 @@ describe("Pi Void subagent contracts", () => {
 		expect(keybindings.matches("i", "app.subagents.inspect")).toBe(false);
 	});
 
-	it("resolves only the bundled explore and review profiles", () => {
-		expect(Object.keys(SUBAGENT_PROFILES)).toEqual(["explore", "review"]);
+	it("resolves the bundled profile catalog and preserves the read-only defaults", () => {
+		expect(Object.keys(SUBAGENT_PROFILES)).toEqual([
+			"explore",
+			"planner",
+			"coder",
+			"worker",
+			"tester",
+			"review",
+			"security",
+			"debugger",
+			"documenter",
+			"performance",
+			"refactor",
+		]);
 		expect(resolveSubagentProfile("explore").tools).toEqual(["read", "grep", "find", "ls"]);
 		expect(resolveSubagentProfile("review").tools).toEqual(["read", "grep", "find", "ls"]);
 		expect(() => resolveSubagentProfile("custom")).toThrowError(/Unknown subagent profile/);
+	});
+
+	it("resolves every documented alias after exact profiles and preserves exact-name precedence", async () => {
+		expect(SUBAGENT_PROFILE_ALIASES).toEqual({
+			scout: "explore",
+			explorer: "explore",
+			researcher: "explore",
+			"code-review": "review",
+			test: "tester",
+			testing: "tester",
+			developer: "coder",
+			docs: "documenter",
+			documentation: "documenter",
+		});
+		for (const [alias, target] of Object.entries(SUBAGENT_PROFILE_ALIASES)) {
+			expect(resolveSubagentProfile(alias).name).toBe(target);
+		}
+
+		const cwd = await createWorkspace();
+		const agentDir = await mkdtemp(join(tmpdir(), "piv-subagents-alias-agent-"));
+		tempDirs.push(agentDir);
+		await mkdir(join(agentDir, "agents"), { recursive: true });
+		await writeFile(
+			join(agentDir, "agents", "explorer.md"),
+			"---\nname: explorer\ndescription: Exact explorer\ntools: read\n---\nExact explorer prompt.\n",
+		);
+		const exact = resolveSubagentProfileResolution("explorer", { cwd, agentDir, projectTrusted: false });
+		expect(exact).toMatchObject({ name: "explorer", source: "user", description: "Exact explorer" });
+	});
+
+	it("bounds configurable thinking, timeout, and output metadata with diagnostics", async () => {
+		const cwd = await createWorkspace();
+		const agentDir = await mkdtemp(join(tmpdir(), "piv-subagents-bounds-agent-"));
+		tempDirs.push(agentDir);
+		await mkdir(join(agentDir, "agents"), { recursive: true });
+		await writeFile(
+			join(agentDir, "agents", "bounded.md"),
+			`---\nname: bounded\ndescription: Bounded profile\ntools: read\nthinking: nonsense\ntimeout: ${SUBAGENT_PROFILE_LIMITS.maxTimeoutMs * 2}\nmax-output-bytes: ${SUBAGENT_PROFILE_LIMITS.minOutputBytes - 1}\n---\nInspect.\n`,
+		);
+		const bounded = resolveSubagentProfileResolution("bounded", { cwd, agentDir, projectTrusted: false });
+		expect(bounded).toMatchObject({
+			thinkingLevel: "low",
+			timeoutMs: SUBAGENT_PROFILE_LIMITS.maxTimeoutMs,
+			maxOutputBytes: SUBAGENT_PROFILE_LIMITS.minOutputBytes,
+		});
+		expect(bounded.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.stringMatching(/invalid thinking metadata/i),
+				expect.stringContaining(`timeout metadata clamped to ${SUBAGENT_PROFILE_LIMITS.maxTimeoutMs}`),
+				expect.stringContaining(`max-output-bytes metadata clamped to ${SUBAGENT_PROFILE_LIMITS.minOutputBytes}`),
+			]),
+		);
+
+		await writeFile(
+			join(agentDir, "agents", "fallback-bounds.md"),
+			"---\nname: fallback-bounds\ndescription: Invalid numeric metadata\ntools: read\ntimeout: nope\nmax-output-bytes: -1\n---\nInspect.\n",
+		);
+		const fallback = resolveSubagentProfileResolution("fallback-bounds", { cwd, agentDir, projectTrusted: false });
+		expect(fallback).toMatchObject({ timeoutMs: 60_000, maxOutputBytes: 24 * 1024 });
+		expect(fallback.diagnostics?.join("\n")).toMatch(/invalid timeout metadata/i);
+		expect(fallback.diagnostics?.join("\n")).toMatch(/invalid max-output-bytes metadata/i);
 	});
 
 	it("intersects parent capabilities with the read-only role policy", () => {
@@ -978,12 +1424,94 @@ describe("Pi Void subagent contracts", () => {
 			"---\nname: reviewer\ndescription: User review\ntools: read, grep\n---\nReview the approved scope.\n",
 		);
 		await writeFile(
-			join(agentDir, "agents", "tester.md"),
-			"---\nname: tester\ndescription: Invalid writable tester\ntools: read, bash, write\n---\nRun tests.\n",
+			join(agentDir, "agents", "incompatible.md"),
+			"---\nname: incompatible\ndescription: Writable tester\ntools: read, bash, write\n---\nRun tests.\n",
 		);
 
 		const profiles = listSubagentProfiles({ cwd, agentDir });
-		expect(profiles.map((profile) => profile.name)).toEqual(["explore", "review", "reviewer"]);
+		expect(profiles.map((profile) => profile.name)).toEqual([
+			"coder",
+			"debugger",
+			"documenter",
+			"explore",
+			"incompatible",
+			"performance",
+			"planner",
+			"refactor",
+			"review",
+			"reviewer",
+			"security",
+			"tester",
+			"worker",
+		]);
+		expect(profiles.find((profile) => profile.name === "incompatible")).toMatchObject({
+			source: "user",
+			availability: "requires_yolo",
+			requestedTools: ["read", "bash", "write"],
+			effectiveTools: ["read"],
+		});
+	});
+
+	it("keeps malformed profiles diagnosable without exposing their body", async () => {
+		const cwd = await createWorkspace();
+		const agentDir = await mkdtemp(join(tmpdir(), "piv-subagents-invalid-agent-"));
+		tempDirs.push(agentDir);
+		await mkdir(join(agentDir, "agents"), { recursive: true });
+		await writeFile(
+			join(agentDir, "agents", "broken.md"),
+			"---\nname: broken\ndescription: Broken profile\ntools: definitely-not-a-tool\n---\nDO_NOT_EXPOSE_BODY_MARKER\n",
+		);
+		const profiles = listSubagentProfiles({ cwd, agentDir });
+		const broken = profiles.find((profile) => profile.name === "broken");
+		expect(broken).toMatchObject({ source: "user", availability: "invalid", requestedTools: [], effectiveTools: [] });
+		expect(broken?.diagnostics?.length).toBeGreaterThan(0);
+		expect(JSON.stringify(broken)).not.toContain("DO_NOT_EXPOSE_BODY_MARKER");
+	});
+
+	it("projects current invocation capabilities through the profile-listing tool", async () => {
+		const safeHarness = await createAsyncToolHarness({ activeTools: ["delegate", "read"] });
+		const safeResult = await safeHarness.tools
+			.get("list_subagent_profiles")!
+			.execute("list-safe", { query: "coder" }, undefined, undefined, safeHarness.context);
+		const safeProfile = (safeResult.details as { profiles: Array<Record<string, unknown>> }).profiles[0];
+		expect(safeProfile).toMatchObject({
+			name: "coder",
+			requestedTools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
+			effectiveTools: ["read"],
+			availability: "requires_yolo",
+		});
+
+		const yoloHarness = await createAsyncToolHarness({
+			flags: { "sub-yolo": true, "piv-allow-bash": true },
+			pivMode: "build",
+			trusted: true,
+		});
+		const yoloResult = await yoloHarness.tools
+			.get("list_subagent_profiles")!
+			.execute("list-yolo", { query: "coder" }, undefined, undefined, yoloHarness.context);
+		const yoloProfile = (yoloResult.details as { profiles: Array<Record<string, unknown>> }).profiles[0];
+		expect(yoloProfile).toMatchObject({
+			name: "coder",
+			effectiveTools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
+			availability: "available",
+		});
+	});
+
+	it("explains filtered profile misses instead of implying that no profiles exist", async () => {
+		const harness = await createAsyncToolHarness();
+		const result = await harness.tools
+			.get("list_subagent_profiles")!
+			.execute("list-miss", { query: "repo-map-one-off-task-label" }, undefined, undefined, harness.context);
+		expect(result).toMatchObject({ isError: false });
+		expect(result.details).toMatchObject({
+			profiles: [],
+			query: "repo-map-one-off-task-label",
+			queryMatched: false,
+			availableProfileNames: expect.arrayContaining(["explore", "coder", "review"]),
+			diagnostic: expect.stringContaining("No profile matched query"),
+		});
+		expect((result.details as { suggestions?: string[] }).suggestions).toBeInstanceOf(Array);
+		expect(result.content[0]?.text).toContain("availableProfileNames");
 	});
 
 	it("resolves trusted configurable roles with deterministic precedence and provenance", async () => {
@@ -1026,7 +1554,7 @@ describe("Pi Void subagent contracts", () => {
 		expect(userResolved.systemPrompt).toContain("User role prompt.");
 	});
 
-	it("rejects project roles without trust and bundled role shadowing", async () => {
+	it("rejects untrusted project roles while allowing exact user profiles to specialize bundled names", async () => {
 		const cwd = await createWorkspace();
 		const agentDir = await mkdtemp(join(tmpdir(), "piv-subagents-agent-"));
 		tempDirs.push(agentDir);
@@ -1044,9 +1572,12 @@ describe("Pi Void subagent contracts", () => {
 		expect(() =>
 			resolveSubagentProfileResolution("project-only", { cwd, agentDir, projectTrusted: false }),
 		).toThrowError(/project trust/i);
-		expect(() => resolveSubagentProfileResolution("explore", { cwd, agentDir, projectTrusted: true })).toThrowError(
-			/bundled role/i,
-		);
+		const shadowed = resolveSubagentProfileResolution("explore", { cwd, agentDir, projectTrusted: true });
+		expect(shadowed).toMatchObject({
+			source: "user",
+			description: "Shadow role",
+			systemPrompt: "Shadow prompt.",
+		});
 	});
 
 	it("imports Ruflo agents recursively into namespaced trusted profiles", async () => {
@@ -1081,12 +1612,9 @@ describe("Pi Void subagent contracts", () => {
 			tools: ["read", "grep", "find"],
 		});
 		const profiles = listSubagentProfiles({ cwd, agentDir: agentRoot });
-		expect(profiles.map((profile) => profile.name)).toEqual([
-			"explore",
-			"review",
-			"ruflo-code-analyzer",
-			"ruflo-code-reviewer",
-		]);
+		expect(profiles.map((profile) => profile.name)).toEqual(
+			[...Object.keys(SUBAGENT_PROFILES), "ruflo-code-analyzer", "ruflo-code-reviewer"].sort(),
+		);
 		expect(profiles.find((profile) => profile.name === "ruflo-code-analyzer")).toMatchObject({
 			source: "user",
 			unsafeHostExec: true,
@@ -1671,6 +2199,58 @@ describe("Pi Void subagent contracts", () => {
 		);
 	});
 
+	it("normalizes exact-file targets and carries them through the read-only launch contract", async () => {
+		const cwd = await createWorkspace();
+		const targetPath = join(cwd, "src", "target.ts");
+		await writeFile(targetPath, "target\n");
+		const normalized = normalizeSubagentRequest(
+			{
+				...request(cwd),
+				scope: { roots: ["src"], targets: ["src/target.ts", "src/./target.ts"] },
+			},
+			cwd,
+		);
+		const task = { id: "targeted", request: normalized };
+		const preflight = buildSubagentLaunchPreflight([task], ["delegate", "read"]);
+		const provenance = createSubagentLaunchProvenance(normalized);
+		const prompt = buildSubagentPrompt(normalized);
+
+		expect(normalized.scope.targets).toEqual([targetPath]);
+		expect(provenance.scopeTargets).toEqual([targetPath]);
+		expect(preflight.tasks[0]?.cwd).toBe(cwd);
+		expect(preflight.tasks[0]?.scopeTargets).toEqual([targetPath]);
+		const digest = formatSubagentLaunchDigest(preflight);
+		expect(digest).toContain("targets: src/target.ts");
+		expect(digest).not.toContain(targetPath);
+		expect(prompt).toContain("Requested primary targets:");
+		expect(prompt).toContain("src/target.ts");
+
+		const result = await runResolvedSubagentBatch([task], ["delegate", "read"], {
+			runResolved: async () => batchResult(task),
+		});
+		expect(result.items[0]?.launch.scopeTargets).toEqual([targetPath]);
+		expect(result.items[0]?.result.scopeTargets).toEqual([targetPath]);
+	});
+
+	it("rejects a missing exact-file target with structured scope details", async () => {
+		const cwd = await createWorkspace();
+		let failure: unknown;
+		try {
+			normalizeSubagentRequest({ ...request(cwd), scope: { roots: ["src"], targets: ["src/missing.ts"] } }, cwd);
+		} catch (error) {
+			failure = error;
+		}
+
+		expect(failure).toBeInstanceOf(SubagentError);
+		if (!(failure instanceof SubagentError)) throw new Error("expected a structured subagent error");
+		expect(failure.code).toBe("invalid_scope");
+		expect(failure.details).toMatchObject({
+			field: "scope.targets",
+			path: "src/missing.ts",
+		});
+		expect(failure.message).toMatch(/target|exist|regular file/i);
+	});
+
 	it("requires a clean parent HEAD and ignores ignored files for writers", async () => {
 		const { cwd, head } = await createGitWorkspace();
 		await writeFile(join(cwd, "ignored.txt"), "ignored\n");
@@ -1824,6 +2404,7 @@ describe("Pi Void subagent contracts", () => {
 			},
 			abort: async () => {},
 			dispose: () => {},
+			extensionRunner: createNoopExtensionRunner(),
 			getSessionStats: () => ({ tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, cost: 0 }),
 		} as unknown as CreateAgentSessionResult["session"];
 		const result = await new NativeWriterRunner({
@@ -1844,6 +2425,118 @@ describe("Pi Void subagent contracts", () => {
 		expect(result.patchArtifact).toBeUndefined();
 		expect(await readFile(join(cwd, "src", "yolo.ts"), "utf8")).toBe("yolo\n");
 		expect(await git(cwd, "status", "--porcelain=v1", "-uall")).toContain("src/yolo.ts");
+	});
+
+	it("keeps normal isolated writers contained even when an external request bit is present", async () => {
+		const { cwd, head } = await createGitWorkspace();
+		const external = await mkdtemp(join(tmpdir(), "piv-writer-isolated-external-"));
+		tempDirs.push(external);
+		const externalFile = join(external, "external.ts");
+		await writeFile(externalFile, "base\n");
+		const normalized = normalizeWriterRequest(writerRequest(cwd, head), cwd, { allowExternal: true });
+		let captured: CreateAgentSessionOptions | undefined;
+		const fakeSession = { messages: [] } as unknown as CreateAgentSessionResult["session"];
+		await createNativeWriterSession(
+			{
+				request: normalized,
+				parentActiveTools: ["delegate_write", "read", "grep", "find", "ls", "write", "edit"],
+			},
+			async (options) => {
+				captured = options;
+				return { session: fakeSession } as CreateAgentSessionResult;
+			},
+		);
+		const writeTool = captured?.customTools?.find((tool) => tool.name === "write");
+		if (!writeTool) throw new Error("writer write tool missing");
+		await expect(
+			writeTool.execute(
+				"write",
+				{ path: externalFile, content: "changed\n" },
+				undefined,
+				undefined,
+				{} as ExtensionContext,
+			),
+		).rejects.toThrow(/outside|approved|scope/i);
+		expect(await readFile(externalFile, "utf8")).toBe("base\n");
+	});
+
+	it("rejects external writer scopes in normal isolated worktrees", async () => {
+		const { cwd, head } = await createGitWorkspace();
+		const external = await mkdtemp(join(tmpdir(), "piv-writer-isolated-scope-external-"));
+		tempDirs.push(external);
+		const externalFile = join(external, "external.ts");
+		await writeFile(externalFile, "base\n");
+		const normalized = normalizeWriterRequest(writerRequest(cwd, head), cwd, { allowExternal: true });
+		normalized.scope = { roots: [external] };
+		let captured: CreateAgentSessionOptions | undefined;
+		const fakeSession = {
+			model: testModel("faux", "faux"),
+			messages: [fauxAssistantMessage("done")],
+			prompt: async () => {
+				const writeTool = captured?.customTools?.find((tool) => tool.name === "write");
+				if (!writeTool) throw new Error("writer write tool missing");
+				await writeTool.execute(
+					"write",
+					{ path: externalFile, content: "changed\n" },
+					undefined,
+					undefined,
+					{} as ExtensionContext,
+				);
+			},
+			abort: async () => {},
+			dispose: () => {},
+			getSessionStats: () => ({ tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, cost: 0 }),
+		} as unknown as CreateAgentSessionResult["session"];
+		const result = await new NativeWriterRunner({
+			createSession: async (options) => {
+				captured = options;
+				return { session: fakeSession } as CreateAgentSessionResult;
+			},
+		}).run(normalized, ["read", "grep", "find", "ls", "write", "edit"], {
+			model: testModel("faux", "faux"),
+		});
+		expect(result.status).toBe("failed");
+		expect(await readFile(externalFile, "utf8")).toBe("base\n");
+	});
+
+	it("allows an authorized direct writer to mutate an external path outside its declared scope", async () => {
+		const { cwd, head } = await createGitWorkspace();
+		const external = await mkdtemp(join(tmpdir(), "piv-writer-authorized-external-"));
+		tempDirs.push(external);
+		const externalFile = join(external, "external.ts");
+		const normalized = normalizeWriterRequest(writerRequest(cwd, head), cwd, { allowExternal: true });
+		let captured: CreateAgentSessionOptions | undefined;
+		const fakeSession = {
+			model: testModel("faux", "faux"),
+			messages: [fauxAssistantMessage("done")],
+			prompt: async () => {
+				const writeTool = captured?.customTools?.find((tool) => tool.name === "write");
+				if (!writeTool) throw new Error("writer write tool missing");
+				await writeTool.execute(
+					"write",
+					{ path: externalFile, content: "external\n" },
+					undefined,
+					undefined,
+					{} as ExtensionContext,
+				);
+			},
+			abort: async () => {},
+			dispose: () => {},
+			extensionRunner: createNoopExtensionRunner(),
+			getSessionStats: () => ({ tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, cost: 0 }),
+		} as unknown as CreateAgentSessionResult["session"];
+		const result = await new NativeWriterRunner({
+			createSession: async (options) => {
+				captured = options;
+				return { session: fakeSession } as CreateAgentSessionResult;
+			},
+		}).run(normalized, ["read", "grep", "find", "ls", "write", "edit", "bash"], {
+			model: testModel("faux", "faux"),
+			directWorkspace: true,
+			unsafeHostExec: true,
+		});
+		expect(result.status).toBe("completed");
+		expect(await readFile(externalFile, "utf8")).toBe("external\n");
 	});
 
 	it("rejects a writer request without the separate parent capability", async () => {
@@ -1881,6 +2574,7 @@ describe("Pi Void subagent contracts", () => {
 			},
 			abort: async () => {},
 			dispose: () => {},
+			extensionRunner: createNoopExtensionRunner(),
 			getSessionStats: () => ({ tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, cost: 0 }),
 		} as unknown as CreateAgentSessionResult["session"];
 		const result = await new NativeWriterRunner({
@@ -2390,6 +3084,10 @@ describe("Pi Void subagent contracts", () => {
 			const { cwd, head } = await createGitWorkspace();
 			const controller = new AbortController();
 			let abortCalls = 0;
+			const lifecycle: string[] = [];
+			const shutdown = vi.fn(async () => {
+				lifecycle.push("shutdown");
+			});
 			const fakeSession = {
 				model: testModel("faux", "faux"),
 				messages: [],
@@ -2397,7 +3095,11 @@ describe("Pi Void subagent contracts", () => {
 				abort: async () => {
 					abortCalls++;
 				},
-				dispose: () => {},
+				dispose: () => lifecycle.push("dispose"),
+				extensionRunner: {
+					hasHandlers: vi.fn((eventType: string) => eventType === "session_shutdown"),
+					emit: shutdown,
+				},
 				getSessionStats: () => ({ tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0 }),
 			} as unknown as CreateAgentSessionResult["session"];
 			const request = normalizeWriterRequest(
@@ -2419,6 +3121,8 @@ describe("Pi Void subagent contracts", () => {
 			if (mode === "cancelled") controller.abort();
 			const result = await promise;
 			expect(abortCalls).toBe(1);
+			expect(shutdown).toHaveBeenCalledWith({ type: "session_shutdown", reason: "quit" });
+			expect(lifecycle).toEqual(["shutdown", "dispose"]);
 			expect(result.workspaceRemoved).toBe(true);
 			expect(await git(cwd, "status", "--porcelain=v1", "-uall")).toBe("");
 			return result;
@@ -2474,7 +3178,7 @@ describe("Pi Void subagent contracts", () => {
 				return { session: fakeSession } as CreateAgentSessionResult;
 			},
 		);
-		expect(captured?.tools).toEqual(["write", "edit", "read", "grep", "find", "ls", "bash"]);
+		expect(captured?.tools).toEqual(["read", "grep", "find", "ls"]);
 		expect(captured?.customTools?.map((tool) => tool.name)).toEqual([
 			"read",
 			"grep",
@@ -2488,19 +3192,24 @@ describe("Pi Void subagent contracts", () => {
 			expect.arrayContaining(["delegate", "delegate_async", "delegate_write", "review_batch"]),
 		);
 		expect(captured?.customTools?.find((tool) => tool.name === "bash")).toBeDefined();
+		expect(captured?.resourceLoader?.getSystemPrompt()).toContain("explicitly authorized host-execution worker");
+		expect(captured?.resourceLoader?.getSystemPrompt()).toContain("Selected role guidance (explore):");
 		expect(captured?.resourceLoader?.getSystemPrompt()).toContain(
-			"Do not refuse an authorized task, choose inspection first, or return a report before executing it.",
+			"these child tools for this run: read, grep, find, ls",
 		);
 		expect(captured?.resourceLoader?.getSystemPrompt()).toContain(
-			"these child tools: write, edit, read, grep, find, ls, bash",
-		);
-		expect(captured?.resourceLoader?.getSystemPrompt()).toContain(
-			"Execute the parent task immediately before writing any report or JSON",
+			"Execute only the parent task with the provided tools",
 		);
 		expect(captured?.resourceLoader?.getSystemPrompt()).not.toContain("read-only repository exploration worker");
-		expect(captured?.resourceLoader?.getAppendSystemPrompt().join("\n")).toContain("FULL-AUTHORITY SUBAGENT RUNTIME");
+		expect(captured?.resourceLoader?.getAppendSystemPrompt().join("\n")).toContain("UNSANDBOXED SUBAGENT RUNTIME");
+		expect(captured?.resourceLoader?.getAppendSystemPrompt().join("\n")).toContain(
+			"Model-visible tool authority remains the explicit profile-aware child tool allowlist",
+		);
+		expect(captured?.resourceLoader?.getAppendSystemPrompt().join("\n")).not.toContain(
+			"FULL-AUTHORITY SUBAGENT RUNTIME",
+		);
 		expect(captured?.resourceLoader?.getSystemPrompt()).toContain(
-			"Use edit and write for requested changes within the approved scope.",
+			"Role guidance describes the methodology and kind of result expected",
 		);
 		expect(captured?.resourceLoader?.getAppendSystemPrompt().join("\n")).toContain(
 			"Cancellation is best-effort and cannot undo completed effects.",
@@ -2519,7 +3228,7 @@ describe("Pi Void subagent contracts", () => {
 				return { session: fakeSession } as CreateAgentSessionResult;
 			},
 		);
-		expect(reviewCaptured?.tools).toEqual(["read", "grep", "bash"]);
+		expect(reviewCaptured?.tools).toEqual(["read", "grep"]);
 
 		const normalizedReadOnly = normalizeSubagentRequest(request(cwd), cwd);
 		let readOnlyCaptured: CreateAgentSessionOptions | undefined;
@@ -2539,6 +3248,33 @@ describe("Pi Void subagent contracts", () => {
 		).rejects.toThrow(/trusted project/);
 	});
 
+	it("keeps read-only child sessions contained despite an external request bit", async () => {
+		const cwd = await createWorkspace();
+		const external = await mkdtemp(join(tmpdir(), "piv-subagent-readonly-external-"));
+		tempDirs.push(external);
+		const externalFile = join(external, "external.txt");
+		await writeFile(externalFile, "external\n");
+		const normalized = normalizeSubagentRequest(request(cwd), cwd, { allowExternal: true });
+		let captured: CreateAgentSessionOptions | undefined;
+		const fakeSession = {
+			sessionId: "child-readonly-external",
+			messages: [],
+		} as unknown as CreateAgentSessionResult["session"];
+		await createNativeSubagentSession(
+			{ request: normalized, parentActiveTools: ["delegate", "read"] },
+			async (options) => {
+				captured = options;
+				return { session: fakeSession } as CreateAgentSessionResult;
+			},
+		);
+		const readTool = captured?.customTools?.find((tool) => tool.name === "read");
+		if (!readTool) throw new Error("read-only child read tool missing");
+		await expect(
+			readTool.execute("read-external", { path: externalFile }, undefined, undefined, {} as ExtensionContext),
+		).rejects.toThrow(/outside|approved|scope/i);
+		expect(await readFile(externalFile, "utf8")).toBe("external\n");
+	});
+
 	it("loads trusted ambient resources for an explicitly unsafe child", async () => {
 		const cwd = await createWorkspace();
 		const agentDir = await mkdtemp(join(tmpdir(), "piv-subagents-agent-"));
@@ -2549,7 +3285,10 @@ describe("Pi Void subagent contracts", () => {
 		await mkdir(join(agentDir, "skills", "user-skill"), { recursive: true });
 		await mkdir(join(agentDir, "prompts"), { recursive: true });
 		const explicitContextPath = join(cwd, "explicit-context.md");
-		await writeFile(join(cwd, ".pi", "extensions", "ambient.ts"), "export default function(pi) { pi.registerCommand(\"ambient\", { description: \"ambient\", handler: async () => {} }); }\n");
+		await writeFile(
+			join(cwd, ".pi", "extensions", "ambient.ts"),
+			'export default function(pi) { pi.registerCommand("ambient", { description: "ambient", handler: async () => {} }); }\n',
+		);
 		await writeFile(
 			join(cwd, ".pi", "skills", "ambient-skill", "SKILL.md"),
 			"---\nname: ambient-skill\ndescription: Ambient project skill\n---\nAmbient skill.\n",
@@ -2569,7 +3308,10 @@ describe("Pi Void subagent contracts", () => {
 			cwd,
 			{ agentDir, projectTrusted: true },
 		);
-		const fakeSession = { sessionId: "child-ambient", messages: [] } as unknown as CreateAgentSessionResult["session"];
+		const fakeSession = {
+			sessionId: "child-ambient",
+			messages: [],
+		} as unknown as CreateAgentSessionResult["session"];
 		let captured: CreateAgentSessionOptions | undefined;
 		await createNativeSubagentSession(
 			{
@@ -2587,8 +3329,12 @@ describe("Pi Void subagent contracts", () => {
 		expect(loader?.getExtensions().extensions.map((extension) => extension.path)).toEqual([
 			join(cwd, ".pi", "extensions", "ambient.ts"),
 		]);
-		expect(loader?.getSkills().skills.map((skill) => skill.name)).toEqual(expect.arrayContaining(["ambient-skill", "user-skill"]));
-		expect(loader?.getPrompts().prompts.map((prompt) => prompt.name)).toEqual(expect.arrayContaining(["ambient", "user"]));
+		expect(loader?.getSkills().skills.map((skill) => skill.name)).toEqual(
+			expect.arrayContaining(["ambient-skill", "user-skill"]),
+		);
+		expect(loader?.getPrompts().prompts.map((prompt) => prompt.name)).toEqual(
+			expect.arrayContaining(["ambient", "user"]),
+		);
 		expect(loader?.getAgentsFiles().agentsFiles).toEqual([
 			{ path: join(cwd, "AGENTS.md"), content: "Ambient project context.\n" },
 			{ path: explicitContextPath, content: "Explicit child context.\n" },
@@ -2601,14 +3347,22 @@ describe("Pi Void subagent contracts", () => {
 		const cwd = await createWorkspace();
 		const normalized = normalizeSubagentRequest(request(cwd), cwd, { projectTrusted: true });
 		let captured: CreateAgentSessionOptions | undefined;
+		const childMessages: AgentMessage[] = [];
 		const fakeSession = {
 			sessionId: "child-runner-unsafe",
 			model: { provider: "faux", id: "unsafe" } as Model<Api>,
-			messages: [{ role: "assistant", content: '{"summary":"ok","evidence":{"paths":["src"]}}' }],
+			messages: childMessages,
 			subscribe: vi.fn(() => vi.fn()),
-			prompt: vi.fn(async () => {}),
+			prompt: vi.fn(async () => {
+				childMessages.push({
+					role: "assistant",
+					content: '{"summary":"ok","evidence":{"paths":["src"]}}',
+					stopReason: "stop",
+				} as unknown as AgentMessage);
+			}),
 			abort: vi.fn(async () => {}),
 			dispose: vi.fn(),
+			extensionRunner: createNoopExtensionRunner(),
 			getSessionStats: vi.fn(() => ({
 				tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
 				cost: 0,
@@ -2624,7 +3378,7 @@ describe("Pi Void subagent contracts", () => {
 			projectTrusted: true,
 		});
 		expect(result.status).toBe("completed");
-		expect(captured?.tools).toEqual(["write", "edit", "read", "grep", "find", "ls", "bash"]);
+		expect(captured?.tools).toEqual(["read", "grep", "find", "ls"]);
 	});
 
 	it("builds a stripped child with fresh in-memory history and narrowed tools", async () => {
@@ -2685,7 +3439,7 @@ describe("Pi Void subagent contracts", () => {
 		expect(loader?.getThemes().themes).toEqual([]);
 		expect(loader?.getAgentsFiles().agentsFiles).toEqual([]);
 		expect(loader?.getAppendSystemPrompt()).toEqual([]);
-		expect(loader?.getSystemPrompt()).toContain("read-only repository exploration worker");
+		expect(loader?.getSystemPrompt()).toContain("repository exploration specialist");
 		expect(buildSubagentPrompt(normalized)).toContain("Trace the model runtime.");
 	});
 
@@ -2742,15 +3496,225 @@ describe("Pi Void subagent contracts", () => {
 		expect(loader?.getAgentsFiles().agentsFiles).toEqual([{ path: contextPath, content: "Selected context.\n" }]);
 		expect(buildSubagentPrompt(normalized)).toContain("Selected prompt.");
 		const scopedRead = captured?.customTools?.find((tool) => tool.name === "read");
+		const selectedSkillPath = join(agentDir, "skills", "review-skill", "SKILL.md");
+		const selectedSkillRoot = join(agentDir, "skills", "review-skill");
+		const siblingSkillPath = join(agentDir, "skills", "sibling-skill", "SKILL.md");
 		await expect(
 			scopedRead!.execute(
 				"read-selected-skill",
-				{ path: join(agentDir, "skills", "review-skill", "SKILL.md") },
+				{ path: selectedSkillPath },
 				undefined,
 				undefined,
 				undefined as unknown as ExtensionContext,
 			),
 		).resolves.toMatchObject({ content: [{ type: "text" }] });
+		for (const [name, params] of [
+			["grep", { pattern: "Selected", path: selectedSkillPath }],
+			["find", { pattern: "*", path: selectedSkillRoot }],
+			["ls", { path: selectedSkillRoot }],
+		] as const) {
+			const tool = captured?.customTools?.find((candidate) => candidate.name === name);
+			expect(tool).toBeDefined();
+			await expect(
+				tool!.execute(
+					`${name}-selected-skill`,
+					params,
+					undefined,
+					undefined,
+					undefined as unknown as ExtensionContext,
+				),
+			).resolves.toMatchObject({ content: [{ type: "text" }] });
+		}
+		for (const [name, params] of [
+			["read", { path: siblingSkillPath }],
+			["grep", { pattern: "Sibling", path: siblingSkillPath }],
+			["find", { pattern: "*", path: join(agentDir, "skills", "sibling-skill") }],
+			["ls", { path: join(agentDir, "skills", "sibling-skill") }],
+		] as const) {
+			const tool = captured?.customTools?.find((candidate) => candidate.name === name);
+			expect(tool).toBeDefined();
+			await expect(
+				tool!.execute(
+					`${name}-sibling-skill`,
+					params,
+					undefined,
+					undefined,
+					undefined as unknown as ExtensionContext,
+				),
+			).rejects.toThrow(/outside|approved|scope/i);
+		}
+	});
+
+	it("lets a child read a selected skill through a skills-directory symlink alias", async () => {
+		const cwd = await createWorkspace();
+		const agentDir = await mkdtemp(join(tmpdir(), "piv-subagents-agent-"));
+		tempDirs.push(agentDir);
+		const actualSkillDir = join(agentDir, "skills", "actual-review");
+		const aliasSkillDir = join(agentDir, "skills", "review-skill");
+		await mkdir(actualSkillDir, { recursive: true });
+		await writeFile(
+			join(actualSkillDir, "SKILL.md"),
+			"---\nname: review-skill\ndescription: Selected alias.\n---\nSelected alias skill.\n",
+		);
+		await symlink(actualSkillDir, aliasSkillDir);
+		const normalized = normalizeSubagentRequest({ ...request(cwd), resources: { skills: ["review-skill"] } }, cwd, {
+			agentDir,
+		});
+		let captured: CreateAgentSessionOptions | undefined;
+		const fakeSession = {
+			sessionId: "child-skill-alias",
+			messages: [],
+		} as unknown as CreateAgentSessionResult["session"];
+		await createNativeSubagentSession(
+			{ request: normalized, parentActiveTools: ["delegate", "read", "grep"], agentDir },
+			async (options) => {
+				captured = options;
+				return { session: fakeSession } as CreateAgentSessionResult;
+			},
+		);
+		const scopedRead = captured?.customTools?.find((tool) => tool.name === "read");
+		expect(scopedRead).toBeDefined();
+		for (const path of [join(aliasSkillDir, "SKILL.md"), join(actualSkillDir, "SKILL.md")]) {
+			await expect(
+				scopedRead!.execute(
+					"read-selected-skill-alias",
+					{ path },
+					undefined,
+					undefined,
+					undefined as unknown as ExtensionContext,
+				),
+			).resolves.toMatchObject({ content: [{ type: "text" }] });
+		}
+	});
+
+	it("lets an unsafe child read loaded ambient skills through symlink aliases without widening mutation or host scope", async () => {
+		const cwd = await createWorkspace();
+		const agentDir = await mkdtemp(join(tmpdir(), "piv-subagents-agent-"));
+		const sharedSkills = await mkdtemp(join(tmpdir(), "piv-subagents-shared-skills-"));
+		const outside = await mkdtemp(join(tmpdir(), "piv-subagents-skill-outside-"));
+		tempDirs.push(agentDir, sharedSkills, outside);
+		const reviewDir = join(sharedSkills, "review");
+		await mkdir(reviewDir, { recursive: true });
+		await mkdir(join(agentDir, "skills"), { recursive: true });
+		await writeFile(
+			join(reviewDir, "SKILL.md"),
+			"---\nname: review\ndescription: Ambient review skill.\n---\nAmbient review skill.\n",
+		);
+		await symlink(reviewDir, join(agentDir, "skills", "review"));
+		await writeFile(join(agentDir, "auth.json"), "credential secret.\n");
+		await writeFile(join(cwd, "src", "in-scope.ts"), "in scope\n");
+		await writeFile(join(outside, "secret.txt"), "outside secret\n");
+		await symlink(outside, join(cwd, "src", "link"));
+		const normalized = normalizeSubagentRequest(request(cwd, "coder"), cwd, {
+			agentDir,
+			projectTrusted: true,
+		});
+		let captured: CreateAgentSessionOptions | undefined;
+		const fakeSession = {
+			sessionId: "child-yolo-skill-alias",
+			messages: [],
+		} as unknown as CreateAgentSessionResult["session"];
+		await createNativeSubagentSession(
+			{
+				request: normalized,
+				parentActiveTools: ["delegate", "read", "grep", "find", "ls", "bash", "edit", "write"],
+				unsafeHostExec: true,
+				agentDir,
+			},
+			async (options) => {
+				captured = options;
+				return { session: fakeSession } as CreateAgentSessionResult;
+			},
+		);
+		expect(captured?.resourceLoader?.getSkills().skills.map((skill) => skill.name)).toEqual(
+			expect.arrayContaining(["review"]),
+		);
+		const scopedRead = captured?.customTools?.find((tool) => tool.name === "read");
+		const scopedWrite = captured?.customTools?.find((tool) => tool.name === "write");
+		expect(scopedRead).toBeDefined();
+		expect(scopedWrite).toBeDefined();
+		const aliasPath = join(agentDir, "skills", "review", "SKILL.md");
+		const canonicalSkillPath = join(reviewDir, "SKILL.md");
+		for (const path of [aliasPath, canonicalSkillPath]) {
+			await expect(
+				scopedRead!.execute(
+					"read-yolo-skill",
+					{ path },
+					undefined,
+					undefined,
+					undefined as unknown as ExtensionContext,
+				),
+			).resolves.toMatchObject({ content: [{ type: "text" }] });
+		}
+		await expect(
+			scopedRead!.execute(
+				"read-auth",
+				{ path: join(agentDir, "auth.json") },
+				undefined,
+				undefined,
+				undefined as unknown as ExtensionContext,
+			),
+		).rejects.toThrow(/outside|approved|scope/i);
+		await expect(
+			scopedRead!.execute(
+				"read-symlink-escape",
+				{ path: join(cwd, "src", "link", "secret.txt") },
+				undefined,
+				undefined,
+				undefined as unknown as ExtensionContext,
+			),
+		).rejects.toThrow(/outside|approved|scope|moved/i);
+		await expect(
+			scopedWrite!.execute(
+				"write-skill",
+				{ path: canonicalSkillPath, content: "mutated\n" },
+				undefined,
+				undefined,
+				undefined as unknown as ExtensionContext,
+			),
+		).rejects.toThrow(/outside|approved|scope/i);
+		expect(await readFile(canonicalSkillPath, "utf8")).toContain("Ambient review skill.");
+	});
+
+	it("passes selected skills through review tasks into the child loader", async () => {
+		const cwd = await createWorkspace();
+		const agentDir = await mkdtemp(join(tmpdir(), "piv-subagents-agent-"));
+		tempDirs.push(agentDir);
+		const skillPath = join(agentDir, "skills", "security-review", "SKILL.md");
+		await mkdir(join(agentDir, "skills", "security-review"), { recursive: true });
+		await writeFile(
+			skillPath,
+			"---\nname: security-review\ndescription: Security review guidance.\n---\nCheck trust boundaries.\n",
+		);
+
+		const resolved = resolveReviewTask(
+			{
+				id: "review-with-skill",
+				dimension: "security",
+				task: "Review the scoped implementation.",
+				scope: { roots: ["src"] },
+				resources: { skills: ["security-review"] },
+			},
+			"parent-1",
+			cwd,
+			{ agentDir },
+		);
+		let captured: CreateAgentSessionOptions | undefined;
+		const fakeSession = {
+			sessionId: "child-review-skill",
+			messages: [],
+		} as unknown as CreateAgentSessionResult["session"];
+		await createNativeSubagentSession(
+			{ request: resolved.request, parentActiveTools: ["delegate", "read"], agentDir },
+			async (options) => {
+				captured = options;
+				return { session: fakeSession } as CreateAgentSessionResult;
+			},
+		);
+
+		expect(resolved.request.resources.skills.map((resource) => resource.name)).toEqual(["security-review"]);
+		expect(captured?.resourceLoader?.getSkills().skills.map((skill) => skill.name)).toEqual(["security-review"]);
+		expect(captured?.resourceLoader?.getSkills().skills[0]?.filePath).toBe(skillPath);
 	});
 
 	it("sends selected prompt content to the child execution", async () => {
@@ -2770,6 +3734,7 @@ describe("Pi Void subagent contracts", () => {
 			sessionId: "child-prompt",
 			model: {} as Model<Api>,
 			messages,
+			extensionRunner: createNoopExtensionRunner(),
 			subscribe: vi.fn(() => vi.fn()),
 			prompt: vi.fn(async (text: string) => {
 				promptText = text;
@@ -2884,11 +3849,12 @@ describe("Pi Void subagent contracts", () => {
 				agentDir: cwd,
 			});
 			try {
-				expect(child.session.getActiveToolNames()).toEqual(["write", "edit", "read", "grep", "find", "ls", "bash"]);
-				expect(child.session.systemPrompt).toContain("explicitly authorized full-authority host-execution worker");
-				expect(child.session.systemPrompt).toContain("The words explore and review are parent-side labels only");
-				expect(child.session.systemPrompt).toContain("This is an execution run");
-				expect(child.session.systemPrompt).toContain("Use edit and write for requested changes");
+				expect(child.session.getActiveToolNames()).toEqual(["read", "grep", "find", "ls"]);
+				expect(child.session.systemPrompt).toContain("explicitly authorized host-execution worker");
+				expect(child.session.systemPrompt).toContain("Selected role guidance (explore):");
+				expect(child.session.systemPrompt).toContain("Role guidance describes the methodology");
+				expect(child.session.systemPrompt).toContain("The trusted parent explicitly authorizes these child tools");
+				expect(child.session.systemPrompt).toContain("Execute only the parent task with the provided tools");
 				expect(child.session.systemPrompt).not.toContain("Do not modify files, run commands");
 			} finally {
 				child.session.dispose();
@@ -2901,12 +3867,20 @@ describe("Pi Void subagent contracts", () => {
 	it("rejects reports above the complete output cap and records observed bytes", async () => {
 		const cwd = await createWorkspace();
 		const rawReport = JSON.stringify({ summary: "x".repeat(25 * 1024), evidence: { paths: ["src"] } });
+		const childMessages: AgentMessage[] = [];
 		const fakeSession = {
 			sessionId: "child-over-cap",
 			model: {} as Model<Api>,
-			messages: [{ role: "assistant", content: rawReport, stopReason: "stop" }],
+			messages: childMessages,
+			extensionRunner: createNoopExtensionRunner(),
 			subscribe: vi.fn(() => vi.fn()),
-			prompt: vi.fn(async () => {}),
+			prompt: vi.fn(async () => {
+				childMessages.push({
+					role: "assistant",
+					content: rawReport,
+					stopReason: "stop",
+				} as unknown as AgentMessage);
+			}),
 			abort: vi.fn(async () => {}),
 			dispose: vi.fn(),
 			getSessionStats: vi.fn(() => ({
@@ -2917,9 +3891,13 @@ describe("Pi Void subagent contracts", () => {
 		const result = await new NativeSubagentRunner({
 			createSession: async () => ({ session: fakeSession }) as CreateAgentSessionResult,
 		}).run(request(cwd), ["delegate", "read"]);
-		expect(result.status).toBe("failed");
-		expect(result.diagnostics[0]?.code).toBe("output_truncated");
+		// An oversized report is a bounded report-protocol failure after real work:
+		// never verified completed, never pretending no work happened.
+		expect(result.status).toBe("verification_failed");
+		expect(result.diagnostics[0]?.code).toBe("report_protocol_failure");
 		expect(result.observedOutputBytes).toBe(Buffer.byteLength(rawReport));
+		expect(result.workArtifact?.reportProtocol).toMatchObject({ status: "truncated" });
+		expect(verifySubagentResult(result, normalizeSubagentRequest(request(cwd), cwd)).verified).toBe(false);
 	});
 
 	it("uses a reviewer-specific structured report contract", async () => {
@@ -2944,12 +3922,20 @@ describe("Pi Void subagent contracts", () => {
 				},
 			],
 		});
+		const childMessages: AgentMessage[] = [];
 		const fakeSession = {
 			sessionId: "child-review",
 			model: {} as Model<Api>,
-			messages: [{ role: "assistant", content: rawReport, stopReason: "stop" }],
+			messages: childMessages,
+			extensionRunner: createNoopExtensionRunner(),
 			subscribe: vi.fn(() => vi.fn()),
-			prompt: vi.fn(async () => {}),
+			prompt: vi.fn(async () => {
+				childMessages.push({
+					role: "assistant",
+					content: rawReport,
+					stopReason: "stop",
+				} as unknown as AgentMessage);
+			}),
 			abort: vi.fn(async () => {}),
 			dispose: vi.fn(),
 			getSessionStats: vi.fn(() => ({
@@ -2998,6 +3984,7 @@ describe("Pi Void subagent contracts", () => {
 			sessionId: "child-complete",
 			model: {} as Model<Api>,
 			messages,
+			extensionRunner: createNoopExtensionRunner(),
 			subscribe: vi.fn(() => vi.fn()),
 			prompt: vi.fn(async () => {
 				messages.push({
@@ -3071,6 +4058,69 @@ describe("Pi Void subagent contracts", () => {
 		});
 	});
 
+	it("orderly shuts down a reader that finishes startup after timeout", async () => {
+		const cwd = await createWorkspace();
+		const normalized = normalizeSubagentRequest({ ...request(cwd), timeoutMs: 5 }, cwd);
+		let resolveStartup: ((value: CreateAgentSessionResult) => void) | undefined;
+		const startup = new Promise<CreateAgentSessionResult>((resolve) => {
+			resolveStartup = resolve;
+		});
+		const lifecycle: string[] = [];
+		const shutdown = vi.fn(async () => lifecycle.push("shutdown"));
+		const fakeSession = {
+			sessionId: "child-late-reader",
+			model: {} as Model<Api>,
+			messages: [],
+			abort: vi.fn(async () => lifecycle.push("abort")),
+			dispose: vi.fn(() => lifecycle.push("dispose")),
+			extensionRunner: {
+				hasHandlers: vi.fn((eventType: string) => eventType === "session_shutdown"),
+				emit: shutdown,
+			},
+		} as unknown as CreateAgentSessionResult["session"];
+		const result = await new NativeSubagentRunner({
+			createSession: async () => startup,
+		}).runResolved(normalized, ["delegate", "read"]);
+		expect(result).toMatchObject({ status: "timed_out", diagnostics: [{ code: "timeout" }] });
+		resolveStartup?.({ session: fakeSession } as CreateAgentSessionResult);
+		await vi.waitFor(() => expect(fakeSession.dispose).toHaveBeenCalledOnce());
+		expect(shutdown).toHaveBeenCalledWith({ type: "session_shutdown", reason: "quit" });
+		expect(lifecycle).toEqual(["abort", "shutdown", "dispose"]);
+	});
+
+	it("orderly shuts down a writer that finishes startup after timeout", async () => {
+		const { cwd, head } = await createGitWorkspace();
+		const normalized = normalizeWriterRequest({ ...writerRequest(cwd, head), timeoutMs: 5 }, cwd);
+		let resolveStartup: ((value: CreateAgentSessionResult) => void) | undefined;
+		const startup = new Promise<CreateAgentSessionResult>((resolve) => {
+			resolveStartup = resolve;
+		});
+		const lifecycle: string[] = [];
+		const shutdown = vi.fn(async () => lifecycle.push("shutdown"));
+		const fakeSession = {
+			model: testModel("faux", "faux"),
+			messages: [],
+			abort: vi.fn(async () => lifecycle.push("abort")),
+			dispose: vi.fn(() => lifecycle.push("dispose")),
+			extensionRunner: {
+				hasHandlers: vi.fn((eventType: string) => eventType === "session_shutdown"),
+				emit: shutdown,
+			},
+		} as unknown as CreateAgentSessionResult["session"];
+		const result = await new NativeWriterRunner({
+			createSession: async () => startup,
+		}).run(normalized, ["read", "grep", "find", "ls", "write", "edit", "bash"], {
+			model: testModel("faux", "faux"),
+			directWorkspace: true,
+			unsafeHostExec: true,
+		});
+		expect(result).toMatchObject({ status: "timed_out", diagnostics: [{ code: "timeout" }] });
+		resolveStartup?.({ session: fakeSession } as CreateAgentSessionResult);
+		await vi.waitFor(() => expect(fakeSession.dispose).toHaveBeenCalledOnce());
+		expect(shutdown).toHaveBeenCalledWith({ type: "session_shutdown", reason: "quit" });
+		expect(lifecycle).toEqual(["abort", "shutdown", "dispose"]);
+	});
+
 	it("redacts credentials from selected prompts before child handoff", async () => {
 		const cwd = await createWorkspace();
 		const normalized = normalizeSubagentRequest(request(cwd), cwd);
@@ -3122,6 +4172,7 @@ describe("Pi Void subagent contracts", () => {
 			sessionId: "child-output-budget",
 			model: testModel("faux", "faux"),
 			messages: [],
+			extensionRunner: createNoopExtensionRunner(),
 			subscribe: vi.fn((listener: (event: AgentSessionEvent) => void) => {
 				notify = listener;
 				return vi.fn();
@@ -3161,10 +4212,60 @@ describe("Pi Void subagent contracts", () => {
 		expect(progressPaths).toEqual([undefined]);
 	});
 
-	it("reports timeout and disposes a child that does not settle", async () => {
+	it("retains a historical view when streamed output truncates a child", async () => {
+		const cwd = await createWorkspace();
+		const normalized = normalizeSubagentRequest({ ...request(cwd), timeoutMs: 1_000 }, cwd);
+		const bridge = new PivAgentViewBridge();
+		let notify: ((event: AgentSessionEvent) => void) | undefined;
+		const abort = vi.fn(async () => {});
+		const fakeSession = {
+			sessionId: "child-output-budget-history",
+			model: testModel("faux", "faux"),
+			messages: [],
+			extensionRunner: createNoopExtensionRunner(),
+			subscribe: vi.fn((listener: (event: AgentSessionEvent) => void) => {
+				notify = listener;
+				return vi.fn();
+			}),
+			prompt: vi.fn(async () => {
+				(fakeSession.messages as unknown[]).push({
+					role: "assistant",
+					content: `{"summary":"${"x".repeat(30_000)}","evidence":{"paths":["src"]}}`,
+				});
+				notify?.({ type: "message_update" } as AgentSessionEvent);
+				await new Promise<void>(() => {});
+			}),
+			abort,
+			dispose: vi.fn(),
+			getSessionStats: vi.fn(() => ({
+				tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				cost: 0,
+			})),
+		} as unknown as CreateAgentSessionResult["session"];
+
+		const result = await new NativeSubagentRunner({
+			createSession: async () => ({ session: fakeSession }) as CreateAgentSessionResult,
+			agentViewBridge: bridge,
+		}).runResolved(normalized, ["delegate", "read"]);
+
+		expect(result).toMatchObject({ status: "failed", diagnostics: [{ code: "output_truncated" }] });
+		expect(bridge.getView(normalized.runId)).toMatchObject({
+			kind: "historical-subagent",
+			status: "failed",
+			readOnly: true,
+		});
+	});
+
+	it("reports timeout and orderly shuts down a child that does not settle", async () => {
 		const cwd = await createWorkspace();
 		const abort = vi.fn(async () => {});
-		const dispose = vi.fn();
+		const lifecycle: string[] = [];
+		const shutdown = vi.fn(async () => {
+			lifecycle.push("shutdown");
+		});
+		const dispose = vi.fn(() => {
+			lifecycle.push("dispose");
+		});
 		const fakeSession = {
 			sessionId: "child-timeout",
 			model: {} as Model<Api>,
@@ -3173,6 +4274,10 @@ describe("Pi Void subagent contracts", () => {
 			subscribe: vi.fn(() => vi.fn()),
 			abort,
 			dispose,
+			extensionRunner: {
+				hasHandlers: vi.fn((eventType: string) => eventType === "session_shutdown"),
+				emit: shutdown,
+			},
 		} as unknown as CreateAgentSessionResult["session"];
 		const events: string[] = [];
 		const runner = new NativeSubagentRunner({
@@ -3183,7 +4288,9 @@ describe("Pi Void subagent contracts", () => {
 		});
 		expect(result.status).toBe("timed_out");
 		expect(abort).toHaveBeenCalledOnce();
+		expect(shutdown).toHaveBeenCalledWith({ type: "session_shutdown", reason: "quit" });
 		expect(dispose).toHaveBeenCalledOnce();
+		expect(lifecycle).toEqual(["shutdown", "dispose"]);
 		expect(events.at(-1)).toBe("subagent_timed_out");
 	});
 
@@ -3194,6 +4301,7 @@ describe("Pi Void subagent contracts", () => {
 			sessionId: "child-cancelled",
 			model: {} as Model<Api>,
 			messages: [{ role: "assistant", content: "partial report", stopReason: "stop" }],
+			extensionRunner: createNoopExtensionRunner(),
 			prompt: vi.fn(() => new Promise<void>(() => {})),
 			subscribe: vi.fn(() => vi.fn()),
 			abort,
@@ -3268,6 +4376,207 @@ describe("Pi Void subagent contracts", () => {
 			cacheWriteTokens: 12,
 			cost: 1.5,
 		});
+	});
+
+	it("publishes queued admission and FIFO promotion without fabricating child sessions", async () => {
+		const cwd = await createWorkspace();
+		const tasks = ["first", "second", "third"].map((id) => resolvedBatchTask(cwd, id));
+		const taskStates: SubagentBatchTaskLifecycleEvent[] = [];
+		const runtimeEvents: string[] = [];
+		const pending = new Map<string, () => void>();
+		const runner: Pick<NativeSubagentRunner, "runResolved"> = {
+			runResolved: async (task, _parentTools, options) => {
+				const resolvedTask = tasks.find((candidate) => candidate.request === task)!;
+				const childSessionId = `child-${resolvedTask.id}`;
+				const emit = (
+					type: "subagent_created" | "subagent_started" | "subagent_completed",
+					status: SubagentResult["status"],
+				) => {
+					options?.onEvent?.({
+						type,
+						runId: `run-${resolvedTask.id}`,
+						parentSessionId: task.parentSessionId,
+						childSessionId,
+						profile: task.role,
+						status,
+						batchId: options?.batchId,
+					});
+				};
+				emit("subagent_created", "created");
+				emit("subagent_started", "running");
+				return new Promise<SubagentResult>((resolve) => {
+					pending.set(resolvedTask.id, () => {
+						pending.delete(resolvedTask.id);
+						emit("subagent_completed", "completed");
+						resolve(batchResult(resolvedTask));
+					});
+				});
+			},
+		};
+		const batchPromise = runResolvedSubagentBatch(tasks, ["delegate", "read"], runner, {
+			concurrency: 1,
+			onTaskState: (event) => taskStates.push(event),
+			onEvent: (event) => runtimeEvents.push(`${event.taskId}:${event.type}`),
+		});
+
+		expect(taskStates.map((event) => event.type)).toEqual([
+			"task_queued",
+			"task_queued",
+			"task_queued",
+			"task_admitted",
+		]);
+		expect(taskStates.slice(0, 3).map((event) => event.taskId)).toEqual(["first", "second", "third"]);
+		await Promise.resolve();
+		expect(pending.has("first")).toBe(true);
+		expect(runtimeEvents).toEqual(["first:subagent_created", "first:subagent_started"]);
+		for (const event of taskStates) {
+			expect(event).not.toHaveProperty("childSessionId");
+			expect(event).not.toHaveProperty("runId");
+		}
+
+		pending.get("first")!();
+		for (let attempt = 0; attempt < 20 && !pending.has("second"); attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
+		expect(taskStates.map((event) => event.type)).toEqual([
+			"task_queued",
+			"task_queued",
+			"task_queued",
+			"task_admitted",
+			"task_admitted",
+		]);
+		expect(taskStates[taskStates.length - 1]?.taskId).toBe("second");
+		pending.get("second")!();
+		for (let attempt = 0; attempt < 20 && !pending.has("third"); attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
+		expect(taskStates[taskStates.length - 1]?.taskId).toBe("third");
+		pending.get("third")!();
+		await batchPromise;
+		expect(runtimeEvents).toEqual([
+			"first:subagent_created",
+			"first:subagent_started",
+			"first:subagent_completed",
+			"second:subagent_created",
+			"second:subagent_started",
+			"second:subagent_completed",
+			"third:subagent_created",
+			"third:subagent_started",
+			"third:subagent_completed",
+		]);
+	});
+
+	it("terminalizes queued tasks on parent cancellation without launching phantom children", async () => {
+		const cwd = await createWorkspace();
+		const tasks = ["one", "two", "three", "four"].map((id) => resolvedBatchTask(cwd, id));
+		const controller = new AbortController();
+		const taskStates: SubagentBatchTaskLifecycleEvent[] = [];
+		const started: string[] = [];
+		const runner: Pick<NativeSubagentRunner, "runResolved"> = {
+			runResolved: async (task, _parentTools, options) => {
+				const resolvedTask = tasks.find((candidate) => candidate.request === task)!;
+				started.push(resolvedTask.id);
+				return new Promise<SubagentResult>((resolve) => {
+					options?.signal?.addEventListener(
+						"abort",
+						() => resolve(batchResult(resolvedTask, "cancelled", "cancelled")),
+						{ once: true },
+					);
+				});
+			},
+		};
+		const batchPromise = runResolvedSubagentBatch(tasks, ["delegate", "read"], runner, {
+			concurrency: 2,
+			signal: controller.signal,
+			onTaskState: (event) => taskStates.push(event),
+		});
+		for (let attempt = 0; attempt < 20 && started.length < 2; attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
+		expect(started).toEqual(["one", "two"]);
+		controller.abort();
+
+		const result = await batchPromise;
+		expect(result.items.map((item) => item.result.status)).toEqual([
+			"cancelled",
+			"cancelled",
+			"cancelled",
+			"cancelled",
+		]);
+		expect(taskStates.filter((event) => event.type === "task_skipped")).toEqual([
+			{
+				type: "task_skipped",
+				batchId: taskStates[0]?.batchId,
+				taskId: "three",
+				status: "cancelled",
+				reason: "Batch cancelled.",
+			},
+			{
+				type: "task_skipped",
+				batchId: taskStates[0]?.batchId,
+				taskId: "four",
+				status: "cancelled",
+				reason: "Batch cancelled.",
+			},
+		]);
+		expect(taskStates.filter((event) => event.type === "task_admitted").map((event) => event.taskId)).toEqual([
+			"one",
+			"two",
+		]);
+		expect(started).not.toContain("three");
+		expect(started).not.toContain("four");
+	});
+
+	it("terminalizes queued tasks on batch timeout without launching them", async () => {
+		vi.useFakeTimers();
+		try {
+			const cwd = await createWorkspace();
+			const tasks = ["slow", "queued-a", "queued-b"].map((id) => resolvedBatchTask(cwd, id));
+			const taskStates: SubagentBatchTaskLifecycleEvent[] = [];
+			const started: string[] = [];
+			const runner: Pick<NativeSubagentRunner, "runResolved"> = {
+				runResolved: async (task, _parentTools, options) => {
+					const resolvedTask = tasks.find((candidate) => candidate.request === task)!;
+					started.push(resolvedTask.id);
+					return new Promise<SubagentResult>((resolve) => {
+						options?.signal?.addEventListener(
+							"abort",
+							() => resolve(batchResult(resolvedTask, "cancelled", "timeout")),
+							{ once: true },
+						);
+					});
+				},
+			};
+			const batchPromise = runResolvedSubagentBatch(tasks, ["delegate", "read"], runner, {
+				concurrency: 1,
+				timeoutMs: 5,
+				onTaskState: (event) => taskStates.push(event),
+			});
+			await vi.advanceTimersByTimeAsync(5);
+
+			const result = await batchPromise;
+			expect(result.status).toBe("timed_out");
+			expect(result.items.map((item) => item.result.status)).toEqual(["cancelled", "timed_out", "timed_out"]);
+			expect(taskStates.filter((event) => event.type === "task_skipped")).toEqual([
+				{
+					type: "task_skipped",
+					batchId: taskStates[0]?.batchId,
+					taskId: "queued-a",
+					status: "timed_out",
+					reason: "Batch timed_out.",
+				},
+				{
+					type: "task_skipped",
+					batchId: taskStates[0]?.batchId,
+					taskId: "queued-b",
+					status: "timed_out",
+					reason: "Batch timed_out.",
+				},
+			]);
+			expect(started).toEqual(["slow"]);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("retries one typed transient failure with the same request and aggregate usage", async () => {
@@ -3596,13 +4905,29 @@ describe("Pi Void subagent contracts", () => {
 		expect(releasedBatch.budget.released).toBeGreaterThan(0);
 
 		calls = 0;
+		const blockedTaskStates: SubagentBatchTaskLifecycleEvent[] = [];
 		const blockedBatch = await runResolvedSubagentBatch(tasks, ["delegate", "read"], runner, {
 			concurrency: 2,
 			totalBudgetBytes: tasks[0]!.request.maxOutputBytes,
+			onTaskState: (event) => blockedTaskStates.push(event),
 		});
 		expect(calls).toBe(1);
 		expect(blockedBatch.items[1]?.result.diagnostics[0]?.code).toBe("batch_budget_exhausted");
 		expect(blockedBatch.budget.reserved).toBe(0);
+		expect(blockedTaskStates.map((event) => event.type)).toEqual([
+			"task_queued",
+			"task_queued",
+			"task_admitted",
+			"task_skipped",
+		]);
+		expect(blockedTaskStates.map((event) => event.taskId)).toEqual(["short", "blocked", "short", "blocked"]);
+		expect(blockedTaskStates[3]).toMatchObject({
+			type: "task_skipped",
+			batchId: blockedTaskStates[0]?.batchId,
+			taskId: "blocked",
+			status: "failed",
+			reason: "Batch budget cannot reserve this task.",
+		});
 	});
 
 	it("reconciles the batch budget from observed report bytes", async () => {
@@ -3658,6 +4983,7 @@ describe("Pi Void subagent contracts", () => {
 		const cwd = await createWorkspace();
 		const tasks = ["success", "failed", "active", "queued"].map((id) => resolvedBatchTask(cwd, id));
 		const started = new Set<string>();
+		const taskStates: SubagentBatchTaskLifecycleEvent[] = [];
 		let fail: (() => void) | undefined;
 		const runner: Pick<NativeSubagentRunner, "runResolved"> = {
 			runResolved: async (task, _tools, options) => {
@@ -3684,6 +5010,7 @@ describe("Pi Void subagent contracts", () => {
 		const batchPromise = runResolvedSubagentBatch(tasks, ["delegate", "read"], runner, {
 			concurrency: 2,
 			failFast: true,
+			onTaskState: (event) => taskStates.push(event),
 		});
 		for (let attempt = 0; attempt < 20 && (!started.has("active") || !fail); attempt++) {
 			await new Promise((resolve) => setTimeout(resolve, 0));
@@ -3695,6 +5022,16 @@ describe("Pi Void subagent contracts", () => {
 		expect(result.items.map((item) => item.taskId)).toEqual(["success", "failed", "active", "queued"]);
 		expect(result.items.map((item) => item.result.status)).toEqual(["completed", "failed", "cancelled", "failed"]);
 		expect(result.items[0]?.verification.verified).toBe(true);
+		expect(taskStates.filter((event) => event.type === "task_skipped")).toEqual([
+			{
+				type: "task_skipped",
+				batchId: taskStates[0]?.batchId,
+				taskId: "queued",
+				status: "failed",
+				reason: "Batch stopped after fail-fast.",
+			},
+		]);
+		expect(started).not.toContain("queued");
 	});
 
 	it("review fail-fast aborts an active sibling and suppresses queued work", async () => {
@@ -3912,7 +5249,7 @@ describe("Pi Void subagent contracts", () => {
 			["delegate", "read", "grep", "find", "ls", "bash", "edit", "write"],
 			{ unsafeHostExec: true },
 		);
-		expect(preflight.tasks[0]?.tools).toEqual(["read", "grep", "find", "ls", "write", "edit"]);
+		expect(preflight.tasks[0]?.tools).toEqual(["read", "grep", "find", "ls"]);
 		expect(preflight.recovery).toEqual({ maxAttempts: 1, sameModel: true, retryableFailures: [] });
 	});
 
@@ -4244,6 +5581,7 @@ describe("Pi Void subagent contracts", () => {
 		pivSubagents({ on: vi.fn(), registerTool, registerCommand } as unknown as ExtensionAPI);
 		const tools = new Map(registerTool.mock.calls.map((call) => [call[0]?.name, call[0]]));
 		for (const name of [
+			"list_subagent_profiles",
 			"delegate",
 			"delegate_batch",
 			"review_batch",
@@ -4273,6 +5611,39 @@ describe("Pi Void subagent contracts", () => {
 		expect(tools.get("delegate_async")?.parameters.properties).not.toHaveProperty("background");
 		expect(tools.get("delegate_async")?.parameters.properties).not.toHaveProperty("queue");
 		expect(tools.get("delegate_async")?.parameters.properties).not.toHaveProperty("plannedOutputBytes");
+		for (const name of ["delegate", "delegate_async", "delegate_batch", "review_batch"]) {
+			expect(tools.get(name)?.description).toContain(
+				"runtime owns the internal bounded structured final-report protocol",
+			);
+			expect(tools.get(name)?.description).toContain("do not ask the child to format its work as JSON");
+		}
+	});
+
+	it("shuts down retained subagent supervisors with the owning Pi session", async () => {
+		const runnerShutdown = vi.spyOn(NativeSubagentRunner.prototype, "shutdown").mockResolvedValue(undefined);
+		try {
+			const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown>();
+			const api = {
+				on(event: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown) {
+					handlers.set(event, handler);
+				},
+				registerTool: vi.fn(),
+				appendEntry: vi.fn(),
+				sendMessage: vi.fn(),
+			} as unknown as ExtensionAPI;
+			pivSubagents(api);
+			const context = {
+				sessionManager: {
+					getSessionId: () => "owner-shutdown",
+					getEntries: () => [],
+				},
+			} as unknown as ExtensionContext;
+			await handlers.get("session_start")!({ type: "session_start", reason: "startup" }, context);
+			await handlers.get("session_shutdown")!({ type: "session_shutdown", reason: "quit" }, context);
+			expect(runnerShutdown).toHaveBeenCalledOnce();
+		} finally {
+			runnerShutdown.mockRestore();
+		}
 	});
 
 	it("restores owner-scoped jobs and delivers only undelivered completion metadata", async () => {

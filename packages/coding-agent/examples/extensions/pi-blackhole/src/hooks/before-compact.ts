@@ -1,5 +1,6 @@
 import { convertToLlm, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { compile } from "../core/summarize.ts";
+import { resolveBlackholeTail } from "../core/tail.ts";
 import { loadConfig } from "../core/unified-config.ts";
 
 export const PI_VCC_COMPACT_INSTRUCTION = "__pi_vcc__";
@@ -12,9 +13,15 @@ export function registerBeforeCompactHook(pi: ExtensionAPI): void {
 		if (config.compaction === "off" || config.compactionEngine !== "blackhole") return;
 		if (config.compaction === "manual" && event.customInstructions !== PI_VCC_COMPACT_INSTRUCTION) return;
 
-		const sourceMessages = [...event.preparation.messagesToSummarize, ...event.preparation.turnPrefixMessages];
+		const tail = resolveBlackholeTail({
+			tailBehavior: config.tailBehavior,
+			firstKeptEntryId: event.preparation.firstKeptEntryId,
+			messagesToSummarize: event.preparation.messagesToSummarize,
+			turnPrefixMessages: event.preparation.turnPrefixMessages,
+			branchEntries: event.branchEntries,
+		});
 		const summary = compile({
-			messages: convertToLlm(sourceMessages),
+			messages: convertToLlm(tail.sourceMessages),
 			previousSummary: event.preparation.previousSummary,
 			fileOps: {
 				readFiles: [...event.preparation.fileOps.read],
@@ -27,11 +34,13 @@ export function registerBeforeCompactHook(pi: ExtensionAPI): void {
 		return {
 			compaction: {
 				summary,
-				firstKeptEntryId: event.preparation.firstKeptEntryId,
+				firstKeptEntryId: tail.firstKeptEntryId,
 				tokensBefore: event.preparation.tokensBefore,
 				details: {
 					engine: "blackhole",
 					memory: false,
+					tailBehavior: config.tailBehavior,
+					summarizedKeptTail: tail.summarizedKeptTail,
 				},
 			},
 		};

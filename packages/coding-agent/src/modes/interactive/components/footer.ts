@@ -61,6 +61,10 @@ export class FooterComponent implements Component {
 		this.session = session;
 	}
 
+	setDataProvider(footerData: ReadonlyFooterDataProvider): void {
+		this.footerData = footerData;
+	}
+
 	setAutoCompactEnabled(enabled: boolean): void {
 		this.autoCompactEnabled = enabled;
 	}

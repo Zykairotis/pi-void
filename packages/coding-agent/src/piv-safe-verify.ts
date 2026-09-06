@@ -10,6 +10,7 @@ import type {
 	ExecResult,
 	ExtensionAPI,
 	ExtensionContext,
+	ExtensionUIContext,
 	ToolCallEvent,
 	ToolResultEvent,
 } from "./core/extensions/types.ts";
@@ -17,6 +18,17 @@ import { killProcessTree, trackDetachedChildPid, untrackDetachedChildPid } from 
 
 const STATE_TYPE = "piv-safe-verify-state";
 const STATE_VERSION = 3;
+const GOAL_TOOLS = [
+	"goal_question",
+	"goal_questionnaire",
+	"propose_goal_draft",
+	"propose_task_list",
+	"create_goal",
+	"get_goal",
+	"set_goal_tasks",
+	"update_goal_task",
+	"update_goal",
+];
 const PLAN_TOOLS = [
 	"read",
 	"grep",
@@ -28,10 +40,12 @@ const PLAN_TOOLS = [
 	"list_subagent_profiles",
 	"delegate",
 	"delegate_async",
+	"manage_subagent",
 	"inspect_subagent_job",
 	"cancel_subagent_job",
 	"delegate_batch",
 	"review_batch",
+	...GOAL_TOOLS,
 ];
 const BUILD_TOOLS = [
 	...PLAN_TOOLS.filter((tool) => tool !== "ask" && tool !== "draft_plan" && tool !== "propose_plan"),
@@ -188,6 +202,37 @@ export function parsePivMode(value: unknown): PivMode {
 }
 
 export function validatePivStartupArgs(args: string[]): void {
+	const modeArgs = args.filter((argument) => argument === "--piv-mode" || argument.startsWith("--piv-mode="));
+	if (modeArgs.length > 1) throw new Error("Duplicate --piv-mode flags are not allowed.");
+	const externalArgs = args.filter(
+		(argument) => argument === "--allow-external" || argument.startsWith("--allow-external="),
+	);
+	if (externalArgs.length > 1) throw new Error("Duplicate --allow-external flags are not allowed.");
+	for (const argument of externalArgs) {
+		const value = argument === "--allow-external" ? true : argument.slice("--allow-external=".length);
+		if (value !== true && value !== "true") throw new Error("--allow-external must be a boolean true flag");
+	}
+	if (externalArgs.length > 0) {
+		const modeValues: string[] = [];
+		for (let index = 0; index < args.length; index++) {
+			const argument = args[index]!;
+			if (argument === "--piv-mode") {
+				if (args[index + 1] !== undefined) modeValues.push(args[++index]!);
+			} else if (argument.startsWith("--piv-mode=")) {
+				modeValues.push(argument.slice("--piv-mode=".length));
+			}
+		}
+		if (modeValues.length !== 1 || modeValues[0] !== "build") {
+			throw new Error("--allow-external requires explicit --piv-mode build.");
+		}
+		if (
+			args.includes("--no-approve") ||
+			args.includes("-na") ||
+			args.some((argument) => argument.startsWith("--no-approve="))
+		) {
+			throw new Error("--allow-external is incompatible with --no-approve.");
+		}
+	}
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--piv-mode") {
@@ -283,7 +328,12 @@ export function pathIsWithin(root: string, candidate: string): boolean {
 	);
 }
 
-export function validateMutationPath(inputPath: unknown, cwd: string, canonicalRoot: string): string | undefined {
+export function validateMutationPath(
+	inputPath: unknown,
+	cwd: string,
+	canonicalRoot: string,
+	allowExternal = false,
+): string | undefined {
 	if (typeof inputPath !== "string" || inputPath.length === 0) return "Mutation path must be a nonempty string";
 	const lexicalTarget = resolve(cwd, inputPath);
 	let target: string;
@@ -292,7 +342,10 @@ export function validateMutationPath(inputPath: unknown, cwd: string, canonicalR
 	} catch (error) {
 		return `Cannot resolve path "${inputPath}": ${error instanceof Error ? error.message : String(error)}`;
 	}
-	if (!pathIsWithin(canonicalRoot, target)) return `Path "${inputPath}" is outside guarded root "${canonicalRoot}"`;
+	if (!allowExternal && !pathIsWithin(canonicalRoot, target)) {
+		return `Path "${inputPath}" is outside guarded root "${canonicalRoot}"`;
+	}
+	if (allowExternal) return undefined;
 
 	const lexicalSegments = relative(canonicalRoot, lexicalTarget).split(sep).filter(Boolean);
 	const canonicalSegments = relative(canonicalRoot, target).split(sep).filter(Boolean);
@@ -704,6 +757,7 @@ export interface PivCapabilityState {
 	readonly mode: PivMode;
 	readonly tools: readonly string[];
 	readonly bashEnabledInRecordedProcess: boolean;
+	readonly allowExternal: boolean;
 }
 
 export interface PivSafeVerifyOptions {
@@ -737,6 +791,10 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 		description: "Allow Bash in trusted build mode for this process",
 		type: "boolean",
 	});
+	pi.registerFlag("allow-external", {
+		description: "Allow unrestricted external host filesystem access in trusted build mode",
+		type: "boolean",
+	});
 	pi.registerFlag("piv-verify", { description: "Trusted verifier JSON argv for this process", type: "string" });
 	pi.registerFlag("piv-plan-model", {
 		description: "Exact provider/model or unambiguous model ID to use while planning",
@@ -753,6 +811,13 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 	const bashRequested = () => pi.getFlag("piv-allow-bash") === true;
 	const bashEffective = (ctx: ExtensionContext) =>
 		state?.mode === "build" && bashRequested() && ctx.isProjectTrusted();
+	const allowExternalRequested = () => pi.getFlag("allow-external") === true;
+	const allowExternalEffective = (ctx: ExtensionContext) =>
+		state?.mode === "build" &&
+		allowExternalRequested() &&
+		ctx.isProjectTrusted() &&
+		(ctx.mode === "tui" || ctx.mode === "rpc") &&
+		ctx.hasUI;
 	const effectiveTools = (ctx: ExtensionContext) =>
 		state?.mode === "plan"
 			? state.plan.status === "none"
@@ -769,6 +834,7 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 				mode: state.mode,
 				tools: Object.freeze([...effectiveTools(ctx)]),
 				bashEnabledInRecordedProcess: state.bashEnabledInRecordedProcess,
+				allowExternal: allowExternalEffective(ctx),
 			}),
 			ctx,
 		);
@@ -836,6 +902,11 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 		if (bashEffective(ctx))
 			ctx.ui.notify(
 				"Bash is enabled for this process. Direct path guards do not contain shell commands.",
+				"warning",
+			);
+		if (allowExternalEffective(ctx))
+			ctx.ui.notify(
+				"External filesystem access is enabled for this process. This is unrestricted host access, not a sandbox.",
 				"warning",
 			);
 		await options.onModeChange?.(mode, ctx);
@@ -1194,14 +1265,30 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 		const forwardContextAbort = () => controller.abort();
 		if (contextSignal?.aborted) controller.abort();
 		else contextSignal?.addEventListener("abort", forwardContextAbort, { once: true });
+		// Resolve the guarded ctx members before the await: after session
+		// replacement or reload the captured ctx becomes stale and any access
+		// throws. The verifier can outlive the session, so capture the pieces we
+		// need now and use only those once the verifier completes.
+		let ui: ExtensionUIContext | undefined;
+		try {
+			ui = ctx.hasUI ? ctx.ui : undefined;
+		} catch {
+			ui = undefined;
+		}
+		const headless = isHeadless(ctx);
 		const completion = (async () => {
 			const result = await runVerifier(verifierArgv!, state!.guardRoot, { signal: controller.signal });
 			state = { ...state!, checkedGeneration: generation, verifier: { ...result, generation } };
 			persist();
 			const passed = result.status === "passed";
-			ctx.ui.setStatus("piv-verify", passed ? "passed" : result.status);
-			report(ctx, verifierFailureMessage(result), passed ? "info" : "error");
-			if (!passed && isHeadless(ctx)) process.exitCode = 1;
+			const message = verifierFailureMessage(result);
+			if (ui && typeof ui.setStatus === "function") {
+				ui.setStatus("piv-verify", passed ? "passed" : result.status);
+				ui.notify(message, passed ? "info" : "error");
+			} else if (headless) {
+				console.error(message);
+			}
+			if (!passed && headless) process.exitCode = 1;
 		})();
 		activeVerifier = { controller, completion, contextSignal, forwardContextAbort };
 		try {
@@ -1284,6 +1371,8 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 					`Project trusted: ${ctx.isProjectTrusted()}`,
 					`Bash requested: ${bashRequested()}`,
 					`Bash effective: ${bashEffective(ctx)}`,
+					`External access requested: ${allowExternalRequested()}`,
+					`External access effective: ${allowExternalEffective(ctx)}`,
 					`Plan status: ${state.plan.status}`,
 					`Plan title: ${state.plan.title ?? "none"}`,
 					`Plan read in build: ${state.plan.readInBuild}`,
@@ -1319,7 +1408,12 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 				return { block: true, reason: "Read approved plan with read_plan before mutation" };
 			}
 			if (event.toolName !== "integrate_writer_patch") {
-				const reason = validateMutationPath(event.input.path, ctx.cwd, state.guardRoot);
+				const reason = validateMutationPath(
+					event.input.path,
+					ctx.cwd,
+					state.guardRoot,
+					allowExternalEffective(ctx),
+				);
 				if (reason) return { block: true, reason };
 			}
 			authorizedMutations.add(event.toolCallId);
@@ -1492,6 +1586,11 @@ export default function pivSafeVerify(pi: ExtensionAPI, options: PivSafeVerifyOp
 		if (bashEffective(ctx))
 			ctx.ui.notify(
 				"Bash is enabled for this process. Direct path guards do not contain shell commands.",
+				"warning",
+			);
+		if (allowExternalEffective(ctx))
+			ctx.ui.notify(
+				"External filesystem access is enabled for this process. This is unrestricted host access, not a sandbox.",
 				"warning",
 			);
 		await options.onModeChange?.(mode, ctx);

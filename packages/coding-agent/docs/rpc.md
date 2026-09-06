@@ -17,6 +17,37 @@ Common options:
 - `--no-session`: Disable session persistence
 - `--session-dir <path>`: Custom session storage directory
 
+### Pi Void unsafe subagent execution
+
+The `piv` launcher supports session-wide unsafe delegated-child authorization in RPC mode when all of these flags are explicit:
+
+```bash
+piv --mode rpc \
+  --piv-mode build \
+  --piv-allow-bash \
+  --approve \
+  --sub-yolo
+```
+
+`--sub-yolo` makes a child profile's requested host/mutation capabilities eligible for the lifetime of that RPC process, intersected with the trusted parent's active scoped built-ins (`read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write`). It does not automatically give every role every tool. RPC has no per-launch TUI confirmation; the startup command is the authorization. Build mode, project trust, parent Bash capability, the profile's requested capabilities, and the existing scope checks still apply. Without `--sub-yolo`, RPC delegation remains read-only by default.
+
+This is not a sandbox. Host filesystem, process, network, credentials, and detached-descendant cleanup remain outside containment. Child extensions, MCP, recursive delegation, and `delegate_write` remain disabled for delegated read/review children; normal `delegate_write` remains worktree-isolated.
+
+### Pi Void external host filesystem access
+
+`--allow-external` is a separate, explicit parent capability for trusted build sessions. It permits the parent’s guarded `edit`, `write`, and writer-integration path to address absolute paths outside the current project root:
+
+```bash
+piv --mode rpc \
+  --piv-mode build \
+  --allow-external \
+  --approve
+```
+
+The flag requires explicit build mode, an approval-capable TUI or RPC client, project trust, and no `--no-approve`. It does not imply `--sub-yolo`: delegated children and direct YOLO writers receive external scope access only when `--sub-yolo` is also explicitly authorized. Normal isolated `delegate_write` remains contained in its detached worktree even if a request carries an external-scope bit.
+
+`--allow-external` is unrestricted host access, not a sandbox. It does not contain shell commands, processes, network access, credentials, symlinks, or descendants; use it only in a trusted worktree with explicit user approval.
+
 ## Protocol Overview
 
 - **Commands**: JSON objects sent to stdin, one per line

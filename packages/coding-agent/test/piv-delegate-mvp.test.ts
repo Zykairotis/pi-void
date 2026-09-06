@@ -87,6 +87,8 @@ async function createHarness(options: HarnessOptions = {}) {
 					: capabilityTools,
 			bashEnabledInRecordedProcess:
 				options.pivMode === "build" && options.trusted === true && options.flags?.["piv-allow-bash"] === true,
+			allowExternal:
+				options.pivMode === "build" && options.trusted === true && options.flags?.["allow-external"] === true,
 		}),
 	});
 	const confirm = vi.fn(async () => options.confirm ?? false);
@@ -256,7 +258,7 @@ describe("Pi Void M10/M11 delegate integration", () => {
 		expect(harness.parentEntries).toHaveLength(0);
 	});
 
-	it("times out a started child and suppresses recovery", async () => {
+	it("pauses a started child for an explicit extension decision instead of launching recovery", async () => {
 		vi.useFakeTimers();
 		try {
 			const harness = await createHarness();
@@ -281,14 +283,36 @@ describe("Pi Void M10/M11 delegate integration", () => {
 			await vi.advanceTimersByTimeAsync(10);
 			release(fauxAssistantMessage('{"summary":"timed out","evidence":{"paths":["src"]}}'));
 			const result = resultOf(await resultPromise);
-			expect(result.isError).toBe(true);
-			expect(result.content[0]!.text).toMatch(/timed_out|timed out|timeout/i);
+			expect(result.isError).toBe(false);
+			const child = result.details!.result as { status: string; runId: string };
+			expect(child.status).toBe("needs_time");
+			expect(result.content[0]!.text).toMatch(/needs_time|runtime attention|remaining extendable/i);
+			const inspected = resultOf(
+				await harness.tools
+					.get("manage_subagent")!
+					.execute(
+						"inspect-timeout",
+						{ runId: child.runId, action: "inspect" },
+						undefined,
+						undefined,
+						harness.context,
+					),
+			);
+			expect(inspected.isError).toBe(false);
+			expect(inspected.content[0]!.text).toMatch(/Runtime attention|Remaining extendable/i);
+			const stopped = resultOf(
+				await harness.tools
+					.get("manage_subagent")!
+					.execute("stop-timeout", { runId: child.runId, action: "stop" }, undefined, undefined, harness.context),
+			);
+			expect(stopped.isError).toBe(false);
+			expect(stopped.content[0]!.text).toMatch(/Stopped retained subagent|cancelled/i);
 		} finally {
 			vi.useRealTimers();
 		}
 	});
 
-	it("times out a durable async child with its requested timeout", async () => {
+	it("keeps a durable async child retained at its requested timeout until the parent decides", async () => {
 		vi.useFakeTimers();
 		try {
 			const harness = await createHarness();
@@ -328,7 +352,29 @@ describe("Pi Void M10/M11 delegate integration", () => {
 					.get("inspect_subagent_job")!
 					.execute("inspect-async-timeout", { jobId }, undefined, undefined, harness.context),
 			);
-			expect((inspection.details!.inspection as { job: { status: string } }).job.status).toBe("timed_out");
+			const job = (inspection.details!.inspection as { job: { status: string; runId?: string } }).job;
+			expect(job.status).toBe("needs_time");
+			expect(job.runId).toEqual(expect.any(String));
+			expect(inspection.content[0]!.text).toMatch(/same child run is retained|manage_subagent/i);
+			const stopped = resultOf(
+				await harness.tools
+					.get("manage_subagent")!
+					.execute(
+						"stop-async-timeout",
+						{ runId: job.runId, action: "stop" },
+						undefined,
+						undefined,
+						harness.context,
+					),
+			);
+			expect(stopped.isError).toBe(false);
+			for (let index = 0; index < 4; index++) await vi.advanceTimersByTimeAsync(0);
+			const settled = resultOf(
+				await harness.tools
+					.get("inspect_subagent_job")!
+					.execute("inspect-async-stopped", { jobId }, undefined, undefined, harness.context),
+			);
+			expect((settled.details!.inspection as { job: { status: string } }).job.status).toBe("cancelled");
 		} finally {
 			vi.useRealTimers();
 		}

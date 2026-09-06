@@ -193,7 +193,11 @@ function packPackage(pkg, tarballDirectory) {
 		capture: true,
 		cwd: pkg.directory,
 	});
-	const packed = JSON.parse(output)[0];
+	const parsed = JSON.parse(output);
+	const packed = Array.isArray(parsed) ? parsed[0] : parsed[packageJson.name];
+	if (!packed?.filename) {
+		throw new Error(`npm pack did not return a filename for ${packageJson.name}`);
+	}
 	return join(tarballDirectory, packed.filename);
 }
 

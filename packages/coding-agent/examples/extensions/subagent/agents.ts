@@ -23,6 +23,19 @@ export interface AgentDiscoveryResult {
 	projectAgentsDir: string | null;
 }
 
+/** Legacy names remain accepted while the canonical Pi Void roles are explored/review. */
+export const AGENT_ALIASES: Readonly<Record<string, string>> = Object.freeze({
+	scout: "explore",
+	reviewer: "review",
+});
+
+export function resolveAgent(agents: readonly AgentConfig[], requestedName: string): AgentConfig | undefined {
+	const exact = agents.find((agent) => agent.name === requestedName);
+	if (exact) return exact;
+	const alias = AGENT_ALIASES[requestedName.trim().toLowerCase()];
+	return alias ? agents.find((agent) => agent.name === alias) : undefined;
+}
+
 function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig[] {
 	const agents: AgentConfig[] = [];
 

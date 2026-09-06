@@ -1,16 +1,31 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { OpenAICompletionsCompat, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type {
+	ModelsRefreshOptions,
+	ModelsRefreshResult,
+	OpenAICompletionsCompat,
+	ThinkingLevelMap,
+} from "@earendil-works/pi-ai";
 
-const PROVIDER = "local";
-const BASE_URL = "http://127.0.0.1:20128/v1";
-const REQUEST_TIMEOUT_MS = 10000;
+const PROVIDER = "omni";
+export const DEFAULT_BASE_URL = "http://127.0.0.1:20128/v1";
+const REQUEST_TIMEOUT_MS = 30000;
+
+export function resolveBaseUrl(config?: ModelsFile): string {
+	const configured = config?.providers?.[PROVIDER] as { baseUrl?: string } | undefined;
+	return process.env.PIV_OMNI_BASE_URL ?? process.env.PIV_LOCAL_BASE_URL ?? configured?.baseUrl ?? DEFAULT_BASE_URL;
+}
 
 interface EndpointModel {
 	id: unknown;
+	context_length?: unknown;
+	max_input_tokens?: unknown;
+	max_output_tokens?: unknown;
+	input_modalities?: unknown;
 	capabilities?: {
 		vision?: unknown;
 		reasoning?: unknown;
+		thinking?: unknown;
 		contextWindow?: unknown;
 		maxOutput?: unknown;
 		thinkingFormat?: unknown;
@@ -32,21 +47,39 @@ interface ModelsFile {
 	providers?: Record<string, unknown>;
 }
 
-type LocalModelsRefreshResult = { updated: boolean; count?: number; error?: string };
+export type LocalModelsRefreshResult = { updated: boolean; count?: number; error?: string };
+
+export type ProviderCatalogRefetchResult =
+	| { ok: true; providerId: string; count: number }
+	| { ok: false; providerId: string; error: string };
+
+export interface ProviderCatalogSummary {
+	id: string;
+	name: string;
+	modelCount: number;
+	baseUrl?: string;
+}
+
+const LOCAL_PROVIDER_ID = PROVIDER;
 
 async function loadLocalApiKey(agentDir: string): Promise<string> {
 	const authPath = join(agentDir, "auth.json");
 	const auth = JSON.parse(await readFile(authPath, "utf8")) as AuthFile;
-	const apiKey = auth[PROVIDER]?.key;
+	const apiKey = auth[PROVIDER]?.key ?? auth.local?.key;
 	if (!apiKey) throw new Error(`missing ${PROVIDER} API key in ${authPath}`);
 	return apiKey;
 }
 
-function positiveInteger(value: unknown, field: string, model: string): number {
-	if (!Number.isSafeInteger(value) || (value as number) <= 0) {
-		throw new Error(`${model}: invalid ${field}`);
+function firstPositiveInteger(...values: unknown[]): number | undefined {
+	for (const value of values) {
+		if (Number.isSafeInteger(value) && (value as number) > 0) return value as number;
 	}
-	return value as number;
+	return undefined;
+}
+
+function hasImageInput(entry: EndpointModel): boolean {
+	if (entry.capabilities?.vision === true) return true;
+	return Array.isArray(entry.input_modalities) && entry.input_modalities.includes("image");
 }
 
 const THINKING_LEVEL_KEYS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
@@ -116,51 +149,83 @@ function parseServiceTiers(value: unknown): string[] | undefined {
 	return [...value];
 }
 
+export const CX_MAX_CONTEXT_TOKENS = 272000;
+
+export function isCxModel(id: string): boolean {
+	return /^cx\//i.test(id);
+}
+
 function isLocalCodexResponsesModel(id: string): boolean {
 	return /^cx\/gpt-5\.6(?:-|$)/i.test(id);
+}
+
+function mapOneEndpointModel(entry: EndpointModel, ids: Set<string>) {
+	if (typeof entry.id !== "string" || entry.id.length === 0 || ids.has(entry.id)) {
+		throw new Error("endpoint returned invalid or duplicate model ID");
+	}
+	ids.add(entry.id);
+	const capabilities = entry.capabilities ?? {};
+	const rawContextWindow = firstPositiveInteger(
+		capabilities.contextWindow,
+		entry.context_length,
+		entry.max_input_tokens,
+	);
+	const rawMaxTokens = firstPositiveInteger(capabilities.maxOutput, entry.max_output_tokens, rawContextWindow);
+	if (rawContextWindow === undefined) {
+		throw new Error(`${entry.id}: invalid contextWindow`);
+	}
+	if (rawMaxTokens === undefined) {
+		throw new Error(`${entry.id}: invalid maxOutput`);
+	}
+	const contextWindow = isCxModel(entry.id) ? Math.min(rawContextWindow, CX_MAX_CONTEXT_TOKENS) : rawContextWindow;
+	const maxTokens = Math.min(rawMaxTokens, contextWindow);
+	const thinkingFormat = parseThinkingFormat(capabilities.thinkingFormat);
+	const serviceTiers = parseServiceTiers(capabilities.serviceTiers);
+	const fastCapable =
+		isLocalCodexResponsesModel(entry.id) && (serviceTiers === undefined || serviceTiers.includes("priority"));
+	const thinkingLevelMap =
+		parseThinkingLevelMap(capabilities.thinkingLevelMap) ?? inferThinkingLevelMap(entry.id, thinkingFormat);
+	const compat: OpenAICompletionsCompat | undefined = thinkingFormat
+		? {
+				thinkingFormat,
+				// OmniRoute / OpenAI-compatible gateways accept reasoning_effort
+				// and translate it to the advertised native format.
+				supportsReasoningEffort: true,
+				...(typeof capabilities.thinkingCanDisable === "boolean"
+					? { thinkingCanDisable: capabilities.thinkingCanDisable }
+					: {}),
+			}
+		: undefined;
+	return {
+		id: entry.id,
+		name: entry.id,
+		api: fastCapable ? "openai-responses" : "openai-completions",
+		reasoning: capabilities.reasoning === true || capabilities.thinking === true,
+		input: hasImageInput(entry) ? ["text", "image"] : ["text"],
+		contextWindow,
+		maxTokens,
+		...(serviceTiers ? { serviceTiers } : fastCapable ? { serviceTiers: ["priority"] } : {}),
+		...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+		...(compat ? { compat } : {}),
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+	};
 }
 
 export function mapEndpointModels(response: ModelsResponse) {
 	if (!Array.isArray(response.data) || response.data.length === 0) throw new Error("endpoint returned no models");
 
 	const ids = new Set<string>();
-	return response.data.map((entry) => {
-		if (typeof entry.id !== "string" || entry.id.length === 0 || ids.has(entry.id)) {
-			throw new Error("endpoint returned invalid or duplicate model ID");
+	const models = [];
+	let firstError: Error | undefined;
+	for (const entry of response.data) {
+		try {
+			models.push(mapOneEndpointModel(entry, ids));
+		} catch (error) {
+			firstError ??= error instanceof Error ? error : new Error(String(error));
 		}
-		ids.add(entry.id);
-		const capabilities = entry.capabilities ?? {};
-		const thinkingFormat = parseThinkingFormat(capabilities.thinkingFormat);
-		const serviceTiers = parseServiceTiers(capabilities.serviceTiers);
-		const fastCapable =
-			isLocalCodexResponsesModel(entry.id) && (serviceTiers === undefined || serviceTiers.includes("priority"));
-		const thinkingLevelMap =
-			parseThinkingLevelMap(capabilities.thinkingLevelMap) ?? inferThinkingLevelMap(entry.id, thinkingFormat);
-		const compat: OpenAICompletionsCompat | undefined = thinkingFormat
-			? {
-					thinkingFormat,
-					// The local OpenAI-compatible endpoint accepts reasoning_effort
-					// and 9router translates it to the advertised native format.
-					supportsReasoningEffort: true,
-					...(typeof capabilities.thinkingCanDisable === "boolean"
-						? { thinkingCanDisable: capabilities.thinkingCanDisable }
-						: {}),
-				}
-			: undefined;
-		return {
-			id: entry.id,
-			name: entry.id,
-			api: fastCapable ? "openai-responses" : "openai-completions",
-			reasoning: capabilities.reasoning === true,
-			input: capabilities.vision === true ? ["text", "image"] : ["text"],
-			contextWindow: positiveInteger(capabilities.contextWindow, "contextWindow", entry.id),
-			maxTokens: positiveInteger(capabilities.maxOutput, "maxOutput", entry.id),
-			...(serviceTiers ? { serviceTiers } : fastCapable ? { serviceTiers: ["priority"] } : {}),
-			...(thinkingLevelMap ? { thinkingLevelMap } : {}),
-			...(compat ? { compat } : {}),
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		};
-	});
+	}
+	if (models.length === 0) throw firstError ?? new Error("endpoint returned no models");
+	return models;
 }
 
 export async function refreshLocalModels(agentDir: string): Promise<LocalModelsRefreshResult> {
@@ -168,27 +233,30 @@ export async function refreshLocalModels(agentDir: string): Promise<LocalModelsR
 		const modelsPath = join(agentDir, "models.json");
 		const apiKey = await loadLocalApiKey(agentDir);
 
-		const response = await fetch(`${BASE_URL}/models`, {
-			headers: { Authorization: `Bearer ${apiKey}` },
-			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-		});
-		if (!response.ok) throw new Error(`model endpoint returned HTTP ${response.status}`);
-		const models = mapEndpointModels((await response.json()) as ModelsResponse);
-
 		let config: ModelsFile = {};
 		try {
 			config = JSON.parse(await readFile(modelsPath, "utf8")) as ModelsFile;
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 		}
+		const baseUrl = resolveBaseUrl(config);
+
+		const response = await fetch(`${baseUrl}/models`, {
+			headers: { Authorization: `Bearer ${apiKey}` },
+			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+		});
+		if (!response.ok) throw new Error(`model endpoint returned HTTP ${response.status}`);
+		const models = mapEndpointModels((await response.json()) as ModelsResponse);
+
 		config.providers ??= {};
 		config.providers[PROVIDER] = {
-			baseUrl: BASE_URL,
+			baseUrl,
 			api: "openai-completions",
-			apiKey: "PIV_LOCAL_API_KEY",
+			apiKey,
 			authHeader: true,
 			models,
 		};
+		delete config.providers.local;
 
 		process.env.PIV_LOCAL_API_KEY = apiKey;
 		const temporaryPath = join(dirname(modelsPath), `.models.json.piv-${process.pid}`);
@@ -202,7 +270,7 @@ export async function refreshLocalModels(agentDir: string): Promise<LocalModelsR
 
 export async function refreshLocalModelsForStartup(
 	agentDir: string,
-	options: {
+	_options: {
 		skip?: boolean;
 		refresh?: () => Promise<LocalModelsRefreshResult>;
 		onFailure: (error: string) => void;
@@ -211,34 +279,60 @@ export async function refreshLocalModelsForStartup(
 	try {
 		process.env.PIV_LOCAL_API_KEY = await loadLocalApiKey(agentDir);
 	} catch {}
-	if (options.skip) return;
+}
 
-	let cached = false;
-	try {
-		const config = JSON.parse(await readFile(join(agentDir, "models.json"), "utf8")) as ModelsFile;
-		const local = config.providers?.[PROVIDER];
-		cached =
-			typeof local === "object" &&
-			local !== null &&
-			"models" in local &&
-			Array.isArray(local.models) &&
-			local.models.length > 0;
-	} catch {}
+export function summarizeProviderCatalogs(runtime: {
+	getProviders(): readonly { id: string; name?: string; baseUrl?: string }[];
+	getModels(providerId?: string): readonly unknown[];
+}): ProviderCatalogSummary[] {
+	return runtime.getProviders().map((provider) => ({
+		id: provider.id,
+		name: provider.name ?? provider.id,
+		modelCount: runtime.getModels(provider.id).length,
+		...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
+	}));
+}
 
-	const refresh = options.refresh ?? (() => refreshLocalModels(agentDir));
-	const completion = (async () => {
-		let result: LocalModelsRefreshResult;
-		try {
-			result = await refresh();
-		} catch (error) {
-			options.onFailure(error instanceof Error ? error.message : String(error));
-			return;
+export async function refetchProviderCatalog(options: {
+	providerId: string;
+	agentDir: string;
+	refreshRuntime: (options: ModelsRefreshOptions) => Promise<ModelsRefreshResult>;
+	refreshLocal?: (agentDir: string) => Promise<LocalModelsRefreshResult>;
+	countModels?: (providerId: string) => number;
+	isLocalProvider?: boolean;
+	signal?: AbortSignal;
+}): Promise<ProviderCatalogRefetchResult> {
+	const providerId = options.providerId;
+	const isLocal = options.isLocalProvider ?? providerId === LOCAL_PROVIDER_ID;
+	if (isLocal) {
+		const refreshLocal = options.refreshLocal ?? refreshLocalModels;
+		const written = await refreshLocal(options.agentDir);
+		if (!written.updated) {
+			return { ok: false, providerId, error: written.error ?? "unknown error" };
 		}
-		if (!result.updated) options.onFailure(result.error ?? "unknown error");
-	})();
-	if (cached) {
-		void completion;
-		return;
+		const runtimeResult = await options.refreshRuntime({
+			providers: [providerId],
+			allowNetwork: false,
+		});
+		if (runtimeResult.aborted) return { ok: false, providerId, error: "timed out" };
+		const runtimeError = firstRefreshError(runtimeResult.errors);
+		if (runtimeError) return { ok: false, providerId, error: runtimeError };
+		return { ok: true, providerId, count: written.count ?? 0 };
 	}
-	await completion;
+
+	const runtimeResult = await options.refreshRuntime({
+		providers: [providerId],
+		allowNetwork: true,
+		force: true,
+		signal: options.signal,
+	});
+	if (runtimeResult.aborted) return { ok: false, providerId, error: "timed out" };
+	const runtimeError = firstRefreshError(runtimeResult.errors);
+	if (runtimeError) return { ok: false, providerId, error: runtimeError };
+	return { ok: true, providerId, count: options.countModels?.(providerId) ?? 0 };
+}
+
+function firstRefreshError(errors: ReadonlyMap<string, Error>): string | undefined {
+	const error = errors.values().next().value;
+	return error?.message;
 }

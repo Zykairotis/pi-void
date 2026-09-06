@@ -1092,7 +1092,7 @@ All Vitest commands below ran from `packages/coding-agent`.
 | W8.1 durable observatory metadata | Jobs/observatory tests: post-persistence subscription, active/FIFO/terminal projection, bounded metadata, no result bodies | C1: `263/263`, exit 0 | PASS / FROZEN |
 | W8.2 terminal result inspection | Observatory/subagent tests: terminal-only inspection, frozen bounded projection, invalid-path rejection, no scheduler/session mutation | C1: `263/263`, exit 0 | PASS / FROZEN |
 | W8.3 completion inbox | Observatory/subagent tests: persisted metadata validation, deduplication, ordering, cap, frozen-on-open behavior, no result-body reads | C1: `263/263`, exit 0 | PASS / FROZEN |
-| W9 unsafe host execution | `piv-subagents.test.ts`, `piv-safe-verify.test.ts`, `piv-delegate-mvp.test.ts`: startup/runtime gates, trust/Bash/TUI confirmation, best-effort cancellation warning, post-confirmation recheck, no retry for unsafe runs, async/batch/review enablement, duplicate-flag rejection | Targeted `piv-subagents.test.ts`: `138/138`; exit 0 | PASS / CONTRACT-HARDENED / NOT A SANDBOX |
+| W9 unsafe host execution | `piv-subagents.test.ts`, `piv-safe-verify.test.ts`, `piv-delegate-mvp.test.ts`: startup/runtime gates, trust/Bash checks, interactive TUI confirmation or RPC startup authorization, best-effort cancellation warning, post-launch recheck, no retry for unsafe runs, async/batch/review enablement, duplicate-flag rejection | Targeted RPC regressions: `3/3`; headless rejection: `1/1`; exit 0 | PASS / CONTRACT-HARDENED / NOT A SANDBOX |
 | Milestone 10 parent verification | Lineage, terminal status, non-partial completion, evidence bounds, path scope, unresolved review claims | C2: 2 files, `181/181`, exit 0 | VERIFIED |
 | Milestone 11 Faux integration | Real `pivSubagents` factory: registration, context isolation, gates, completion, review claims, cancellation, foreground/async timeout, `--sub-yolo`, confirmed unsafe review/batch delegation | C3: 1 file, `9/9`, exit 0 | VERIFIED for deterministic Faux path |
 
@@ -1354,3 +1354,49 @@ Do not replace the durable job registry with live daemon children until evidence
 Prime-Agent’s clearest wins are recursive runtime trees, family messaging, live observation, child lifecycle control, configurable depth/model routing, daemon-backed persistence, and operational UI. Pi Void’s clearest wins are typed evidence, parent-owned verification, capability/resource narrowing, immutable context boundaries, bounded recovery, durable owner-scoped jobs, and isolated writer patch integrity.
 
 The highest-value parity work is bounded live observation followed by controlled parent follow-up. Recursive delegation, family messaging, and daemon-backed live persistence should remain opt-in and gated by measured need, aggregate budgets, ownership, redaction, and deterministic recovery tests.
+
+---
+
+# 22. Cognee review (2026-08-12)
+
+Implementation follow-up (2026-08-13): `agent_docs/piv-cognee-compaction-benchmark-2026-08-13.md`. Items 1–4 plus lastRecallKey TTL, Blackhole minimal tail, and `$project` datasets are implemented. Split read/write circuits and jsonl rotation remain open.
+
+Full write-up (architecture, ranked defects, live install/config inventory, redacted):  
+`agent_docs/piv-cognee-findings-2026-08-12.md`
+
+Read-only review of `piv-cognee.ts`, `piv-cognee-client.ts`, `piv-cognee-env.ts`, `piv-cognee-observer.ts`, `docs/piv-cognee.md`, `docs/compaction.md`, Pi compaction hooks, and `test/piv-cognee.test.ts`, plus live files under `~/.pi/agent/pi-cognee`, `~/.cognee`, `~/.cognee-plugin`, and `/home/mewtwo/Zykairotis/cognee`. Other models listed dead env keys, stale `lastRecallKey`, unbounded `observations.jsonl`, bash `"cognee"` substring exclusion, and doctor latency. Those are real but not the highest-value defects.
+
+Live snapshot 2026-08-12: API `127.0.0.1:8211` Cognee 1.4.0 healthy; `piv` dataset `pi-void`; Claude dataset `agent_sessions`; `captureTools` already off; Blackhole package installed so `auto` defers on this host; native compaction `enabled: false`; `observations.jsonl` 7.99 MB / 15,114 lines; `sessions/` 7,504 write-only files.
+
+## How Cognee compaction actually works
+
+Pi owns the compact trigger and session rewrite. Extensions may supply the summary via `session_before_compact`; last non-cancel result wins (`runner.ts` last-writer-wins). If no extension returns `compaction`, native `compact()` writes the structured Goal/Constraints/Progress/Decisions/Next-Steps summary.
+
+Cognee then:
+
+1. `session_before_compact`: if `shouldOwnCompactionSummary` is true, three parallel recalls (`session`/`trace`/`graph`, 4s/4s/6s) become the **Pi compact summary**. If false (Blackhole config present, or mode `defer`), it only stores a local file-ops QA anchor.
+2. Native or Blackhole then writes the real summary (when Cognee deferred).
+3. `session_compact`: session-cache QA of the final summary + pending-queue `/remember` of that summary (`autoRemember: "compaction"`).
+
+Default is `compactionSummaryMode: "auto"`. `shouldOwnCompactionSummary("auto", false)` is **true**. Blackhole is optional. So a default `piv` install **without** Blackhole replaces native structured compaction with a recall dump. That contradicts `docs/compaction.md` ("Cognee does not trigger or implement compaction") and `idea.md` (Pi owns compaction; Cognee is a derived-memory adapter).
+
+`own` does not read `preparation.messagesToSummarize`. It queries Cognee with `previousSummary ?? reason`. That is not a conversation summary.
+
+Recall injects a `customType: "piv-cognee-recall"` message. `before_agent_start` messages persist as `custom_message` session entries (`docs/extensions.md`, `agent-session.ts` `message_end`). `convertToLlm` sends them as user text. They therefore consume tokens every later turn, enter `messagesToSummarize`, land in the compact summary, get queued as permanent remember, and can be recalled again (echo loop).
+
+Compact then next prompt is racy: `_checkCompaction` runs **before** `before_agent_start`. `storeEntry` is fire-and-forget, so the first post-compact recall often misses the checkpoint it just created.
+
+## Ranked defects (highest value first)
+
+1. **Recall is persistent session history, not transient context.** Inject via turn-scoped `systemPrompt` append, or otherwise keep it out of `custom_message` entries.
+2. **Default `auto` without Blackhole steals compaction.** `auto` should always defer. Keep `own` explicit. If `own` remains, summarize `messagesToSummarize` (+ previousSummary/fileOps); never replace the chat checkpoint with three recall dumps. Skip network on `reason === "overflow"` / `willRetry`.
+3. **First post-compact prompt misses the checkpoint.** Keep `lastCompactSummary` in runtime and prepend it to the next recall inject; optionally await the session-cache write in `session_compact`.
+4. **Idle improve races in-flight capture.** `agent_settled` fires `runImprove` without waiting for `storeEntry`. Shutdown already `waitForBackground()`. Stamp `lastImproveAt` on completion, not dispatch (audit #4).
+5. **`lastRecallKey` is set before success** and never expires. A failed recall permanently skips the same prompt, including after circuit cooldown.
+6. **One circuit for recall and remember.** Recall timeouts can pause compaction remember.
+7. **Capture flood.** Every `read`/`grep`/`ls`/`find` is posted. The bash `"cognee"` substring is real but smaller; per-turn trace cap or write/edit/bash-only default is the real capture fix. `/cognee` commands are slash commands, not tools — they never hit `tool_result`.
+8. **Precompact QA is noise** when deferring (file-list dummy QA). The useful write is the post-compact checkpoint.
+9. **`rebuildClient` drops `maxResponseChars` to `recallMaxChars`** after any `/cognee` toggle.
+10. Hygiene already listed: unused `COGNEE_RECALL_TIMEOUT`/`BUDGET`; unbounded `observations.jsonl` and `warmup/`; session-map write-only; `enqueuePendingRemember` `.tmp` leak (audit #3); `saves.prompt` increments before a write.
+
+Do not start with recall retry/backoff or doctor per-scope hits. Those add latency or UI without fixing the compaction/session contract.

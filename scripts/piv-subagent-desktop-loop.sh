@@ -475,7 +475,7 @@ recover_known_headless_rejection() {
 	local temporary="$lane_dir/$stage.txt.tmp"
 	[[ -e "$inflight" ]] || return 0
 	[[ -s "$stderr" ]] || return 1
-	grep -Fq 'Unsafe subagent host execution requires an interactive TUI and is unavailable in print, JSON, RPC, or headless mode.' "$stderr" || return 1
+	grep -Fq 'Unsafe subagent host execution requires an interactive TUI or explicit RPC mode and is unavailable in print, JSON, or headless mode.' "$stderr" || return 1
 	[[ ! -s "$temporary" ]] || return 1
 	mv "$inflight" "$inflight.preflight-rejected"
 	if [[ -e "$temporary" ]]; then

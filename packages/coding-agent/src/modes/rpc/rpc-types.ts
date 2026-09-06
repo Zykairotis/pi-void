@@ -12,6 +12,12 @@ import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
 import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
+import type {
+	RpcCommandErrorDetails,
+	RpcCommandInvocationResult,
+	RpcCommandSchemaResult,
+	RpcCommandSource,
+} from "./rpc-command-schema.ts";
 import type { RpcSettingsSnapshot, RpcSettingUpdate } from "./rpc-settings.ts";
 
 // ============================================================================
@@ -77,7 +83,24 @@ export type RpcCommand =
 	| { id?: string; type: "get_messages" }
 
 	// Commands (available for invocation via prompt)
-	| { id?: string; type: "get_commands" };
+	| { id?: string; type: "get_commands" }
+	| {
+			id?: string;
+			type: "get_command_schema";
+			name: string;
+			schemaId?: string;
+			source?: RpcCommandSource;
+	  }
+	| {
+			id?: string;
+			type: "invoke_command";
+			name: string;
+			schemaId?: string;
+			schemaRevision?: string;
+			source?: RpcCommandSource;
+			arguments: Record<string, unknown>;
+			options?: { scope?: "global" | "project" };
+	  };
 
 // ============================================================================
 // RPC Slash Command (for get_commands response)
@@ -90,9 +113,11 @@ export interface RpcSlashCommand {
 	/** Human-readable description */
 	description?: string;
 	/** What kind of command this is */
-	source: "extension" | "prompt" | "skill";
+	source: RpcCommandSource;
 	/** Source metadata for the owning resource */
-	sourceInfo: SourceInfo;
+	sourceInfo?: SourceInfo;
+	/** Declarative structured interaction metadata */
+	interaction?: { type: "form"; schemaId: string } | { type: "text" };
 }
 
 // ============================================================================
@@ -240,6 +265,20 @@ export type RpcResponse =
 			success: true;
 			data: { commands: RpcSlashCommand[] };
 	  }
+	| {
+			id?: string;
+			type: "response";
+			command: "get_command_schema";
+			success: true;
+			data: RpcCommandSchemaResult;
+	  }
+	| {
+			id?: string;
+			type: "response";
+			command: "invoke_command";
+			success: true;
+			data: RpcCommandInvocationResult;
+	  }
 
 	// Error response (any command can fail)
 	| {
@@ -249,7 +288,7 @@ export type RpcResponse =
 			success: false;
 			error: string;
 			errorCode?: string;
-			errorDetails?: { key?: string; scope?: string };
+			errorDetails?: RpcCommandErrorDetails;
 	  };
 
 // ============================================================================

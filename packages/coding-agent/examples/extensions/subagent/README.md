@@ -19,14 +19,14 @@ subagent/
 ├── index.ts             # The extension (entry point)
 ├── agents.ts            # Agent discovery logic
 ├── agents/              # Sample agent definitions
-│   ├── scout.md         # Fast recon, returns compressed context
+│   ├── explore.md       # Repository exploration; returns verified context
 │   ├── planner.md       # Creates implementation plans
-│   ├── reviewer.md      # Code review
+│   ├── review.md        # Code review
 │   └── worker.md        # General-purpose (full capabilities)
 └── prompts/             # Workflow presets (prompt templates)
-    ├── implement.md     # scout -> planner -> worker
-    ├── scout-and-plan.md    # scout -> planner (no implementation)
-    └── implement-and-review.md  # worker -> reviewer -> worker
+    ├── implement.md     # explore -> planner -> worker
+    ├── scout-and-plan.md    # explore -> planner (no implementation)
+    └── implement-and-review.md  # worker -> review -> worker
 ```
 
 ## Installation
@@ -68,17 +68,17 @@ When running interactively, the tool prompts for confirmation before running pro
 
 ### Single agent
 ```
-Use scout to find all authentication code
+Use explore to find all authentication code
 ```
 
 ### Parallel execution
 ```
-Run 2 scouts in parallel: one to find models, one to find providers
+Run 2 exploration agents in parallel: one to find models, one to find providers
 ```
 
 ### Chained workflow
 ```
-Use a chain: first have scout find the read tool, then have planner suggest improvements
+Use a chain: first have explore find the read tool, then have planner suggest improvements
 ```
 
 ### Workflow prompts
@@ -147,18 +147,18 @@ Project agents override user agents with the same name when `agentScope: "both"`
 
 | Agent | Purpose | Model | Tools |
 |-------|---------|-------|-------|
-| `scout` | Fast codebase recon | Haiku | read, grep, find, ls, bash |
+| `explore` | Repository exploration | Haiku | read, grep, find, ls, bash |
 | `planner` | Implementation plans | Sonnet | read, grep, find, ls |
-| `reviewer` | Code review | Sonnet | read, grep, find, ls, bash |
+| `review` | Code review | Sonnet | read, grep, find, ls, bash |
 | `worker` | General-purpose | Sonnet | (all default) |
 
 ## Workflow Prompts
 
 | Prompt | Flow |
 |--------|------|
-| `/implement <query>` | scout → planner → worker |
-| `/scout-and-plan <query>` | scout → planner |
-| `/implement-and-review <query>` | worker → reviewer → worker |
+| `/implement <query>` | explore → planner → worker |
+| `/scout-and-plan <query>` | explore → planner |
+| `/implement-and-review <query>` | worker → review → worker |
 
 ## Error Handling
 
@@ -172,4 +172,5 @@ Project agents override user agents with the same name when `agentScope: "both"`
 - Output truncated to last 10 items in collapsed view (expand to see all)
 - Parallel model-visible output is capped at 50 KB per task; full results remain in tool details
 - Agents discovered fresh on each invocation (allows editing mid-session)
+- Legacy names remain accepted: `scout` aliases to `explore`, and `reviewer` aliases to `review`
 - Parallel mode limited to 8 tasks, 4 concurrent

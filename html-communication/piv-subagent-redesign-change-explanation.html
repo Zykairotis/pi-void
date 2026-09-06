@@ -1,0 +1,890 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pi Void Subagent Redesign - Detailed Change Explanation</title>
+  <meta name="description" content="Detailed implementation review of the Pi Void subagent redesign: profiles, authority, normal-shell agent switching, Take Control, finalization, history, lifecycle safety, and certification.">
+  <style>
+:root {
+  --bg: #000;
+  --fg: #fff;
+  --muted: #a3a3a3;
+  --line: #262626;
+  --panel: #111;
+  --accent: #d4d4d4;
+  --add: #86efac;
+  --del: #fca5a5;
+  --warn: #fde68a;
+  --kw: #93c5fd;
+  --str: #86efac;
+  --cm: #737373;
+  --num: #fde68a;
+  --type: #c4b5fd;
+}
+* { box-sizing: border-box; }
+html { color-scheme: dark; }
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.45 ui-sans-serif, system-ui, sans-serif;
+}
+main { max-width: 72rem; min-width: 0; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+h1 { font-size: 1.5rem; font-weight: 650; letter-spacing: -0.02em; margin: 0 0 0.35rem; }
+h2 { font-size: 1.05rem; margin: 1.75rem 0 0.6rem; border-bottom: 1px solid var(--line); padding-bottom: 0.35rem; }
+h3 { font-size: 0.95rem; margin: 1.1rem 0 0.4rem; }
+p, li { color: var(--fg); }
+.lead, .meta, .muted, figcaption { color: var(--muted); }
+.meta { font-size: 0.8rem; margin-bottom: 1.25rem; }
+a { color: var(--accent); text-underline-offset: 0.16em; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
+img { max-width: 100%; height: auto; }
+.table-wrap { width: 100%; overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { text-align: left; vertical-align: top; padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 550; }
+.grid { display: grid; gap: 0.75rem; grid-template-columns: 1fr; }
+@media (min-width: 800px) {
+  .grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  .grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+}
+.panel { background: var(--panel); border: 1px solid var(--line); padding: 0.75rem; }
+.label { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.82rem; }
+pre { background: var(--panel); border: 1px solid var(--line); padding: 0.75rem; overflow: auto; }
+.add { color: var(--add); }
+.del { color: var(--del); }
+.diff-line { display: block; margin: 0 -0.75rem; padding: 0 0.75rem; border-left: 2px solid transparent; }
+.diff-line.add { color: inherit; background: rgba(134, 239, 172, 0.08); border-left-color: var(--add); }
+.diff-line.del { color: inherit; background: rgba(252, 165, 165, 0.08); border-left-color: var(--del); }
+.warn { color: var(--warn); }
+.mock { min-height: 12rem; background: #0a0a0a; border: 1px dashed var(--line); padding: 0.75rem; }
+.diagram {
+  background: #0a0a0a;
+  border: 1px solid var(--line);
+  padding: 0.75rem;
+  overflow: auto;
+  margin: 0.75rem 0 1rem;
+}
+.diagram svg { display: block; max-width: 100%; height: auto; }
+.diagram details { margin-top: 0.6rem; color: var(--muted); font-size: 0.82rem; }
+.tok-kw { color: var(--kw); }
+.tok-str { color: var(--str); }
+.tok-cm { color: var(--cm); font-style: italic; }
+.tok-num { color: var(--num); }
+.tok-type { color: var(--type); }
+.tok-op { color: var(--muted); }
+ul.toc { columns: 2; column-gap: 1.5rem; padding-left: 1.1rem; }
+@media (max-width: 700px) { ul.toc { columns: 1; } }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.callout {
+  border: 1px solid var(--line);
+  border-left-width: 2px;
+  background: var(--panel);
+  padding: 0.65rem 0.75rem;
+  margin: 0.75rem 0;
+}
+.callout.risk { border-left-color: var(--del); }
+.callout.warn { border-left-color: var(--warn); }
+.callout.ok { border-left-color: var(--add); }
+.kv {
+  display: grid;
+  grid-template-columns: minmax(7rem, 13rem) 1fr;
+  gap: 0.3rem 0.85rem;
+  margin: 0.75rem 0;
+}
+.kv dt { color: var(--muted); margin: 0; }
+.kv dd { margin: 0; }
+pre[data-lang] { tab-size: 2; }
+figure.diagram > .label { margin-bottom: 0.5rem; }
+@media print {
+  :root {
+    --bg: #fff;
+    --fg: #000;
+    --muted: #444;
+    --line: #bbb;
+    --panel: #f5f5f5;
+    --accent: #111;
+  }
+  main { max-width: none; padding: 0; }
+  a { color: inherit; }
+  .panel, .mock, .diagram, pre { break-inside: avoid; }
+}
+</style>
+  <style>
+    .hero-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(240px,.75fr);gap:18px;align-items:stretch;margin:20px 0 8px}
+    .hero-card,.metric,.callout,.mini-card{border:1px solid #272727;border-radius:14px;background:#080808}
+    .hero-card{padding:22px}.metric{padding:15px}.mini-card{padding:16px}.callout{padding:16px 18px;margin:16px 0}
+    .metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .metric strong{display:block;font-size:1.6rem;line-height:1.1}.metric span{display:block;color:#a8a8a8;margin-top:5px;font-size:.88rem}
+    .status{display:inline-flex;align-items:center;gap:8px;border:1px solid #303030;border-radius:999px;padding:6px 10px;font-size:.82rem;font-weight:700;letter-spacing:.02em}
+    .status.good{border-color:#1e5b3b;background:#06150e;color:#9cf5bf}.status.warn{border-color:#66551a;background:#171305;color:#f5db78}.status.info{border-color:#254d70;background:#07131e;color:#9bd3ff}
+    .eyebrow{font-size:.78rem;text-transform:uppercase;letter-spacing:.12em;color:#8b8b8b;font-weight:700}
+    .lede{font-size:1.08rem;line-height:1.72;color:#d8d8d8;max-width:78ch}
+    .big-verdict{font-size:2rem;line-height:1.15;margin:.45rem 0 .7rem}
+    .grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+    .role-cloud{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}.role{border:1px solid #2c2c2c;border-radius:7px;padding:5px 8px;background:#0d0d0d;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.84rem}
+    .equation{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid #353535;border-radius:10px;padding:14px;background:#050505;text-align:center;font-size:1rem;margin:14px 0}
+    .state-flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0}.state{border:1px solid #343434;border-radius:999px;padding:7px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.82rem;background:#0b0b0b}.arrow{color:#717171}
+    .path{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#d7eaff}.muted{color:#999}.good-text{color:#9cf5bf}.warn-text{color:#f5db78}
+    table.compact td,table.compact th{padding:9px 10px;vertical-align:top}.nowrap{white-space:nowrap}
+    .toc-columns{columns:2;column-gap:28px}.toc-columns li{break-inside:avoid;margin:.35rem 0}
+    .checklist li{margin:.52rem 0}.checklist strong{color:#f1f1f1}
+    .file-impact{font-size:.9rem}.file-impact td:first-child{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+    .risk{border-left:3px solid #d1ad36}.scope{border-left:3px solid #4b91c9}.success{border-left:3px solid #3f9f66}
+    .keyboard{display:inline-block;border:1px solid #3a3a3a;border-bottom-color:#666;border-radius:5px;background:#111;padding:2px 6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;white-space:nowrap}
+    .source-ref{font-size:.82rem;color:#929292;margin-top:8px}.source-ref code{color:#bfcfe0}
+    .compare-label{font-size:.76rem;text-transform:uppercase;letter-spacing:.08em;color:#8a8a8a;font-weight:700}
+    .before{border-top:2px solid #7c3737}.after{border-top:2px solid #347a52}
+    @media (max-width:850px){.hero-grid,.grid-2,.grid-3{grid-template-columns:1fr}.toc-columns{columns:1}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Implementation review / focused subagent scope</div>
+    <h1>Pi Void Subagent Redesign</h1>
+    <p class="lede">A detailed explanation of what changed in the subagent system, why the architecture changed, how authority is bounded, how <code>/agents</code> now behaves like a real agent switcher, and what has been verified before live terminal testing.</p>
+  </header>
+
+  <section class="hero-grid" aria-label="Verdict and certification summary">
+    <div class="hero-card">
+      <span class="status good">Implementation scope complete</span>
+      <h2 class="big-verdict">The redesign is complete in the agreed Pi Void subagent scope.</h2>
+      <p>The old observer-centric design has been replaced by a split runtime/display architecture. The parent stays authoritative while a selected child can be rendered through Pi's normal interactive shell, optionally taken over for steering, then finalized through a separate bounded report turn.</p>
+      <p class="muted">The remaining recommended step is live TUI dogfooding. This document does not claim the entire dirty monorepo is globally clean.</p>
+    </div>
+    <div class="metric-grid">
+      <div class="metric"><strong>12</strong><span>bundled subagent roles</span></div>
+      <div class="metric"><strong>253/253</strong><span>focused tests passing</span></div>
+      <div class="metric"><strong>6</strong><span>focused test files green</span></div>
+      <div class="metric"><strong>100%</strong><span>applicable follow-up checklist checked</span></div>
+    </div>
+  </section>
+
+  <div class="callout scope">
+    <strong>Scope boundary.</strong> The repository has many unrelated modified and untracked files. This review describes the subagent redesign only. It intentionally does not attribute unrelated worktree changes to this implementation.
+  </div>
+
+  <nav aria-label="Table of contents">
+    <h2>Contents</h2>
+    <ol class="toc-columns">
+      <li><a href="#before-after">Before and after</a></li>
+      <li><a href="#profiles">Profiles and authority</a></li>
+      <li><a href="#architecture">Runtime and display architecture</a></li>
+      <li><a href="#control">Take Control and steering</a></li>
+      <li><a href="#finalization">Final bounded report</a></li>
+      <li><a href="#history">Historical child views</a></li>
+      <li><a href="#ux">Operator UX and keybindings</a></li>
+      <li><a href="#lifecycle">Lifecycle and safety invariants</a></li>
+      <li><a href="#tests">Verification and certification</a></li>
+      <li><a href="#files">Primary files changed</a></li>
+      <li><a href="#live-test">Live test checklist</a></li>
+    </ol>
+  </nav>
+
+  <section id="before-after">
+    <h2>1. Before and after</h2>
+    <p>The most important change is conceptual: a subagent is no longer only something the parent can observe in a special transcript pane. It is now a live session that can be selected as the displayed agent while the original parent remains the runtime owner.</p>
+    <table class="compact">
+      <thead><tr><th>Theme</th><th>Before</th><th>After</th><th>Call</th></tr></thead>
+      <tbody>
+        <tr><td><strong><code>/agents</code> UX</strong></td><td>Observatory or transcript-oriented attachment.</td><td>Selecting a child can return to the normal Pi <code>InteractiveMode</code> shell with that child as the displayed session.</td><td><span class="status good">Fixed</span></td></tr>
+        <tr><td><strong>Parent ownership</strong></td><td>UI attachment and runtime ownership were not cleanly separated.</td><td><code>runtimeSession</code> is always the parent; <code>displaySession</code> is independently switchable.</td><td><span class="status good">Architectural</span></td></tr>
+        <tr><td><strong>Profiles</strong></td><td>Essentially two bundled roles and read-only assumptions.</td><td>Twelve bundled roles plus user/project profiles, aliases, diagnostics, bounded metadata, and explicit source precedence.</td><td><span class="status good">Expanded</span></td></tr>
+        <tr><td><strong>Legacy <code>model:</code></strong></td><td>Could invalidate otherwise useful profiles.</td><td>Accepted as compatibility metadata, redacted/bounded for display, ignored for routing. Child inherits the exact parent model.</td><td><span class="status good">Compatible</span></td></tr>
+        <tr><td><strong>YOLO semantics</strong></td><td>Older assumptions treated unsafe mode like a full role-flattening tool grant.</td><td>Effective tools are profile requested tools intersected with parent active tools and invocation policy.</td><td><span class="status good">Role-aware</span></td></tr>
+        <tr><td><strong>Interactive child</strong></td><td>No explicit supported child takeover.</td><td>Live children start as mirror/read-only views. <em>Take Control</em> explicitly enables child steering.</td><td><span class="status good">Added</span></td></tr>
+        <tr><td><strong>Result boundary</strong></td><td>Conversational output could conflict with the assumption that the last assistant message is the structured result.</td><td>Steered children get a separate internal final-report request; only that bounded response is parsed as the final result.</td><td><span class="status good">Hardened</span></td></tr>
+        <tr><td><strong>Completed child</strong></td><td>Live session teardown risked losing the useful inspection surface.</td><td>A bounded, redacted, immutable historical snapshot replaces the live session.</td><td><span class="status good">Retained</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="profiles">
+    <h2>2. Profiles and authority</h2>
+    <div class="grid-2">
+      <div class="mini-card after">
+        <div class="compare-label">What changed</div>
+        <h3>Profiles are expressive again</h3>
+        <p>The bundled role set now covers exploration, planning, implementation, testing, review, security, debugging, documentation, performance work, and refactoring. Configurable profiles can request broader built-in capabilities without those requests automatically becoming authority.</p>
+        <div class="role-cloud">
+          <span class="role">explore</span><span class="role">scout</span><span class="role">planner</span><span class="role">coder</span><span class="role">worker</span><span class="role">tester</span><span class="role">review</span><span class="role">security</span><span class="role">debugger</span><span class="role">documenter</span><span class="role">performance</span><span class="role">refactor</span>
+        </div>
+        <div class="source-ref">Source: <code>packages/coding-agent/src/piv-subagents.ts:366+</code></div>
+      </div>
+      <div class="mini-card after">
+        <div class="compare-label">Resolution rule</div>
+        <h3>Precedence is deterministic</h3>
+        <p>Exact configured names resolve before aliases, and trusted project configuration can intentionally specialize a standard role.</p>
+        <div class="equation">trusted project &gt; user &gt; bundled &gt; alias &gt; fuzzy suggestion</div>
+        <p class="muted">Untrusted project definitions remain non-authoritative. Profile source does not bypass execution policy.</p>
+        <div class="source-ref">Source: <code>packages/coding-agent/src/piv-subagents.ts:2582-2594</code></div>
+      </div>
+    </div>
+
+    <h3>Aliases preserve familiar role names</h3>
+    <table class="compact">
+      <thead><tr><th>Alias</th><th>Canonical role</th><th>Alias</th><th>Canonical role</th></tr></thead>
+      <tbody>
+        <tr><td><code>explorer</code></td><td><code>explore</code></td><td><code>researcher</code></td><td><code>explore</code></td></tr>
+        <tr><td><code>code-review</code></td><td><code>review</code></td><td><code>test</code>, <code>testing</code></td><td><code>tester</code></td></tr>
+        <tr><td><code>developer</code></td><td><code>coder</code></td><td><code>docs</code>, <code>documentation</code></td><td><code>documenter</code></td></tr>
+      </tbody>
+    </table>
+    <div class="source-ref">Source: <code>packages/coding-agent/src/piv-subagents.ts:366-375</code></div>
+
+    <h3>Profile intent and runtime authority are separate</h3>
+    <p>A profile's <code>requestedTools</code> says what the role is designed to use. The actual child gets only what the current parent invocation can grant.</p>
+    <div class="equation">effective tools = requested tools ∩ parent active tools ∩ invocation policy</div>
+    <pre data-lang="ts"><code>export function deriveEffectiveSubagentTools(options) {
+  const parentTools = new Set(options.parentActiveTools);
+  const requestedTools = new Set(options.requestedTools);
+  const allowedTools = options.unsafeHostExec
+    ? SUBAGENT_REQUESTED_TOOL_NAMES
+    : SUBAGENT_TOOL_NAMES;
+
+  return allowedTools.filter(
+    (tool) =&gt; parentTools.has(tool) &amp;&amp; requestedTools.has(tool),
+  );
+}</code></pre>
+    <p>This fixes the dangerous conceptual shortcut that "YOLO means every role gets every parent tool." An <code>explore</code> profile that requests only read capabilities remains read-oriented. A <code>coder</code> or <code>tester</code> can receive mutation or Bash capabilities only when the profile requests them and the trusted parent invocation is authorized to provide them.</p>
+    <div class="source-ref">Source: <code>packages/coding-agent/src/piv-subagents.ts:2955-2960</code>, native session enforcement around <code>:3998-4014</code>.</div>
+
+    <h3>Legacy model metadata no longer breaks profiles</h3>
+    <p>The profile schema now stores <code>requestedModel</code> only as compatibility metadata and fixes the policy to <code>inherit-parent</code>. If a profile contains a legacy <code>model:</code> key, it receives a diagnostic instead of controlling routing:</p>
+    <pre data-lang="ts"><code>if (frontmatter.model !== undefined) {
+  if (typeof frontmatter.model === "string" &amp;&amp; frontmatter.model.trim()) {
+    requestedModel = redactCredentialText(frontmatter.model.trim()).slice(0, 256);
+  }
+  diagnostics.push(
+    "configured model ignored; child inherits the current parent model",
+  );
+}
+
+// ...
+modelPolicy: "inherit-parent"</code></pre>
+    <p>The child therefore always uses the model object captured from the active parent invocation. Profile files cannot silently route work to a different provider/model.</p>
+    <div class="source-ref">Source: <code>packages/coding-agent/src/piv-subagents.ts:1416-1423, 1457-1459</code>.</div>
+  </section>
+
+  <section id="architecture">
+    <h2>3. Runtime and display architecture</h2>
+    <div class="callout success"><strong>Core invariant:</strong> selecting a subagent changes what the user sees, not who owns the Pi runtime.</div>
+    <p>The redesign introduces a PIV-only <code>PivAgentViewBridge</code>. The bridge knows the authoritative parent, live child sessions, historical child snapshots, current displayed view, per-view UI state, and interaction mode. It does not replace <code>AgentSessionRuntime.session</code>.</p>
+
+    <figure class="diagram">
+  <figcaption class="label">Live child selection, steering, finalization, and history</figcaption>
+  <svg id="mermaid-svg" width="100%" xmlns="http://www.w3.org/2000/svg" style="max-width: 1600.5px;" viewBox="-50 -10 1600.5 1068" role="graphics-document document" aria-roledescription="sequence" xmlns:xlink="http://www.w3.org/1999/xlink"><g><rect x="1311" y="982" fill="#eaeaea" stroke="#666" width="170" height="65" name="Runner" rx="3" ry="3" class="actor actor-bottom"/><text x="1396" y="1014.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="1396" dy="0">NativeSubagentRunner</tspan></text></g><g><rect x="1005" y="982" fill="#eaeaea" stroke="#666" width="176" height="65" name="Child" rx="3" ry="3" class="actor actor-bottom"/><text x="1093" y="1014.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="1093" dy="0">Live child AgentSession</tspan></text></g><g><rect x="702.5" y="982" fill="#eaeaea" stroke="#666" width="161" height="65" name="Shell" rx="3" ry="3" class="actor actor-bottom"/><text x="783" y="1014.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="783" dy="0">InteractiveMode shell</tspan></text></g><g><rect x="457" y="982" fill="#eaeaea" stroke="#666" width="158" height="65" name="Bridge" rx="3" ry="3" class="actor actor-bottom"/><text x="536" y="1014.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="536" dy="0">PivAgentViewBridge</tspan></text></g><g><rect x="200" y="982" fill="#eaeaea" stroke="#666" width="207" height="65" name="Parent" rx="3" ry="3" class="actor actor-bottom"/><text x="303.5" y="1014.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="303.5" dy="0">Parent AgentSessionRuntime</tspan></text></g><g/><g><line id="actor5" x1="1396" y1="65" x2="1396" y2="982" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="Runner" data-et="life-line" data-id="Runner"/><g id="root-5" data-et="participant" data-type="participant" data-id="Runner"><rect x="1311" y="0" fill="#eaeaea" stroke="#666" width="170" height="65" name="Runner" rx="3" ry="3" class="actor actor-top"/><text x="1396" y="32.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="1396" dy="0">NativeSubagentRunner</tspan></text></g></g><g><line id="actor4" x1="1093" y1="65" x2="1093" y2="982" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="Child" data-et="life-line" data-id="Child"/><g id="root-4" data-et="participant" data-type="participant" data-id="Child"><rect x="1005" y="0" fill="#eaeaea" stroke="#666" width="176" height="65" name="Child" rx="3" ry="3" class="actor actor-top"/><text x="1093" y="32.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="1093" dy="0">Live child AgentSession</tspan></text></g></g><g><line id="actor3" x1="783" y1="65" x2="783" y2="982" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="Shell" data-et="life-line" data-id="Shell"/><g id="root-3" data-et="participant" data-type="participant" data-id="Shell"><rect x="702.5" y="0" fill="#eaeaea" stroke="#666" width="161" height="65" name="Shell" rx="3" ry="3" class="actor actor-top"/><text x="783" y="32.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="783" dy="0">InteractiveMode shell</tspan></text></g></g><g><line id="actor2" x1="536" y1="65" x2="536" y2="982" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="Bridge" data-et="life-line" data-id="Bridge"/><g id="root-2" data-et="participant" data-type="participant" data-id="Bridge"><rect x="457" y="0" fill="#eaeaea" stroke="#666" width="158" height="65" name="Bridge" rx="3" ry="3" class="actor actor-top"/><text x="536" y="32.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="536" dy="0">PivAgentViewBridge</tspan></text></g></g><g><line id="actor1" x1="303.5" y1="65" x2="303.5" y2="982" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="Parent" data-et="life-line" data-id="Parent"/><g id="root-1" data-et="participant" data-type="participant" data-id="Parent"><rect x="200" y="0" fill="#eaeaea" stroke="#666" width="207" height="65" name="Parent" rx="3" ry="3" class="actor actor-top"/><text x="303.5" y="32.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-box" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="303.5" dy="0">Parent AgentSessionRuntime</tspan></text></g></g><g><line id="actor0" x1="75" y1="80" x2="75" y2="982" class="actor-line 200" stroke-width="0.5px" stroke="#999" name="User" data-et="life-line" data-id="User"/></g><style>#mermaid-svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;fill:#ccc;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#mermaid-svg .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#mermaid-svg .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#mermaid-svg .error-icon{fill:#a44141;}#mermaid-svg .error-text{fill:#ddd;stroke:#ddd;}#mermaid-svg .edge-thickness-normal{stroke-width:1px;}#mermaid-svg .edge-thickness-thick{stroke-width:3.5px;}#mermaid-svg .edge-pattern-solid{stroke-dasharray:0;}#mermaid-svg .edge-thickness-invisible{stroke-width:0;fill:none;}#mermaid-svg .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-svg .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-svg .marker{fill:#a3a3a3;stroke:#a3a3a3;}#mermaid-svg .marker.cross{stroke:#a3a3a3;}#mermaid-svg svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;}#mermaid-svg p{margin:0;}#mermaid-svg .actor{stroke:#ccc;fill:#111111;stroke-width:1;}#mermaid-svg rect.actor.outer-path[data-look="neo"]{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-svg rect.note[data-look="neo"]{stroke:hsl(180, 0%, 18.3529411765%);fill:hsl(0, 0%, 22.6666666667%);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-svg text.actor&gt;tspan{fill:lightgrey;stroke:none;}#mermaid-svg .actor-line{stroke:#ccc;}#mermaid-svg .innerArc{stroke-width:1.5;stroke-dasharray:none;}#mermaid-svg .messageLine0{stroke-width:1.5;stroke-dasharray:none;stroke:lightgrey;}#mermaid-svg .messageLine1{stroke-width:1.5;stroke-dasharray:2,2;stroke:lightgrey;}#mermaid-svg [id$="-arrowhead"] path{fill:lightgrey;stroke:lightgrey;}#mermaid-svg .sequenceNumber{fill:black;}#mermaid-svg [id$="-sequencenumber"]{fill:lightgrey;}#mermaid-svg [id$="-crosshead"] path{fill:lightgrey;stroke:lightgrey;}#mermaid-svg .messageText{fill:lightgrey;stroke:none;}#mermaid-svg .labelBox{stroke:#ccc;fill:#111111;filter:none;}#mermaid-svg .labelText,#mermaid-svg .labelText&gt;tspan{fill:lightgrey;stroke:none;}#mermaid-svg .loopText,#mermaid-svg .loopText&gt;tspan{fill:lightgrey;stroke:none;}#mermaid-svg .sectionTitle,#mermaid-svg .sectionTitle&gt;tspan{fill:lightgrey;stroke:none;}#mermaid-svg .loopLine{stroke-width:2px;stroke-dasharray:2,2;stroke:#ccc;fill:#ccc;}#mermaid-svg .note{stroke:hsl(180, 0%, 18.3529411765%);fill:hsl(0, 0%, 22.6666666667%);}#mermaid-svg .noteText,#mermaid-svg .noteText&gt;tspan{fill:rgb(183.8476190475, 181.5523809523, 181.5523809523);stroke:none;font-weight:normal;}#mermaid-svg .activation0{fill:hsl(0, 0%, 22.6666666667%);stroke:#ccc;}#mermaid-svg .activation1{fill:hsl(0, 0%, 22.6666666667%);stroke:#ccc;}#mermaid-svg .activation2{fill:hsl(0, 0%, 22.6666666667%);stroke:#ccc;}#mermaid-svg .actorPopupMenu{position:absolute;}#mermaid-svg .actorPopupMenuPanel{position:absolute;fill:#111111;box-shadow:0px 8px 16px 0px rgba(0,0,0,0.2);filter:drop-shadow(3px 5px 2px rgb(0 0 0 / 0.4));}#mermaid-svg .actor-man circle,#mermaid-svg line{fill:#111111;stroke-width:2px;}#mermaid-svg g rect.rect{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));stroke:#525252;}#mermaid-svg .node .neo-node{stroke:#525252;}#mermaid-svg [data-look="neo"].node rect,#mermaid-svg [data-look="neo"].cluster rect,#mermaid-svg [data-look="neo"].node polygon{stroke:url(#mermaid-svg-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-svg [data-look="neo"].swimlane.cluster rect{filter:none;}#mermaid-svg [data-look="neo"].node path{stroke:url(#mermaid-svg-gradient);stroke-width:1px;}#mermaid-svg [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-svg [data-look="neo"].node .neo-line path{stroke:#525252;filter:none;}#mermaid-svg [data-look="neo"].node circle{stroke:url(#mermaid-svg-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-svg [data-look="neo"].node circle .state-start{fill:#000000;}#mermaid-svg [data-look="neo"].icon-shape .icon{fill:url(#mermaid-svg-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-svg [data-look="neo"].icon-shape .icon-neo path{stroke:url(#mermaid-svg-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#mermaid-svg :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g/><defs><symbol id="mermaid-svg-computer" width="24" height="24"><path transform="scale(.5)" d="M2 2v13h20v-13h-20zm18 11h-16v-9h16v9zm-10.228 6l.466-1h3.524l.467 1h-4.457zm14.228 3h-24l2-6h2.104l-1.33 4h18.45l-1.297-4h2.073l2 6zm-5-10h-14v-7h14v7z"/></symbol></defs><defs><symbol id="mermaid-svg-database" fill-rule="evenodd" clip-rule="evenodd"><path transform="scale(.5)" d="M12.258.001l.256.004.255.005.253.008.251.01.249.012.247.015.246.016.242.019.241.02.239.023.236.024.233.027.231.028.229.031.225.032.223.034.22.036.217.038.214.04.211.041.208.043.205.045.201.046.198.048.194.05.191.051.187.053.183.054.18.056.175.057.172.059.168.06.163.061.16.063.155.064.15.066.074.033.073.033.071.034.07.034.069.035.068.035.067.035.066.035.064.036.064.036.062.036.06.036.06.037.058.037.058.037.055.038.055.038.053.038.052.038.051.039.05.039.048.039.047.039.045.04.044.04.043.04.041.04.04.041.039.041.037.041.036.041.034.041.033.042.032.042.03.042.029.042.027.042.026.043.024.043.023.043.021.043.02.043.018.044.017.043.015.044.013.044.012.044.011.045.009.044.007.045.006.045.004.045.002.045.001.045v17l-.001.045-.002.045-.004.045-.006.045-.007.045-.009.044-.011.045-.012.044-.013.044-.015.044-.017.043-.018.044-.02.043-.021.043-.023.043-.024.043-.026.043-.027.042-.029.042-.03.042-.032.042-.033.042-.034.041-.036.041-.037.041-.039.041-.04.041-.041.04-.043.04-.044.04-.045.04-.047.039-.048.039-.05.039-.051.039-.052.038-.053.038-.055.038-.055.038-.058.037-.058.037-.06.037-.06.036-.062.036-.064.036-.064.036-.066.035-.067.035-.068.035-.069.035-.07.034-.071.034-.073.033-.074.033-.15.066-.155.064-.16.063-.163.061-.168.06-.172.059-.175.057-.18.056-.183.054-.187.053-.191.051-.194.05-.198.048-.201.046-.205.045-.208.043-.211.041-.214.04-.217.038-.22.036-.223.034-.225.032-.229.031-.231.028-.233.027-.236.024-.239.023-.241.02-.242.019-.246.016-.247.015-.249.012-.251.01-.253.008-.255.005-.256.004-.258.001-.258-.001-.256-.004-.255-.005-.253-.008-.251-.01-.249-.012-.247-.015-.245-.016-.243-.019-.241-.02-.238-.023-.236-.024-.234-.027-.231-.028-.228-.031-.226-.032-.223-.034-.22-.036-.217-.038-.214-.04-.211-.041-.208-.043-.204-.045-.201-.046-.198-.048-.195-.05-.19-.051-.187-.053-.184-.054-.179-.056-.176-.057-.172-.059-.167-.06-.164-.061-.159-.063-.155-.064-.151-.066-.074-.033-.072-.033-.072-.034-.07-.034-.069-.035-.068-.035-.067-.035-.066-.035-.064-.036-.063-.036-.062-.036-.061-.036-.06-.037-.058-.037-.057-.037-.056-.038-.055-.038-.053-.038-.052-.038-.051-.039-.049-.039-.049-.039-.046-.039-.046-.04-.044-.04-.043-.04-.041-.04-.04-.041-.039-.041-.037-.041-.036-.041-.034-.041-.033-.042-.032-.042-.03-.042-.029-.042-.027-.042-.026-.043-.024-.043-.023-.043-.021-.043-.02-.043-.018-.044-.017-.043-.015-.044-.013-.044-.012-.044-.011-.045-.009-.044-.007-.045-.006-.045-.004-.045-.002-.045-.001-.045v-17l.001-.045.002-.045.004-.045.006-.045.007-.045.009-.044.011-.045.012-.044.013-.044.015-.044.017-.043.018-.044.02-.043.021-.043.023-.043.024-.043.026-.043.027-.042.029-.042.03-.042.032-.042.033-.042.034-.041.036-.041.037-.041.039-.041.04-.041.041-.04.043-.04.044-.04.046-.04.046-.039.049-.039.049-.039.051-.039.052-.038.053-.038.055-.038.056-.038.057-.037.058-.037.06-.037.061-.036.062-.036.063-.036.064-.036.066-.035.067-.035.068-.035.069-.035.07-.034.072-.034.072-.033.074-.033.151-.066.155-.064.159-.063.164-.061.167-.06.172-.059.176-.057.179-.056.184-.054.187-.053.19-.051.195-.05.198-.048.201-.046.204-.045.208-.043.211-.041.214-.04.217-.038.22-.036.223-.034.226-.032.228-.031.231-.028.234-.027.236-.024.238-.023.241-.02.243-.019.245-.016.247-.015.249-.012.251-.01.253-.008.255-.005.256-.004.258-.001.258.001zm-9.258 20.499v.01l.001.021.003.021.004.022.005.021.006.022.007.022.009.023.01.022.011.023.012.023.013.023.015.023.016.024.017.023.018.024.019.024.021.024.022.025.023.024.024.025.052.049.056.05.061.051.066.051.07.051.075.051.079.052.084.052.088.052.092.052.097.052.102.051.105.052.11.052.114.051.119.051.123.051.127.05.131.05.135.05.139.048.144.049.147.047.152.047.155.047.16.045.163.045.167.043.171.043.176.041.178.041.183.039.187.039.19.037.194.035.197.035.202.033.204.031.209.03.212.029.216.027.219.025.222.024.226.021.23.02.233.018.236.016.24.015.243.012.246.01.249.008.253.005.256.004.259.001.26-.001.257-.004.254-.005.25-.008.247-.011.244-.012.241-.014.237-.016.233-.018.231-.021.226-.021.224-.024.22-.026.216-.027.212-.028.21-.031.205-.031.202-.034.198-.034.194-.036.191-.037.187-.039.183-.04.179-.04.175-.042.172-.043.168-.044.163-.045.16-.046.155-.046.152-.047.148-.048.143-.049.139-.049.136-.05.131-.05.126-.05.123-.051.118-.052.114-.051.11-.052.106-.052.101-.052.096-.052.092-.052.088-.053.083-.051.079-.052.074-.052.07-.051.065-.051.06-.051.056-.05.051-.05.023-.024.023-.025.021-.024.02-.024.019-.024.018-.024.017-.024.015-.023.014-.024.013-.023.012-.023.01-.023.01-.022.008-.022.006-.022.006-.022.004-.022.004-.021.001-.021.001-.021v-4.127l-.077.055-.08.053-.083.054-.085.053-.087.052-.09.052-.093.051-.095.05-.097.05-.1.049-.102.049-.105.048-.106.047-.109.047-.111.046-.114.045-.115.045-.118.044-.12.043-.122.042-.124.042-.126.041-.128.04-.13.04-.132.038-.134.038-.135.037-.138.037-.139.035-.142.035-.143.034-.144.033-.147.032-.148.031-.15.03-.151.03-.153.029-.154.027-.156.027-.158.026-.159.025-.161.024-.162.023-.163.022-.165.021-.166.02-.167.019-.169.018-.169.017-.171.016-.173.015-.173.014-.175.013-.175.012-.177.011-.178.01-.179.008-.179.008-.181.006-.182.005-.182.004-.184.003-.184.002h-.37l-.184-.002-.184-.003-.182-.004-.182-.005-.181-.006-.179-.008-.179-.008-.178-.01-.176-.011-.176-.012-.175-.013-.173-.014-.172-.015-.171-.016-.17-.017-.169-.018-.167-.019-.166-.02-.165-.021-.163-.022-.162-.023-.161-.024-.159-.025-.157-.026-.156-.027-.155-.027-.153-.029-.151-.03-.15-.03-.148-.031-.146-.032-.145-.033-.143-.034-.141-.035-.14-.035-.137-.037-.136-.037-.134-.038-.132-.038-.13-.04-.128-.04-.126-.041-.124-.042-.122-.042-.12-.044-.117-.043-.116-.045-.113-.045-.112-.046-.109-.047-.106-.047-.105-.048-.102-.049-.1-.049-.097-.05-.095-.05-.093-.052-.09-.051-.087-.052-.085-.053-.083-.054-.08-.054-.077-.054v4.127zm0-5.654v.011l.001.021.003.021.004.021.005.022.006.022.007.022.009.022.01.022.011.023.012.023.013.023.015.024.016.023.017.024.018.024.019.024.021.024.022.024.023.025.024.024.052.05.056.05.061.05.066.051.07.051.075.052.079.051.084.052.088.052.092.052.097.052.102.052.105.052.11.051.114.051.119.052.123.05.127.051.131.05.135.049.139.049.144.048.147.048.152.047.155.046.16.045.163.045.167.044.171.042.176.042.178.04.183.04.187.038.19.037.194.036.197.034.202.033.204.032.209.03.212.028.216.027.219.025.222.024.226.022.23.02.233.018.236.016.24.014.243.012.246.01.249.008.253.006.256.003.259.001.26-.001.257-.003.254-.006.25-.008.247-.01.244-.012.241-.015.237-.016.233-.018.231-.02.226-.022.224-.024.22-.025.216-.027.212-.029.21-.03.205-.032.202-.033.198-.035.194-.036.191-.037.187-.039.183-.039.179-.041.175-.042.172-.043.168-.044.163-.045.16-.045.155-.047.152-.047.148-.048.143-.048.139-.05.136-.049.131-.05.126-.051.123-.051.118-.051.114-.052.11-.052.106-.052.101-.052.096-.052.092-.052.088-.052.083-.052.079-.052.074-.051.07-.052.065-.051.06-.05.056-.051.051-.049.023-.025.023-.024.021-.025.02-.024.019-.024.018-.024.017-.024.015-.023.014-.023.013-.024.012-.022.01-.023.01-.023.008-.022.006-.022.006-.022.004-.021.004-.022.001-.021.001-.021v-4.139l-.077.054-.08.054-.083.054-.085.052-.087.053-.09.051-.093.051-.095.051-.097.05-.1.049-.102.049-.105.048-.106.047-.109.047-.111.046-.114.045-.115.044-.118.044-.12.044-.122.042-.124.042-.126.041-.128.04-.13.039-.132.039-.134.038-.135.037-.138.036-.139.036-.142.035-.143.033-.144.033-.147.033-.148.031-.15.03-.151.03-.153.028-.154.028-.156.027-.158.026-.159.025-.161.024-.162.023-.163.022-.165.021-.166.02-.167.019-.169.018-.169.017-.171.016-.173.015-.173.014-.175.013-.175.012-.177.011-.178.009-.179.009-.179.007-.181.007-.182.005-.182.004-.184.003-.184.002h-.37l-.184-.002-.184-.003-.182-.004-.182-.005-.181-.007-.179-.007-.179-.009-.178-.009-.176-.011-.176-.012-.175-.013-.173-.014-.172-.015-.171-.016-.17-.017-.169-.018-.167-.019-.166-.02-.165-.021-.163-.022-.162-.023-.161-.024-.159-.025-.157-.026-.156-.027-.155-.028-.153-.028-.151-.03-.15-.03-.148-.031-.146-.033-.145-.033-.143-.033-.141-.035-.14-.036-.137-.036-.136-.037-.134-.038-.132-.039-.13-.039-.128-.04-.126-.041-.124-.042-.122-.043-.12-.043-.117-.044-.116-.044-.113-.046-.112-.046-.109-.046-.106-.047-.105-.048-.102-.049-.1-.049-.097-.05-.095-.051-.093-.051-.09-.051-.087-.053-.085-.052-.083-.054-.08-.054-.077-.054v4.139zm0-5.666v.011l.001.02.003.022.004.021.005.022.006.021.007.022.009.023.01.022.011.023.012.023.013.023.015.023.016.024.017.024.018.023.019.024.021.025.022.024.023.024.024.025.052.05.056.05.061.05.066.051.07.051.075.052.079.051.084.052.088.052.092.052.097.052.102.052.105.051.11.052.114.051.119.051.123.051.127.05.131.05.135.05.139.049.144.048.147.048.152.047.155.046.16.045.163.045.167.043.171.043.176.042.178.04.183.04.187.038.19.037.194.036.197.034.202.033.204.032.209.03.212.028.216.027.219.025.222.024.226.021.23.02.233.018.236.017.24.014.243.012.246.01.249.008.253.006.256.003.259.001.26-.001.257-.003.254-.006.25-.008.247-.01.244-.013.241-.014.237-.016.233-.018.231-.02.226-.022.224-.024.22-.025.216-.027.212-.029.21-.03.205-.032.202-.033.198-.035.194-.036.191-.037.187-.039.183-.039.179-.041.175-.042.172-.043.168-.044.163-.045.16-.045.155-.047.152-.047.148-.048.143-.049.139-.049.136-.049.131-.051.126-.05.123-.051.118-.052.114-.051.11-.052.106-.052.101-.052.096-.052.092-.052.088-.052.083-.052.079-.052.074-.052.07-.051.065-.051.06-.051.056-.05.051-.049.023-.025.023-.025.021-.024.02-.024.019-.024.018-.024.017-.024.015-.023.014-.024.013-.023.012-.023.01-.022.01-.023.008-.022.006-.022.006-.022.004-.022.004-.021.001-.021.001-.021v-4.153l-.077.054-.08.054-.083.053-.085.053-.087.053-.09.051-.093.051-.095.051-.097.05-.1.049-.102.048-.105.048-.106.048-.109.046-.111.046-.114.046-.115.044-.118.044-.12.043-.122.043-.124.042-.126.041-.128.04-.13.039-.132.039-.134.038-.135.037-.138.036-.139.036-.142.034-.143.034-.144.033-.147.032-.148.032-.15.03-.151.03-.153.028-.154.028-.156.027-.158.026-.159.024-.161.024-.162.023-.163.023-.165.021-.166.02-.167.019-.169.018-.169.017-.171.016-.173.015-.173.014-.175.013-.175.012-.177.01-.178.01-.179.009-.179.007-.181.006-.182.006-.182.004-.184.003-.184.001-.185.001-.185-.001-.184-.001-.184-.003-.182-.004-.182-.006-.181-.006-.179-.007-.179-.009-.178-.01-.176-.01-.176-.012-.175-.013-.173-.014-.172-.015-.171-.016-.17-.017-.169-.018-.167-.019-.166-.02-.165-.021-.163-.023-.162-.023-.161-.024-.159-.024-.157-.026-.156-.027-.155-.028-.153-.028-.151-.03-.15-.03-.148-.032-.146-.032-.145-.033-.143-.034-.141-.034-.14-.036-.137-.036-.136-.037-.134-.038-.132-.039-.13-.039-.128-.041-.126-.041-.124-.041-.122-.043-.12-.043-.117-.044-.116-.044-.113-.046-.112-.046-.109-.046-.106-.048-.105-.048-.102-.048-.1-.05-.097-.049-.095-.051-.093-.051-.09-.052-.087-.052-.085-.053-.083-.053-.08-.054-.077-.054v4.153zm8.74-8.179l-.257.004-.254.005-.25.008-.247.011-.244.012-.241.014-.237.016-.233.018-.231.021-.226.022-.224.023-.22.026-.216.027-.212.028-.21.031-.205.032-.202.033-.198.034-.194.036-.191.038-.187.038-.183.04-.179.041-.175.042-.172.043-.168.043-.163.045-.16.046-.155.046-.152.048-.148.048-.143.048-.139.049-.136.05-.131.05-.126.051-.123.051-.118.051-.114.052-.11.052-.106.052-.101.052-.096.052-.092.052-.088.052-.083.052-.079.052-.074.051-.07.052-.065.051-.06.05-.056.05-.051.05-.023.025-.023.024-.021.024-.02.025-.019.024-.018.024-.017.023-.015.024-.014.023-.013.023-.012.023-.01.023-.01.022-.008.022-.006.023-.006.021-.004.022-.004.021-.001.021-.001.021.001.021.001.021.004.021.004.022.006.021.006.023.008.022.01.022.01.023.012.023.013.023.014.023.015.024.017.023.018.024.019.024.02.025.021.024.023.024.023.025.051.05.056.05.06.05.065.051.07.052.074.051.079.052.083.052.088.052.092.052.096.052.101.052.106.052.11.052.114.052.118.051.123.051.126.051.131.05.136.05.139.049.143.048.148.048.152.048.155.046.16.046.163.045.168.043.172.043.175.042.179.041.183.04.187.038.191.038.194.036.198.034.202.033.205.032.21.031.212.028.216.027.22.026.224.023.226.022.231.021.233.018.237.016.241.014.244.012.247.011.25.008.254.005.257.004.26.001.26-.001.257-.004.254-.005.25-.008.247-.011.244-.012.241-.014.237-.016.233-.018.231-.021.226-.022.224-.023.22-.026.216-.027.212-.028.21-.031.205-.032.202-.033.198-.034.194-.036.191-.038.187-.038.183-.04.179-.041.175-.042.172-.043.168-.043.163-.045.16-.046.155-.046.152-.048.148-.048.143-.048.139-.049.136-.05.131-.05.126-.051.123-.051.118-.051.114-.052.11-.052.106-.052.101-.052.096-.052.092-.052.088-.052.083-.052.079-.052.074-.051.07-.052.065-.051.06-.05.056-.05.051-.05.023-.025.023-.024.021-.024.02-.025.019-.024.018-.024.017-.023.015-.024.014-.023.013-.023.012-.023.01-.023.01-.022.008-.022.006-.023.006-.021.004-.022.004-.021.001-.021.001-.021-.001-.021-.001-.021-.004-.021-.004-.022-.006-.021-.006-.023-.008-.022-.01-.022-.01-.023-.012-.023-.013-.023-.014-.023-.015-.024-.017-.023-.018-.024-.019-.024-.02-.025-.021-.024-.023-.024-.023-.025-.051-.05-.056-.05-.06-.05-.065-.051-.07-.052-.074-.051-.079-.052-.083-.052-.088-.052-.092-.052-.096-.052-.101-.052-.106-.052-.11-.052-.114-.052-.118-.051-.123-.051-.126-.051-.131-.05-.136-.05-.139-.049-.143-.048-.148-.048-.152-.048-.155-.046-.16-.046-.163-.045-.168-.043-.172-.043-.175-.042-.179-.041-.183-.04-.187-.038-.191-.038-.194-.036-.198-.034-.202-.033-.205-.032-.21-.031-.212-.028-.216-.027-.22-.026-.224-.023-.226-.022-.231-.021-.233-.018-.237-.016-.241-.014-.244-.012-.247-.011-.25-.008-.254-.005-.257-.004-.26-.001-.26.001z"/></symbol></defs><defs><symbol id="mermaid-svg-clock" width="24" height="24"><path transform="scale(.5)" d="M12 2c5.514 0 10 4.486 10 10s-4.486 10-10 10-10-4.486-10-10 4.486-10 10-10zm0-2c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm5.848 12.459c.202.038.202.333.001.372-1.907.361-6.045 1.111-6.547 1.111-.719 0-1.301-.582-1.301-1.301 0-.512.77-5.447 1.125-7.445.034-.192.312-.181.343.014l.985 6.238 5.394 1.011z"/></symbol></defs><defs><marker id="mermaid-svg-arrowhead" refX="7.9" refY="5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M -1 0 L 10 5 L 0 10 z"/></marker></defs><defs><marker id="mermaid-svg-crosshead" markerWidth="15" markerHeight="8" orient="auto" refX="4" refY="4.5"><path fill="none" stroke="#000000" stroke-width="1pt" d="M 1,2 L 6,7 M 6,2 L 1,7" style="stroke-dasharray: 0, 0;"/></marker></defs><defs><marker id="mermaid-svg-filled-head" refX="15.5" refY="7" markerWidth="20" markerHeight="28" orient="auto"><path d="M 18,7 L9,13 L14,7 L9,1 Z"/></marker></defs><defs><marker id="mermaid-svg-sequencenumber" refX="15" refY="15" markerWidth="60" markerHeight="40" orient="auto"><circle cx="15" cy="15" r="6"/></marker></defs><defs><marker id="mermaid-svg-solidTopArrowHead" refX="7.9" refY="7.25" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M 0 0 L 10 8 L 0 8 z"/></marker></defs><defs><marker id="mermaid-svg-solidBottomArrowHead" refX="7.9" refY="0.75" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M 0 0 L 10 0 L 0 8 z"/></marker></defs><defs><marker id="mermaid-svg-stickTopArrowHead" refX="7.5" refY="7" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M 0 0 L 7 7" stroke="black" stroke-width="1.5" fill="none"/></marker></defs><defs><marker id="mermaid-svg-stickBottomArrowHead" refX="7.5" refY="0" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M 0 7 L 7 0" stroke="black" stroke-width="1.5" fill="none"/></marker></defs><g data-et="note" data-id="i4"><rect x="278.5" y="211" fill="#EDF2AE" stroke="#666" width="529.5" height="37" class="note"/><text x="543" y="216" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="noteText" dy="1em" style="font-size: 16px; font-weight: 400;"><tspan x="543">Parent runtime remains authoritative</tspan></text></g><g class="actor-man actor-top" name="User" data-et="participant" data-type="actor" data-id="User" style="stroke: rgb(204, 204, 204);"><line id="actor-man-torso0" x1="75" y1="25" x2="75" y2="45"/><line id="actor-man-arms0" x1="57" y1="33" x2="93" y2="33"/><line x1="57" y1="60" x2="75" y2="45"/><line x1="75" y1="45" x2="91" y2="60"/><circle cx="75" cy="10" r="15" width="150" height="65"/><text x="75" y="67.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-man" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="75" dy="0">User</tspan></text></g><text x="188" y="80" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">/agents</text><line x1="82" y1="111" x2="299.5" y2="111" class="messageLine0" data-et="message" data-id="i1" data-from="User" data-to="Parent" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="75" y1="111" x2="75" y2="111" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="75" y="115" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">1</text><text x="304" y="126" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">select live child</text><line x1="82" y1="155" x2="532" y2="155" class="messageLine0" data-et="message" data-id="i2" data-from="User" data-to="Bridge" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="75" y1="155" x2="75" y2="155" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="75" y="159" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">2</text><text x="658" y="170" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">requestDisplay(child runId)</text><line x1="543" y1="201" x2="779" y2="201" class="messageLine0" data-et="message" data-id="i3" data-from="Bridge" data-to="Shell" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="536" y1="201" x2="536" y2="201" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="536" y="205" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">3</text><text x="937" y="263" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">bind display, footer, transcript, events</text><line x1="790" y1="294" x2="1089" y2="294" class="messageLine0" data-et="message" data-id="i5" data-from="Shell" data-to="Child" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="783" y1="294" x2="783" y2="294" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="783" y="298" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">4</text><text x="940" y="309" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">thinking, messages, tool events</text><line x1="1098" y1="340" x2="787" y2="340" class="messageLine1" data-et="message" data-id="i6" data-from="Child" data-to="Shell" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="stroke-dasharray: 3, 3; fill: none;"/><line x1="1093" y1="340" x2="1093" y2="340" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="1093" y="344" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">5</text><text x="304" y="355" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">Take Control</text><line x1="82" y1="384" x2="532" y2="384" class="messageLine0" data-et="message" data-id="i7" data-from="User" data-to="Bridge" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="75" y1="384" x2="75" y2="384" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="75" y="388" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">6</text><text x="813" y="399" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">setControlled(true)</text><line x1="543" y1="430" x2="1089" y2="430" class="messageLine0" data-et="message" data-id="i8" data-from="Bridge" data-to="Child" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="536" y1="430" x2="536" y2="430" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="536" y="434" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">7</text><text x="428" y="445" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">steering message</text><line x1="82" y1="476" x2="779" y2="476" class="messageLine0" data-et="message" data-id="i9" data-from="User" data-to="Shell" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="75" y1="476" x2="75" y2="476" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="75" y="480" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">8</text><text x="661" y="491" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">sendInput(child, text)</text><line x1="788" y1="522" x2="540" y2="522" class="messageLine0" data-et="message" data-id="i10" data-from="Shell" data-to="Bridge" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="783" y1="522" x2="783" y2="522" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="783" y="526" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">9</text><text x="813" y="537" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">AgentSession.prompt(... steer when streaming)</text><line x1="543" y1="568" x2="1089" y2="568" class="messageLine0" data-et="message" data-id="i11" data-from="Bridge" data-to="Child" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="536" y1="568" x2="536" y2="568" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="536" y="572" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">10</text><text x="304" y="583" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">release control / return parent</text><line x1="82" y1="614" x2="532" y2="614" class="messageLine0" data-et="message" data-id="i12" data-from="User" data-to="Bridge" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="75" y1="614" x2="75" y2="614" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="75" y="618" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">11</text><text x="813" y="629" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">setControlled(false)</text><line x1="543" y1="660" x2="1089" y2="660" class="messageLine0" data-et="message" data-id="i13" data-from="Bridge" data-to="Child" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="536" y1="660" x2="536" y2="660" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="536" y="664" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">12</text><text x="1246" y="675" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">explicit final bounded report request</text><line x1="1401" y1="706" x2="1097" y2="706" class="messageLine0" data-et="message" data-id="i14" data-from="Runner" data-to="Child" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="1396" y1="706" x2="1396" y2="706" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="1396" y="710" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">13</text><text x="1243" y="721" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">strict final JSON</text><line x1="1100" y1="750" x2="1392" y2="750" class="messageLine1" data-et="message" data-id="i15" data-from="Child" data-to="Runner" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="stroke-dasharray: 3, 3; fill: none;"/><line x1="1093" y1="750" x2="1093" y2="750" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="1093" y="754" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">14</text><text x="1397" y="765" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">parse, cap, evidence verification</text><path d="M 1397,796 C 1457,786 1457,826 1397,816" class="messageLine0" data-et="message" data-id="i16" data-from="Runner" data-to="Runner" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" x1="1403" style="fill: none;"/><line x1="1396" y1="796" x2="1396" y2="796" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="1396" y="800" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">15</text><text x="851" y="841" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">bounded verified result only</text><line x1="1401" y1="872" x2="307.5" y2="872" class="messageLine1" data-et="message" data-id="i17" data-from="Runner" data-to="Parent" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="stroke-dasharray: 3, 3; fill: none;"/><line x1="1396" y1="872" x2="1396" y2="872" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="1396" y="876" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">16</text><text x="968" y="887" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">bounded redacted historical snapshot</text><line x1="1401" y1="918" x2="540" y2="918" class="messageLine0" data-et="message" data-id="i18" data-from="Runner" data-to="Bridge" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="1396" y1="918" x2="1396" y2="918" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="1396" y="922" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">17</text><text x="658" y="933" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="messageText" dy="1em" style="font-size: 16px; font-weight: 400;">LIVE becomes HISTORY</text><line x1="543" y1="962" x2="779" y2="962" class="messageLine0" data-et="message" data-id="i19" data-from="Bridge" data-to="Shell" stroke-width="2" stroke="none" marker-end="url(#mermaid-svg-arrowhead)" style="fill: none;"/><line x1="536" y1="962" x2="536" y2="962" stroke-width="0" marker-start="url(#mermaid-svg-sequencenumber)"/><text x="536" y="966" font-family="sans-serif" font-size="12px" text-anchor="middle" class="sequenceNumber">18</text><g class="actor-man actor-bottom" name="User" style="stroke: rgb(204, 204, 204);"><line id="actor-man-torso5" x1="75" y1="1007" x2="75" y2="1027"/><line id="actor-man-arms5" x1="57" y1="1015" x2="93" y2="1015"/><line x1="57" y1="1042" x2="75" y2="1027"/><line x1="75" y1="1027" x2="91" y2="1042"/><circle cx="75" cy="992" r="15" width="150" height="65"/><text x="75" y="1049.5" dominant-baseline="central" alignment-baseline="central" class="actor actor-man" style="text-anchor: middle; font-size: 16px; font-weight: 400;"><tspan x="75" dy="0">User</tspan></text></g></svg>
+  <details>
+    <summary>Mermaid source</summary>
+    <pre>sequenceDiagram
+    autonumber
+    actor User
+    participant Parent as Parent AgentSessionRuntime
+    participant Bridge as PivAgentViewBridge
+    participant Shell as InteractiveMode shell
+    participant Child as Live child AgentSession
+    participant Runner as NativeSubagentRunner
+
+    User-&gt;&gt;Parent: /agents
+    User-&gt;&gt;Bridge: select live child
+    Bridge-&gt;&gt;Shell: requestDisplay(child runId)
+    Note over Parent,Shell: Parent runtime remains authoritative
+    Shell-&gt;&gt;Child: bind display, footer, transcript, events
+    Child--&gt;&gt;Shell: thinking, messages, tool events
+    User-&gt;&gt;Bridge: Take Control
+    Bridge-&gt;&gt;Child: setControlled(true)
+    User-&gt;&gt;Shell: steering message
+    Shell-&gt;&gt;Bridge: sendInput(child, text)
+    Bridge-&gt;&gt;Child: AgentSession.prompt(... steer when streaming)
+    User-&gt;&gt;Bridge: release control / return parent
+    Bridge-&gt;&gt;Child: setControlled(false)
+    Runner-&gt;&gt;Child: explicit final bounded report request
+    Child--&gt;&gt;Runner: strict final JSON
+    Runner-&gt;&gt;Runner: parse, cap, evidence verification
+    Runner--&gt;&gt;Parent: bounded verified result only
+    Runner-&gt;&gt;Bridge: bounded redacted historical snapshot
+    Bridge-&gt;&gt;Shell: LIVE becomes HISTORY</pre>
+  </details>
+</figure>
+
+    <h3>The split inside <code>InteractiveMode</code></h3>
+    <pre data-lang="ts"><code>// The runtime session is always the authoritative parent.
+private get runtimeSession(): AgentSession {
+  return this.runtimeHost.session;
+}
+
+private get displaySession(): AgentSession {
+  return this.displayView?.session ?? this.runtimeSession;
+}
+
+// Existing lifecycle/command code keeps using the parent.
+private get session(): AgentSession {
+  return this.runtimeSession;
+}</code></pre>
+    <p>This is the crucial reason child viewing can feel like a cloned main-agent UI without making the child the process owner. Parent lifecycle operations such as new, resume, fork/clone, compact, reload readiness, and shutdown still resolve through the parent runtime.</p>
+    <div class="source-ref">Source: <code>packages/coding-agent/src/modes/interactive/interactive-mode.ts:509-537</code>.</div>
+
+    <h3>The bridge is PIV-only</h3>
+    <p><code>piv.ts</code> constructs the bridge and passes the same instance to the subagent extension and to <code>main()</code>. <code>MainOptions.agentViewBridge</code> is optional, so stock Pi starts <code>InteractiveMode</code> without it and retains the pre-existing session behavior.</p>
+    <div class="grid-2">
+      <div class="mini-card"><strong>PIV path</strong><p><code>piv.ts</code> creates <code>PivAgentViewBridge</code> and injects it into both the extension and interactive shell.</p><div class="source-ref"><code>packages/coding-agent/src/piv.ts:74-103</code></div></div>
+      <div class="mini-card"><strong>Stock Pi path</strong><p>The option is absent. Runtime/display indirection collapses back to the existing parent session.</p><div class="source-ref"><code>packages/coding-agent/src/main.ts:528-532, 892-903</code></div></div>
+    </div>
+
+    <h3>Normal-shell child rendering</h3>
+    <p>When a view changes, <code>InteractiveMode</code> saves the previous view state, unsubscribes its live child listener, rebinds the footer to the new display session, subscribes to the selected live child's events, renders that session through normal Pi renderers, restores editor/scroll state, and requests a TUI render.</p>
+    <p>Events from hidden sessions are deliberately ignored by the current display renderer. That prevents parent or sibling output from leaking into the selected child's transcript while allowing those sessions to continue running in the background.</p>
+    <div class="source-ref">Source: <code>packages/coding-agent/src/modes/interactive/interactive-mode.ts:2125-2175, 3342-3348</code>.</div>
+  </section>
+
+  <section id="control">
+    <h2>4. Take Control and steering</h2>
+    <p>Live child views intentionally open in <strong>mirror mode</strong>. Seeing a child is not the same as being allowed to type into it. This prevents accidental steering when the user only intended to inspect progress.</p>
+    <div class="grid-3">
+      <div class="mini-card"><span class="status info">Mirror</span><h3>Inspect</h3><p>Normal child transcript, thinking, tools, footer, model/status context. Ordinary text is rejected with a clear hint.</p></div>
+      <div class="mini-card"><span class="status good">Controlled</span><h3>Steer</h3><p>Explicit Take Control toggles the live child into controlled mode. Text is routed to that child, not the parent.</p></div>
+      <div class="mini-card"><span class="status warn">History</span><h3>Read only</h3><p>A completed, failed, cancelled, or otherwise terminal child can never be taken over.</p></div>
+    </div>
+
+    <h3>Routing uses Pi's existing session API</h3>
+    <p>Controlled text is sent through the child <code>AgentSession.prompt()</code>. If the child is already streaming, the request uses Pi's existing <code>streamingBehavior: "steer"</code>. The implementation does not mutate child message arrays or invent a parallel transport.</p>
+    <pre data-lang="ts"><code>pendingSteering++;
+try {
+  const promptOptions = session.isStreaming
+    ? { streamingBehavior: "steer" as const }
+    : {};
+  await session.prompt(text, {
+    ...promptOptions,
+    source: "interactive",
+  });
+} finally {
+  pendingSteering = Math.max(0, pendingSteering - 1);
+  resolveSteeringWaiters();
+}</code></pre>
+    <div class="source-ref">Source: <code>packages/coding-agent/src/piv-subagents.ts:3913-3926</code>; UI routing at <code>packages/coding-agent/src/modes/interactive/interactive-mode.ts:3259-3270</code>.</div>
+
+    <h3>The last race was hardened</h3>
+    <p>The control object now tracks both <code>controlled</code> and <code>pendingSteering</code>. Finalization cannot begin while control is still held or while an interactive prompt is still pending. The runner can wait for control release and pending steering to drain before transitioning to the final report phase.</p>
+    <pre data-lang="ts"><code>beginFinalization: () =&gt; {
+  if (!steered || controlled || pendingSteering !== 0 || state !== "working") {
+    return false;
+  }
+  state = "awaiting-finalization";
+  changed();
+  return true;
+}</code></pre>
+    <p>This prevents the child from racing into finalization immediately after an initial turn while the user is actively controlling it.</p>
+    <div class="source-ref">Source: <code>packages/coding-agent/src/piv-subagents.ts:3870-3902</code>.</div>
+  </section>
+
+  <section id="finalization">
+    <h2>5. Explicit final bounded report</h2>
+    <p>Interactive steering changes the semantics of a child conversation. Once arbitrary follow-up turns are allowed, the runner cannot safely assume that any recent assistant message is the final structured result. The redesign therefore adds a dedicated finalization state machine.</p>
+    <div class="state-flow" aria-label="Finalization states">
+      <span class="state">working</span><span class="arrow">→</span>
+      <span class="state">awaiting-finalization</span><span class="arrow">→</span>
+      <span class="state">final-report-requested</span><span class="arrow">→</span>
+      <span class="state">final-report-received</span><span class="arrow">→</span>
+      <span class="state">terminal</span>
+    </div>
+
+    <h3>Separate internal finalization turn</h3>
+    <pre data-lang="text"><code>Your interactive work is complete. Return only the required final bounded JSON report for the parent now. Do not continue discussion. Use the required schema and include only verified evidence within the approved scope. This is an internal finalization request, not a new task or permission grant.</code></pre>
+    <p>The prompt does not widen filesystem scope, model authority, or tool authority. It only creates a clean result boundary.</p>
+    <div class="source-ref">Source: <code>packages/coding-agent/src/piv-subagents.ts:3541-3544</code>.</div>
+
+    <h3>What still applies to the final response</h3>
+    <ul class="checklist">
+      <li><strong>Output byte cap:</strong> the explicit final response still has to fit the bounded output budget.</li>
+      <li><strong>Strict parse:</strong> malformed structured output is rejected instead of falling back to earlier conversational JSON.</li>
+      <li><strong>Evidence validation:</strong> result evidence still has to be within approved scope and pass verification.</li>
+      <li><strong>Review validation:</strong> reviewer finding validation still applies to the post-steering report.</li>
+      <li><strong>Failure semantics:</strong> timeout, cancellation, provider failure, and truncation remain deterministic terminal outcomes.</li>
+      <li><strong>Parent context isolation:</strong> the parent receives the normal bounded verified result, not the raw interactive child transcript.</li>
+    </ul>
+    <div class="source-ref">Runner finalization path: <code>packages/coding-agent/src/piv-subagents.ts:4904-4920</code>. Adversarial integration coverage: <code>packages/coding-agent/test/piv-agent-view-integration.test.ts:584-929</code>.</div>
+  </section>
+
+  <section id="history">
+    <h2>6. Historical child views and per-view state</h2>
+    <p>A terminal child is converted to a bounded snapshot before the live session is released and shut down. This gives <code>/agents</code> a useful read-only history without retaining an unbounded live session graph.</p>
+    <table class="compact">
+      <thead><tr><th>History bound</th><th>Limit</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>Historical views</td><td class="nowrap"><strong>32</strong></td><td>Caps retained completed child entries.</td></tr>
+        <tr><td>Messages per view</td><td class="nowrap"><strong>96</strong></td><td>Bounds transcript depth.</td></tr>
+        <tr><td>Bytes per message</td><td class="nowrap"><strong>16 KiB</strong></td><td>Prevents a single event from dominating history.</td></tr>
+        <tr><td>Total message data per snapshot</td><td class="nowrap"><strong>256 KiB</strong></td><td>Caps aggregate history memory per retained child snapshot.</td></tr>
+      </tbody>
+    </table>
+    <p>Snapshot content is cloned, credential-like content is redacted, and retained structures are frozen. Historical descriptors are explicitly read-only and do not hold a usable live control surface.</p>
+    <div class="source-ref">Source: <code>packages/coding-agent/src/piv-agent-view-bridge.ts:77-154, 203+</code>.</div>
+
+    <h3>UI state is independent per view</h3>
+    <pre data-lang="ts"><code>export interface AgentViewUiState {
+  readonly editorDraft: string;
+  readonly scrollOffset?: number;
+  readonly followTranscript: boolean;
+  readonly fullscreen?: boolean;
+}</code></pre>
+    <p>Switching parent → child A → child B → parent no longer has to destroy drafts or scroll context. The shell saves and restores those values by view ID.</p>
+    <div class="source-ref">Source: <code>packages/coding-agent/src/piv-agent-view-bridge.ts:70-75</code>; save/restore path at <code>packages/coding-agent/src/modes/interactive/interactive-mode.ts:1997-2010</code>.</div>
+  </section>
+
+  <section id="ux">
+    <h2>7. Operator UX and keybindings</h2>
+    <p>The selector remains the inventory and monitoring surface. Full child inspection happens in the normal Pi shell. The currently displayed run is marked in the chooser with <code>← viewing</code>.</p>
+    <div class="source-ref">Chooser marker: <code>packages/coding-agent/src/piv-subagent-observatory.ts:1132-1153</code>.</div>
+
+    <table class="compact">
+      <thead><tr><th>Action</th><th>Default key</th><th>Behavior</th></tr></thead>
+      <tbody>
+        <tr><td><code>app.subagents.open</code></td><td><span class="keyboard">Ctrl+Shift+A</span></td><td>Open the subagent chooser from parent or child.</td></tr>
+        <tr><td><code>app.subagents.parent</code></td><td><span class="keyboard">Alt+Left</span></td><td>Return display to the authoritative parent.</td></tr>
+        <tr><td><code>app.subagents.next</code></td><td><span class="keyboard">Alt+Right</span></td><td>Cycle to the next parent/live/history view.</td></tr>
+        <tr><td><code>app.subagents.previous</code></td><td><span class="keyboard">Shift+Alt+Left</span></td><td>Cycle to the previous view.</td></tr>
+        <tr><td><code>app.subagents.takeControl</code></td><td><span class="keyboard">Ctrl+Shift+Enter</span></td><td>Toggle a live working child between mirror and controlled mode.</td></tr>
+        <tr><td>Escape in child view</td><td><span class="keyboard">Esc</span></td><td>Return to parent. It does not abort the child merely because the child is displayed.</td></tr>
+      </tbody>
+    </table>
+    <div class="source-ref">Defaults: <code>packages/coding-agent/src/core/keybindings.ts:98-102</code>; wiring: <code>packages/coding-agent/src/modes/interactive/interactive-mode.ts:3003-3006, 3047-3051</code>.</div>
+
+    <h3>What the child shell communicates</h3>
+    <p>The selected child shows a subagent identity and a concise interaction notice. Depending on state, the user sees one of the following:</p>
+    <ul>
+      <li><code>Viewing live subagent • read-only mirror • Take Control to steer</code></li>
+      <li><code>Controlling live subagent • input goes to child • parent remains running</code></li>
+      <li><code>Finalizing bounded report • child input disabled</code></li>
+      <li><code>Viewing historical subagent • read-only</code></li>
+    </ul>
+    <p>The footer is rebound to the displayed child session and a child-specific footer data provider, so model/token/status and cwd context follow what is on screen rather than always showing parent values.</p>
+    <div class="source-ref">Source: <code>packages/coding-agent/src/modes/interactive/interactive-mode.ts:2022-2035, 2054-2067, 2162-2165</code>.</div>
+  </section>
+
+  <section id="lifecycle">
+    <h2>8. Lifecycle and safety invariants</h2>
+    <p>The implementation deliberately keeps viewing authority, interaction authority, and runtime authority as three different concepts. This avoids the most dangerous failure mode: turning a display switch into a runtime ownership switch.</p>
+    <div class="grid-2">
+      <div class="mini-card">
+        <h3>Runtime invariants</h3>
+        <ul class="checklist">
+          <li>Parent <code>AgentSessionRuntime.session</code> remains authoritative.</li>
+          <li>Parent and sibling agents continue running when another child is displayed.</li>
+          <li>Parent replacement releases child control and returns display to the new parent lineage.</li>
+          <li>Hidden session events cannot render into the selected view.</li>
+          <li>Child extensions are not rebound into the parent shell.</li>
+        </ul>
+      </div>
+      <div class="mini-card">
+        <h3>Authority invariants</h3>
+        <ul class="checklist">
+          <li>Profile identity does not grant authority.</li>
+          <li>Legacy profile model metadata does not route the child.</li>
+          <li>Safe delegation does not gain mutation/Bash from profile intent alone.</li>
+          <li>Explicit YOLO remains bounded by trust, parent capabilities, and profile request.</li>
+          <li>Recursive delegation is not implicitly authorized.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>Parent lifecycle commands stay parent operations</h3>
+    <p>The focused integration suite now explicitly checks new session, resume, clone/fork behavior, compact, reload readiness, parent replacement, chooser cancellation, Escape behavior, and shutdown while a child is displayed.</p>
+    <div class="source-ref">Coverage examples: <code>packages/coding-agent/test/piv-agent-view-integration.test.ts:355-536</code>.</div>
+  </section>
+
+  <section id="tests">
+    <h2>9. Verification and certification</h2>
+    <div class="grid-3">
+      <div class="mini-card"><span class="status good">PASS</span><h3>Focused tests</h3><p><strong>6 files, 253 tests</strong> passed in the final serialized focused run.</p></div>
+      <div class="mini-card"><span class="status good">PASS</span><h3>TypeScript</h3><p><code>tsgo -p tsconfig.build.json --noEmit</code> completed with exit code 0.</p></div>
+      <div class="mini-card"><span class="status good">PASS</span><h3>Coding-agent build</h3><p>The coding-agent package build completed successfully when bypassing the local npm <code>devEngines</code> mismatch.</p></div>
+    </div>
+
+    <h3>Focused test surface</h3>
+    <table class="compact">
+      <thead><tr><th>Test file</th><th>Main responsibility</th></tr></thead>
+      <tbody>
+        <tr><td><code>test/piv-subagents.test.ts</code></td><td>Profiles, model inheritance, requested/effective capability projection, aliases, precedence, safe/YOLO behavior, batch contracts.</td></tr>
+        <tr><td><code>test/piv-subagent-observatory.test.ts</code></td><td>Chooser/observatory rendering and interaction contracts.</td></tr>
+        <tr><td><code>test/piv-subagents-adversarial.test.ts</code></td><td>Adversarial scope, parsing, failure, and result constraints.</td></tr>
+        <tr><td><code>test/piv-delegate-mvp.test.ts</code></td><td>Delegate MVP behavior and compatibility.</td></tr>
+        <tr><td><code>test/piv-agent-view-bridge.test.ts</code></td><td>Bridge parent/live/history behavior, snapshot bounds/redaction/immutability, observer isolation.</td></tr>
+        <tr><td><code>test/piv-agent-view-integration.test.ts</code></td><td>Actual InteractiveMode runtime/display split, view state, lifecycle routing, control, finalization, timeout/cancel/provider-error cases.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Notable integration cases now covered</h3>
+    <ul class="checklist">
+      <li>Stock <code>InteractiveMode</code> remains unchanged without a PIV bridge.</li>
+      <li>Child display does not replace the parent runtime.</li>
+      <li>Live and historical child transcripts use normal session renderers.</li>
+      <li>Independent drafts and scroll positions survive view changes.</li>
+      <li>New/resume/clone/compact remain rooted on the parent while child is displayed.</li>
+      <li>Escape returns to parent without aborting controlled child execution.</li>
+      <li>Steered child stays alive for idle follow-ups and finalizes only after control release.</li>
+      <li>Malformed final report, output overflow, review validation, provider failure, timeout, and cancellation are deterministic.</li>
+      <li>Non-steered work retains the fast single-turn bounded result path.</li>
+    </ul>
+    <div class="source-ref">Representative integration test names: <code>packages/coding-agent/test/piv-agent-view-integration.test.ts:149-929</code>.</div>
+
+    <div class="callout risk">
+      <strong>Repository-wide caveat.</strong> The root monorepo check is not globally green for reasons outside this subagent implementation: a nested Biome root under an unrelated worktree blocks root configuration discovery, and two unrelated <code>packages/ai</code> tests reference a removed/generated <code>gemini-2.0-flash</code> model ID. The focused subagent suite, coding-agent typecheck, coding-agent build, and relevant <code>git diff --check</code> are green.
+    </div>
+    <div class="callout risk">
+      <strong>Local package-manager caveat.</strong> The current machine's npm version is older than the repo's declared <code>devEngines</code> npm version. A normal <code>npm run build</code> stops at that version gate; <code>npm --force run build</code> completes the coding-agent build successfully. This is an environment/version-gate issue, not a TypeScript or subagent build failure.
+    </div>
+  </section>
+
+  <section id="files">
+    <h2>10. Primary files changed for the redesign</h2>
+    <p>This is the focused subagent change surface, not a list of every dirty file in the repository.</p>
+    <table class="file-impact compact">
+      <thead><tr><th>File</th><th>Responsibility in the redesign</th></tr></thead>
+      <tbody>
+        <tr><td>packages/coding-agent/src/piv-subagents.ts</td><td>Profiles, aliases, precedence, requested/effective tools, native child creation, live control, steering synchronization, final bounded report protocol, history registration, tool descriptions.</td></tr>
+        <tr><td>packages/coding-agent/src/piv-agent-view-bridge.ts</td><td>New PIV-only parent/live/history registry, display selection, interaction modes, per-view UI state, bounded historical snapshots, control release.</td></tr>
+        <tr><td>packages/coding-agent/src/modes/interactive/interactive-mode.ts</td><td>Authoritative runtime vs displayed session split, normal-shell child rendering, footer/cwd rebinding, event filtering, child input routing, Escape behavior, view keybindings.</td></tr>
+        <tr><td>packages/coding-agent/src/modes/interactive/components/footer.ts</td><td>Allows footer session/data provider rebinding as displayed view changes.</td></tr>
+        <tr><td>packages/coding-agent/src/core/keybindings.ts</td><td>Adds open/parent/next/previous/Take Control actions and defaults.</td></tr>
+        <tr><td>packages/coding-agent/src/piv-subagent-observatory.ts</td><td>Keeps <code>/agents</code> as chooser/monitor, marks current displayed run, and supports the switching workflow.</td></tr>
+        <tr><td>packages/coding-agent/src/piv.ts</td><td>Creates and shares the PIV view bridge with the subagent extension and main interactive path.</td></tr>
+        <tr><td>packages/coding-agent/src/main.ts</td><td>Adds optional bridge injection so PIV can use it without changing stock Pi behavior.</td></tr>
+        <tr><td>packages/coding-agent/test/piv-agent-view-bridge.test.ts</td><td>New bridge unit coverage.</td></tr>
+        <tr><td>packages/coding-agent/test/piv-agent-view-integration.test.ts</td><td>New deep integration coverage for runtime/display/lifecycle/control/finalization behavior.</td></tr>
+        <tr><td>packages/coding-agent/test/piv-subagents.test.ts</td><td>Migrated stale expectations and expanded profile/authority coverage.</td></tr>
+        <tr><td>idea.md</td><td>Updated architectural source-of-truth language for role-aware YOLO, normal-shell child views, Take Control, and finalization.</td></tr>
+        <tr><td>plans/subagent-work-follow-up.md</td><td>Detailed remaining-gaps plan and final completion/certification checklist.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="live-test">
+    <h2>11. What to test in the real terminal now</h2>
+    <p>Automated verification is complete for the focused scope. A live terminal smoke test is still valuable because it validates timing, keyboard handling, terminal rendering, and the subjective "clone of main agent UI" experience.</p>
+    <ol class="checklist">
+      <li><strong>Start PIV from the freshly built artifact</strong> using your normal build/unsafe flags.</li>
+      <li><strong>Open <code>/agents</code></strong> and confirm the chooser shows the richer role/session inventory and marks the currently displayed run.</li>
+      <li><strong>Run at least two children concurrently.</strong> A read-oriented role plus a mutation-capable role is the most useful combination.</li>
+      <li><strong>Select a live child.</strong> The chooser should close and the normal Pi shell should show that child's transcript, thinking/tool rendering, footer, cwd/status, and subagent identity.</li>
+      <li><strong>Verify background continuity.</strong> Parent and sibling children should keep running while one child is displayed.</li>
+      <li><strong>Test mirror protection.</strong> Ordinary text before Take Control should not silently steer the child.</li>
+      <li><strong>Press <span class="keyboard">Ctrl+Shift+Enter</span>.</strong> The child should enter controlled mode and clearly say that input goes to the child while the parent remains running.</li>
+      <li><strong>Send one steering follow-up.</strong> Confirm it appears in the child session and not in the parent.</li>
+      <li><strong>Press <span class="keyboard">Esc</span>.</strong> You should return to the parent without cancelling the child.</li>
+      <li><strong>Reopen the child.</strong> Transcript and view state should remain coherent.</li>
+      <li><strong>Let the controlled child finish.</strong> It should transition through finalization, produce its bounded verified result, and become a read-only historical view.</li>
+      <li><strong>Reopen the historical child.</strong> It should render in the normal shell but reject Take Control/input.</li>
+    </ol>
+
+    <h3>Four failures worth watching closely</h3>
+    <div class="grid-2">
+      <div class="mini-card before"><strong>Parent replacement regression</strong><p>Selecting a child must never stop, dispose, or silently replace the parent runtime.</p></div>
+      <div class="mini-card before"><strong>Escape regression</strong><p>Escape in a child view must return to parent, not kill the child.</p></div>
+      <div class="mini-card before"><strong>Input misrouting</strong><p>Controlled child text must go to the child, never the parent.</p></div>
+      <div class="mini-card before"><strong>Finalization race</strong><p>A taken-over child must not finalize while control is still held or a steering prompt is still pending.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bottom line</h2>
+    <div class="callout success">
+      <strong>The redesign now matches the original product intent.</strong> <code>/agents</code> is a chooser into real child-session views rendered through the normal Pi shell; the parent remains authoritative; profiles are configurable without becoming authority; YOLO is role-aware; Take Control is explicit; interactive work ends through a separate verified result boundary; completed children remain available as bounded history. The appropriate next step is a real terminal smoke test, not another architectural rewrite.
+    </div>
+  </section>
+
+  <footer>
+    <p class="muted">Prepared from the focused implementation and test surface on the active subagent branch. Source references are repository-relative by design.</p>
+  </footer>
+</main>
+<script>
+(function () {
+  var KW =
+    /^(abstract|as|async|await|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|from|function|get|if|implements|import|in|infer|instanceof|interface|let|new|null|of|override|package|private|protected|public|return|satisfies|set|static|super|switch|this|throw|true|try|type|typeof|undefined|var|void|while|with|yield)$/;
+  var TYPE = /^[A-Z][A-Za-z0-9_]*$/;
+  var SQL =
+    /^(add|all|alter|and|as|asc|begin|between|by|case|cast|commit|constraint|create|cross|delete|desc|distinct|drop|else|end|except|exists|explain|foreign|from|full|group|having|in|index|inner|insert|intersect|into|is|join|key|left|like|limit|not|null|offset|on|or|order|outer|over|partition|primary|references|right|rollback|select|set|table|then|union|update|values|view|when|where|with)$/i;
+  var BASH =
+    /^(break|case|continue|do|done|elif|else|esac|exit|export|fi|for|function|if|in|local|return|select|shift|then|until|while)$/;
+
+  function esc(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function paintJs(src) {
+    var out = "";
+    var i = 0;
+    var n = src.length;
+    while (i < n) {
+      var c = src[i];
+      var two = src.slice(i, i + 2);
+      if (two === "//") {
+        var eol = src.indexOf("\n", i);
+        if (eol < 0) eol = n;
+        out += '<span class="tok-cm">' + esc(src.slice(i, eol)) + "</span>";
+        i = eol;
+        continue;
+      }
+      if (two === "/*") {
+        var end = src.indexOf("*/", i + 2);
+        if (end < 0) end = n - 2;
+        out += '<span class="tok-cm">' + esc(src.slice(i, end + 2)) + "</span>";
+        i = end + 2;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") {
+        var q = c;
+        var j = i + 1;
+        while (j < n) {
+          if (src[j] === "\\") {
+            j += 2;
+            continue;
+          }
+          if (src[j] === q) {
+            j += 1;
+            break;
+          }
+          j += 1;
+        }
+        out += '<span class="tok-str">' + esc(src.slice(i, j)) + "</span>";
+        i = j;
+        continue;
+      }
+      if (/[0-9]/.test(c) && (i === 0 || /[^\w$]/.test(src[i - 1]))) {
+        var k = i;
+        while (k < n && /[0-9_.xXa-fA-F]/.test(src[k])) k += 1;
+        out += '<span class="tok-num">' + esc(src.slice(i, k)) + "</span>";
+        i = k;
+        continue;
+      }
+      if (/[A-Za-z_$]/.test(c)) {
+        var w = i;
+        while (w < n && /[A-Za-z0-9_$]/.test(src[w])) w += 1;
+        var word = src.slice(i, w);
+        var cls = KW.test(word) ? "tok-kw" : TYPE.test(word) ? "tok-type" : "";
+        out += cls ? '<span class="' + cls + '">' + esc(word) + "</span>" : esc(word);
+        i = w;
+        continue;
+      }
+      out += esc(c);
+      i += 1;
+    }
+    return out;
+  }
+
+  function paintJson(src) {
+    var out = "";
+    var i = 0;
+    while (i < src.length) {
+      if (src[i] === '"') {
+        var end = i + 1;
+        while (end < src.length) {
+          if (src[end] === "\\") {
+            end += 2;
+            continue;
+          }
+          if (src[end] === '"') {
+            end += 1;
+            break;
+          }
+          end += 1;
+        }
+        var lookahead = end;
+        while (/\s/.test(src[lookahead] || "")) lookahead += 1;
+        var stringClass = src[lookahead] === ":" ? "tok-type" : "tok-str";
+        out += '<span class="' + stringClass + '">' + esc(src.slice(i, end)) + "</span>";
+        i = end;
+        continue;
+      }
+      var number = src.slice(i).match(/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/);
+      if (number) {
+        out += '<span class="tok-num">' + number[0] + "</span>";
+        i += number[0].length;
+        continue;
+      }
+      var keyword = src.slice(i).match(/^(true|false|null)\b/);
+      if (keyword) {
+        out += '<span class="tok-kw">' + keyword[0] + "</span>";
+        i += keyword[0].length;
+        continue;
+      }
+      out += esc(src[i]);
+      i += 1;
+    }
+    return out;
+  }
+
+  function paintSql(src) {
+    var out = "";
+    var i = 0;
+    var n = src.length;
+    while (i < n) {
+      var two = src.slice(i, i + 2);
+      if (two === "--") {
+        var eol = src.indexOf("\n", i);
+        if (eol < 0) eol = n;
+        out += '<span class="tok-cm">' + esc(src.slice(i, eol)) + "</span>";
+        i = eol;
+        continue;
+      }
+      if (two === "/*") {
+        var end = src.indexOf("*/", i + 2);
+        if (end < 0) end = n - 2;
+        out += '<span class="tok-cm">' + esc(src.slice(i, end + 2)) + "</span>";
+        i = end + 2;
+        continue;
+      }
+      var c = src[i];
+      if (c === "'" || c === '"') {
+        var j = i + 1;
+        while (j < n) {
+          if (src[j] === c && src[j + 1] === c) {
+            j += 2;
+            continue;
+          }
+          if (src[j] === c) {
+            j += 1;
+            break;
+          }
+          j += 1;
+        }
+        out += '<span class="tok-str">' + esc(src.slice(i, j)) + "</span>";
+        i = j;
+        continue;
+      }
+      if (/[0-9]/.test(c) && (i === 0 || /[^\w]/.test(src[i - 1]))) {
+        var k = i;
+        while (k < n && /[0-9.]/.test(src[k])) k += 1;
+        out += '<span class="tok-num">' + esc(src.slice(i, k)) + "</span>";
+        i = k;
+        continue;
+      }
+      if (/[A-Za-z_]/.test(c)) {
+        var w = i;
+        while (w < n && /[A-Za-z0-9_]/.test(src[w])) w += 1;
+        var word = src.slice(i, w);
+        out += SQL.test(word) ? '<span class="tok-kw">' + esc(word) + "</span>" : esc(word);
+        i = w;
+        continue;
+      }
+      out += esc(c);
+      i += 1;
+    }
+    return out;
+  }
+
+  function paintBash(src) {
+    var out = "";
+    var i = 0;
+    var n = src.length;
+    while (i < n) {
+      if (src[i] === "#") {
+        var eol = src.indexOf("\n", i);
+        if (eol < 0) eol = n;
+        out += '<span class="tok-cm">' + esc(src.slice(i, eol)) + "</span>";
+        i = eol;
+        continue;
+      }
+      if (src[i] === '"' || src[i] === "'" || src[i] === "`") {
+        var q = src[i];
+        var j = i + 1;
+        while (j < n && src[j] !== q) {
+          if (src[j] === "\\") j += 1;
+          j += 1;
+        }
+        if (j < n) j += 1;
+        out += '<span class="tok-str">' + esc(src.slice(i, j)) + "</span>";
+        i = j;
+        continue;
+      }
+      if (/[A-Za-z_]/.test(src[i])) {
+        var w = i;
+        while (w < n && /[A-Za-z0-9_-]/.test(src[w])) w += 1;
+        var word = src.slice(i, w);
+        out += BASH.test(word) ? '<span class="tok-kw">' + esc(word) + "</span>" : esc(word);
+        i = w;
+        continue;
+      }
+      out += esc(src[i]);
+      i += 1;
+    }
+    return out;
+  }
+
+  function paintYaml(src) {
+    return src
+      .split("\n")
+      .map(function (line) {
+        if (/^\s*#/.test(line)) return '<span class="tok-cm">' + esc(line) + "</span>";
+        return esc(line)
+          .replace(/^(\s*[\w.-]+)(\s*:)/, '<span class="tok-type">$1</span>$2')
+          .replace(/\b(true|false|null)\b/g, '<span class="tok-kw">$1</span>')
+          .replace(/\b(-?\d+(?:\.\d+)?)\b/g, '<span class="tok-num">$1</span>');
+      })
+      .join("\n");
+  }
+
+  function paintDiff(src) {
+    return src
+      .split("\n")
+      .map(function (line) {
+        var escaped = esc(line);
+        if (line.indexOf("+++") === 0 || line.indexOf("---") === 0 || line.indexOf("diff ") === 0) {
+          return '<span class="tok-type">' + escaped + "</span>";
+        }
+        if (line.indexOf("@@") === 0) return '<span class="tok-cm">' + escaped + "</span>";
+        if (line.charAt(0) === "+") return '<span class="diff-line add">' + escaped + "</span>";
+        if (line.charAt(0) === "-") return '<span class="diff-line del">' + escaped + "</span>";
+        return escaped;
+      })
+      .join("\n");
+  }
+
+  function paintBlock(el, paint) {
+    var marked = Array.prototype.some.call(el.children || [], function (child) {
+      return child.classList.contains("add") || child.classList.contains("del") || child.classList.contains("diff-line");
+    });
+    if (!marked) return paint(el.textContent || "");
+
+    return Array.prototype.map.call(el.childNodes, function (node) {
+      if (node.nodeType === 3) return paint(node.textContent || "");
+      var change = node.classList.contains("add") ? "add" : node.classList.contains("del") ? "del" : "";
+      if (!change) return paint(node.textContent || "");
+      return '<span class="diff-line ' + change + '">' + paint(node.textContent || "") + "</span>";
+    }).join("");
+  }
+
+  var painters = {
+    js: paintJs,
+    ts: paintJs,
+    "javascript": paintJs,
+    typescript: paintJs,
+    tsx: paintJs,
+    jsx: paintJs,
+    json: paintJson,
+    sql: paintSql,
+    pgsql: paintSql,
+    mysql: paintSql,
+    sqlite: paintSql,
+    bash: paintBash,
+    sh: paintBash,
+    shell: paintBash,
+    yaml: paintYaml,
+    yml: paintYaml,
+    diff: paintDiff,
+  };
+
+  document.querySelectorAll("pre[data-lang]").forEach(function (el) {
+    if (el.dataset.painted) return;
+    var lang = (el.getAttribute("data-lang") || "").toLowerCase();
+    var paint = painters[lang];
+    if (!paint) return;
+    el.innerHTML = paintBlock(el, paint);
+    el.dataset.painted = "1";
+  });
+})();
+</script>
+</body>
+</html>

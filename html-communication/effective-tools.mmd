@@ -1,0 +1,10 @@
+flowchart LR
+  Role[role name] --> Resolve[resolveSubagentProfile]
+  Resolve --> Derive[deriveEffectiveSubagentTools]
+  Derive --> YOLO{sub-yolo}
+  YOLO -->|no| RO[read grep find ls]
+  YOLO -->|yes| Full[plus bash edit write]
+  Full --> Ext{allow-external}
+  Ext -->|yes| Host[absolute host paths]
+  Ext -->|no| Scope[scope.roots and targets]
+  RO --> Scope

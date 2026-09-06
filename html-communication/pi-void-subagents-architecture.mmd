@@ -1,0 +1,33 @@
+flowchart TD
+  subgraph Parent["Parent Pi Void Session (Trust & Authority)"]
+    PM["Parent Mode (plan/build)"] --> PE["piv-safe-verify"]
+    PE --> PT["Registered Tools & Authority Gate"]
+    TUI["TUI /agents & /subagents Overlay / Agent View Bridge"]
+  end
+
+  subgraph InvocationPrimitives["Delegation Primitives"]
+    PT --> D["delegate (Foreground Read/RO)"]
+    PT --> DB["delegate_batch (Max 8 Tasks)"]
+    PT --> RB["review_batch (Dimension-Focused)"]
+    PT --> DW["delegate_write (Detached Git Worktree / --sub-yolo)"]
+    PT --> DA["delegate_async (Durable Background Job)"]
+  end
+
+  subgraph ExecutionEnvironments["Child Runtimes & Boundaries"]
+    D -->|Fresh Session / Read-only Tools| RO["Read-Only Child\n(read, grep, find, ls)"]
+    DB -->|Parallel Execution| ROBatch["Batch Read Workers"]
+    RB -->|Targeted Rules| ROReview["Review Workers"]
+    DW -->|Clean HEAD Worktree| WT["Detached Worktree Writer\n(read, grep, find, ls, write, edit)"]
+    DW -.->|Explicit --sub-yolo| YOLO["In-Tree Mutating Child\n(+ bash, write, edit)"]
+    DA -->|Registry Queue & Retention| BG["Durable Async Worker"]
+  end
+
+  subgraph ArtifactsAndObservability["Artifacts, Reviews & Integration"]
+    RO --> RES["SubagentResult (Redacted, Verified)"]
+    WT --> ART["WriterPatchProposal (Immutable Ref)"]
+    ART --> IP["inspect_writer_patch"]
+    ART --> RP["reject_writer_patch"]
+    ART --> INT["integrate_writer_patch\n(Transactional Apply + piv-verify)"]
+    BG --> IJ["inspect_subagent_job / cancel_subagent_job"]
+    RES --> OBS["SubagentObservatoryStore\n(Active / Recent / Completion Inbox)"]
+  end

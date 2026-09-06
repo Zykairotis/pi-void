@@ -7,7 +7,7 @@ import type {
 	TerminalSubagentJobStatus,
 } from "./piv-subagent-jobs.ts";
 import { JOB_COMPLETION_MESSAGE_TYPE } from "./piv-subagent-jobs.ts";
-import type { SubagentEvent, SubagentStatus, SubagentUsage } from "./piv-subagents.ts";
+import type { SubagentBatchTaskLifecycleEvent, SubagentEvent, SubagentStatus, SubagentUsage } from "./piv-subagents.ts";
 import { redactCredentialText } from "./utils/redact.ts";
 
 export const OBSERVATORY_RECENT_LIMIT = 32;
@@ -20,6 +20,7 @@ const OBSERVATORY_DIAGNOSTIC_LIMIT = 8;
 
 export const OBSERVATORY_TOOL_NAMES = [
 	"delegate",
+	"manage_subagent",
 	"delegate_batch",
 	"review_batch",
 	"delegate_write",
@@ -52,10 +53,24 @@ export type WriterObservabilityPhase =
 export type ObservatoryPhase =
 	| WriterObservabilityPhase
 	| "created"
+	| "queued"
+	| "starting"
+	| "needs_time"
 	| "completed"
 	| "failed"
 	| "cancelled"
 	| "timed_out";
+
+export interface ObservatoryBatchCounts {
+	readonly total: number;
+	readonly queued: number;
+	readonly starting: number;
+	readonly running: number;
+	readonly completed: number;
+	readonly failed: number;
+	readonly cancelled: number;
+	readonly timedOut: number;
+}
 
 export interface ObservatoryAttemptHistory {
 	readonly attempt: 1 | 2;
@@ -76,6 +91,7 @@ export interface SubagentProgressSnapshot {
 	readonly runId?: string;
 	readonly batchId?: string;
 	readonly taskId?: string;
+	readonly batchIndex?: number;
 	readonly role?: string;
 	readonly model?: string;
 	readonly status: string;
@@ -88,6 +104,7 @@ export interface SubagentProgressSnapshot {
 	readonly attempt?: 1 | 2;
 	readonly attemptHistory: readonly ObservatoryAttemptHistory[];
 	readonly usage?: SubagentUsage;
+	readonly batchCounts?: ObservatoryBatchCounts;
 	readonly evidenceCount?: number;
 	readonly changedFileCount?: number;
 	readonly artifactReady?: boolean;
@@ -123,6 +140,7 @@ export interface ObservatoryWorkflowInput {
 	readonly runId?: string;
 	readonly batchId?: string;
 	readonly taskId?: string;
+	readonly batchIndex?: number;
 	readonly role?: string;
 	readonly model?: string;
 	readonly phase: ObservatoryPhase;
@@ -133,6 +151,7 @@ export interface ObservatoryWorkflowInput {
 	readonly currentPath?: string;
 	readonly attempt?: 1 | 2;
 	readonly usage?: SubagentUsage;
+	readonly batchCounts?: ObservatoryBatchCounts;
 	readonly evidenceCount?: number;
 	readonly changedFileCount?: number;
 	readonly artifactReady?: boolean;
@@ -141,6 +160,13 @@ export interface ObservatoryWorkflowInput {
 	readonly rollbackStatus?: string;
 	readonly summary?: string;
 	readonly diagnostics?: readonly string[];
+}
+
+export interface ObservatoryBatchTaskInput {
+	readonly aggregateStreamKey: string;
+	readonly toolName: ObservatoryToolName;
+	readonly event: SubagentBatchTaskLifecycleEvent;
+	readonly nowMs?: number;
 }
 
 export interface SubagentProgressDetails {
@@ -208,6 +234,18 @@ export interface DurableSubagentJobResultView {
 	readonly evidence: readonly string[];
 	readonly findings: readonly DurableSubagentJobFindingView[];
 	readonly diagnostics: readonly string[];
+	/** Runtime-owned bounded work projection preserved across report-protocol failures. */
+	readonly workArtifact?: {
+		readonly reportProtocolStatus: "valid" | "malformed" | "missing" | "truncated";
+		readonly reportProtocolDiagnostic?: string;
+		readonly touchedPaths: readonly string[];
+		readonly candidateEvidencePaths: readonly string[];
+	};
+	/** Present when the full result expired from retention. */
+	readonly tombstone?: {
+		readonly terminalStatus: TerminalSubagentJobStatus;
+		readonly expiredAt: string;
+	};
 }
 
 function boundedByteCount(value: number | undefined): number {
@@ -396,6 +434,40 @@ export function projectDurableSubagentJobResult(
 			.filter((diagnostic): diagnostic is string => diagnostic !== undefined)
 			.slice(0, 8),
 	);
+	const artifact = result?.workArtifact;
+	const workArtifact = artifact
+		? Object.freeze({
+				reportProtocolStatus: artifact.reportProtocol.status,
+				...(artifact.reportProtocol.diagnostic
+					? {
+							reportProtocolDiagnostic: sanitizeDetailText(
+								artifact.reportProtocol.diagnostic,
+								OBSERVATORY_DIAGNOSTIC_MAX_BYTES,
+							),
+						}
+					: {}),
+				touchedPaths: Object.freeze(
+					artifact.touchedPaths
+						.map((path) => repoRelativeEvidencePath(path))
+						.filter((path): path is string => path !== undefined)
+						.slice(0, 16),
+				),
+				candidateEvidencePaths: Object.freeze(
+					artifact.candidateEvidencePaths
+						.map((path) => repoRelativeEvidencePath(path))
+						.filter((path): path is string => path !== undefined)
+						.slice(0, 8),
+				),
+			})
+		: undefined;
+	const tombstone = inspection.tombstone
+		? Object.freeze({
+				terminalStatus: inspection.tombstone.terminalStatus,
+				expiredAt:
+					sanitizeDetailText(inspection.tombstone.expiredAt, OBSERVATORY_PATH_MAX_BYTES) ??
+					inspection.tombstone.expiredAt,
+			})
+		: undefined;
 	const jobId = sanitizeDetailText(metadata.jobId, 128) ?? "unknown";
 	return Object.freeze({
 		schemaVersion: 1,
@@ -409,16 +481,19 @@ export function projectDurableSubagentJobResult(
 		evidence,
 		findings,
 		diagnostics,
+		...(workArtifact ? { workArtifact } : {}),
+		...(tombstone ? { tombstone } : {}),
 	});
 }
 
 export function formatDurableSubagentJobDetail(detail: DurableSubagentJobResultView): string[] {
 	const rows = [
 		`Background Job ${detail.jobId}`,
-		`status: ${detail.status}`,
+		`status: ${detail.status}${detail.tombstone ? " (expired from full retention)" : ""}`,
 		`role: ${detail.role}`,
 		...(detail.model ? [`model: ${detail.model}`] : []),
 		`result ref: ${detail.resultRef}`,
+		...(detail.tombstone ? [`retention expired: ${detail.tombstone.expiredAt}`] : []),
 		"",
 	];
 	let hasDetails = false;
@@ -430,6 +505,25 @@ export function formatDurableSubagentJobDetail(detail: DurableSubagentJobResultV
 		rows.push("Verification", detail.verification.verified ? "VERIFIED" : "VERIFICATION FAILED");
 		if (detail.verification.reason) rows.push(detail.verification.reason);
 		rows.push("");
+		hasDetails = true;
+	}
+	if (detail.workArtifact) {
+		rows.push(
+			"Preserved work artifact (runtime-owned, unverified)",
+			`report protocol: ${detail.workArtifact.reportProtocolStatus}${
+				detail.workArtifact.reportProtocolDiagnostic ? ` — ${detail.workArtifact.reportProtocolDiagnostic}` : ""
+			}`,
+			...(detail.workArtifact.touchedPaths.length > 0
+				? ["touched paths", ...detail.workArtifact.touchedPaths.map((path) => `- ${path}`)]
+				: []),
+			...(detail.workArtifact.candidateEvidencePaths.length > 0
+				? [
+						"candidate evidence (unverified)",
+						...detail.workArtifact.candidateEvidencePaths.map((path) => `- ${path}`),
+					]
+				: []),
+			"",
+		);
 		hasDetails = true;
 	}
 	if (detail.evidence.length > 0) {
@@ -573,6 +667,8 @@ function phaseForRuntimeEvent(event: SubagentEvent): ObservatoryPhase {
 		case "subagent_tool_end":
 		case "subagent_progress":
 			return "tool_activity";
+		case "subagent_needs_time":
+			return "needs_time";
 		case "subagent_completed":
 			return "completed";
 		case "subagent_failed":
@@ -599,12 +695,14 @@ function createSnapshot(input: {
 	runId?: string;
 	batchId?: string;
 	taskId?: string;
+	batchIndex?: number;
 	role?: string;
 	model?: string;
 	attempt?: 1 | 2;
 	currentTool?: string;
 	currentPath?: string;
 	usage?: SubagentUsage;
+	batchCounts?: ObservatoryBatchCounts;
 	attemptHistory?: readonly ObservatoryAttemptHistory[];
 	activity?: readonly ObservatoryActivity[];
 	evidenceCount?: number;
@@ -623,6 +721,7 @@ function createSnapshot(input: {
 		...(input.runId ? { runId: input.runId } : {}),
 		...(input.batchId ? { batchId: input.batchId } : {}),
 		...(input.taskId ? { taskId: input.taskId } : {}),
+		...(input.batchIndex !== undefined ? { batchIndex: input.batchIndex } : {}),
 		...(input.role ? { role: boundedText(input.role, OBSERVATORY_PATH_MAX_BYTES) } : {}),
 		...(input.model ? { model: boundedText(input.model, OBSERVATORY_PATH_MAX_BYTES) } : {}),
 		status: input.status,
@@ -635,6 +734,7 @@ function createSnapshot(input: {
 		...(input.attempt ? { attempt: input.attempt } : {}),
 		attemptHistory: Object.freeze((input.attemptHistory ?? []).slice(-OBSERVATORY_ATTEMPT_LIMIT)),
 		...(input.usage ? { usage: input.usage } : {}),
+		...(input.batchCounts ? { batchCounts: Object.freeze({ ...input.batchCounts }) } : {}),
 		...(input.evidenceCount !== undefined ? { evidenceCount: input.evidenceCount } : {}),
 		...(input.changedFileCount !== undefined ? { changedFileCount: input.changedFileCount } : {}),
 		...(input.artifactReady !== undefined ? { artifactReady: input.artifactReady } : {}),
@@ -658,6 +758,142 @@ function createSnapshot(input: {
 	};
 }
 
+function batchTaskStreamKey(aggregateStreamKey: string, taskId: string): string {
+	return `${aggregateStreamKey}/${taskId}`;
+}
+
+function batchAggregateStreamKey(streamKey: string, taskId: string): string | undefined {
+	const suffix = `/${taskId}`;
+	return streamKey.endsWith(suffix) ? streamKey.slice(0, -suffix.length) : undefined;
+}
+
+function batchCountsFor(
+	state: ObservatoryState,
+	batchId: string,
+	toolName: ObservatoryToolName,
+): ObservatoryBatchCounts {
+	const counts = {
+		total: 0,
+		queued: 0,
+		starting: 0,
+		running: 0,
+		completed: 0,
+		failed: 0,
+		cancelled: 0,
+		timedOut: 0,
+	};
+	const seen = new Set<string>();
+	for (const snapshot of [...state.active, ...state.recent]) {
+		if (snapshot.batchId !== batchId || snapshot.toolName !== toolName || !snapshot.taskId) continue;
+		if (seen.has(snapshot.streamKey)) continue;
+		seen.add(snapshot.streamKey);
+		counts.total++;
+		if (snapshot.phase === "queued" || snapshot.status === "queued") counts.queued++;
+		else if (snapshot.phase === "starting" || snapshot.phase === "created" || snapshot.status === "created")
+			counts.starting++;
+		else if (snapshot.phase === "completed" || snapshot.status === "completed") counts.completed++;
+		else if (
+			snapshot.phase === "failed" ||
+			snapshot.phase === "verification_failed" ||
+			snapshot.status === "failed" ||
+			snapshot.status === "verification_failed"
+		)
+			counts.failed++;
+		else if (snapshot.phase === "cancelled" || snapshot.status === "cancelled") counts.cancelled++;
+		else if (snapshot.phase === "timed_out" || snapshot.status === "timed_out") counts.timedOut++;
+		else counts.running++;
+	}
+	return Object.freeze(counts);
+}
+
+function updateBatchAggregate(
+	state: ObservatoryState,
+	aggregateStreamKey: string,
+	toolName: ObservatoryToolName,
+	batchId: string,
+	now: number,
+): ObservatoryState {
+	const existing = findExisting(state, aggregateStreamKey);
+	return reduceWorkflowProgress(state, {
+		streamKey: aggregateStreamKey,
+		toolName,
+		batchId,
+		phase: existing?.phase ?? "created",
+		status: existing?.status ?? "running",
+		nowMs: now,
+		batchCounts: batchCountsFor(state, batchId, toolName),
+	});
+}
+
+function lifecycleWorkflowInput(input: ObservatoryBatchTaskInput): ObservatoryWorkflowInput {
+	const { event } = input;
+	const streamKey = batchTaskStreamKey(input.aggregateStreamKey, event.taskId);
+	switch (event.type) {
+		case "task_queued":
+			return {
+				streamKey,
+				toolName: input.toolName,
+				batchId: event.batchId,
+				taskId: event.taskId,
+				batchIndex: event.index,
+				role: event.role,
+				phase: "queued",
+				status: "queued",
+				nowMs: input.nowMs,
+			};
+		case "task_admitted":
+			return {
+				streamKey,
+				toolName: input.toolName,
+				batchId: event.batchId,
+				taskId: event.taskId,
+				batchIndex: event.index,
+				role: event.role,
+				phase: "starting",
+				status: "starting",
+				nowMs: input.nowMs,
+			};
+		case "task_skipped":
+			return {
+				streamKey,
+				toolName: input.toolName,
+				batchId: event.batchId,
+				taskId: event.taskId,
+				phase: event.status,
+				status: event.status,
+				nowMs: input.nowMs,
+				diagnostics: [event.reason],
+			};
+	}
+}
+
+function replaceSnapshot(
+	entries: readonly SubagentProgressSnapshot[],
+	snapshot: SubagentProgressSnapshot,
+): readonly SubagentProgressSnapshot[] {
+	const index = entries.findIndex((entry) => entry.streamKey === snapshot.streamKey);
+	if (index < 0) return Object.freeze([...entries, snapshot]);
+	const next = [...entries];
+	next[index] = snapshot;
+	return Object.freeze(next);
+}
+
+function insertRecentSnapshot(
+	entries: readonly SubagentProgressSnapshot[],
+	snapshot: SubagentProgressSnapshot,
+): readonly SubagentProgressSnapshot[] {
+	const withoutSnapshot = entries.filter((entry) => entry.streamKey !== snapshot.streamKey);
+	if (!snapshot.batchId) return Object.freeze([...withoutSnapshot, snapshot]);
+	const batchIndex = snapshot.batchIndex ?? -1;
+	const insertionIndex = withoutSnapshot.findIndex(
+		(entry) => entry.batchId === snapshot.batchId && (entry.batchIndex ?? -1) > batchIndex,
+	);
+	if (insertionIndex < 0) return Object.freeze([...withoutSnapshot, snapshot]);
+	const next = [...withoutSnapshot];
+	next.splice(insertionIndex, 0, snapshot);
+	return Object.freeze(next);
+}
+
 function activityFor(
 	previous: SubagentProgressSnapshot | undefined,
 	phase: ObservatoryPhase,
@@ -670,22 +906,20 @@ function activityFor(
 		...(tool ? { tool: boundedText(tool, OBSERVATORY_PATH_MAX_BYTES) } : {}),
 		...(path ? { path: boundedText(path, OBSERVATORY_PATH_MAX_BYTES) } : {}),
 	} satisfies ObservatoryActivity;
-	const last = prior.at(-1);
+	const last = prior[prior.length - 1];
 	if (last && last.phase === next.phase && last.tool === next.tool && last.path === next.path) return prior;
 	return [...prior, next].slice(-OBSERVATORY_ACTIVITY_LIMIT);
 }
 
 function replaceActive(state: ObservatoryState, snapshot: SubagentProgressSnapshot): ObservatoryState {
 	return {
-		active: Object.freeze([...state.active.filter((entry) => entry.streamKey !== snapshot.streamKey), snapshot]),
+		active: replaceSnapshot(state.active, snapshot),
 		recent: Object.freeze(state.recent.filter((entry) => entry.streamKey !== snapshot.streamKey)),
 	};
 }
 
 function finishSnapshot(state: ObservatoryState, snapshot: SubagentProgressSnapshot): ObservatoryState {
-	const recent = [...state.recent.filter((entry) => entry.streamKey !== snapshot.streamKey), snapshot].slice(
-		-OBSERVATORY_RECENT_LIMIT,
-	);
+	const recent = insertRecentSnapshot(state.recent, snapshot).slice(-OBSERVATORY_RECENT_LIMIT);
 	return {
 		active: Object.freeze(state.active.filter((entry) => entry.streamKey !== snapshot.streamKey)),
 		recent: Object.freeze(recent),
@@ -728,7 +962,7 @@ export function reduceObservatoryEvent(state: ObservatoryState, input: Observato
 				]
 			: (existing?.attemptHistory ?? []);
 	const phase = phaseForRuntimeEvent(input.event);
-	const currentPath = normalizeProgressPath(input.cwd, input.currentPath);
+	const currentPath = normalizeProgressPath(input.cwd, input.currentPath ?? input.event.path);
 	const startedAt = existing?.startedAtMs ?? now;
 	const snapshot = createSnapshot({
 		streamKey: input.streamKey,
@@ -739,8 +973,9 @@ export function reduceObservatoryEvent(state: ObservatoryState, input: Observato
 		status: input.event.status,
 		terminal: runtimeIsTerminal(input.event),
 		runId: input.event.runId,
-		batchId: input.event.batchId,
-		taskId: input.taskId,
+		batchId: input.event.batchId ?? existing?.batchId,
+		taskId: input.taskId ?? input.event.taskId ?? existing?.taskId,
+		batchIndex: existing?.batchIndex,
 		role: input.event.profile,
 		model: input.model ?? existing?.model,
 		attempt,
@@ -789,12 +1024,14 @@ export function reduceWorkflowProgress(state: ObservatoryState, input: Observato
 		runId: input.runId ?? existing?.runId,
 		batchId: input.batchId ?? existing?.batchId,
 		taskId: input.taskId ?? existing?.taskId,
+		batchIndex: input.batchIndex ?? existing?.batchIndex,
 		role: input.role ?? existing?.role,
 		model: input.model ?? existing?.model,
 		attempt,
 		currentTool: input.currentTool ?? existing?.currentTool,
 		currentPath: currentPath ?? existing?.currentPath,
 		usage: input.usage ?? existing?.usage,
+		batchCounts: input.batchCounts ?? existing?.batchCounts,
 		attemptHistory,
 		activity: activityFor(existing, input.phase, existing?.currentTool, currentPath),
 		evidenceCount: input.evidenceCount ?? existing?.evidenceCount,
@@ -819,12 +1056,34 @@ export class SubagentObservatoryStore {
 
 	applyRuntime(input: ObservatoryRuntimeInput): SubagentProgressSnapshot | undefined {
 		this.state = reduceObservatoryEvent(this.state, input);
+		const taskSnapshot = findExisting(this.state, input.streamKey);
+		const taskId = input.taskId ?? input.event.taskId ?? taskSnapshot?.taskId;
+		const batchId = input.event.batchId ?? taskSnapshot?.batchId;
+		const aggregateStreamKey = taskId ? batchAggregateStreamKey(input.streamKey, taskId) : undefined;
+		if (aggregateStreamKey && batchId) {
+			this.state = updateBatchAggregate(this.state, aggregateStreamKey, input.toolName, batchId, nowMs(input.nowMs));
+		}
 		return this.publish(input.streamKey);
 	}
 
 	applyWorkflow(input: ObservatoryWorkflowInput): SubagentProgressSnapshot | undefined {
 		this.state = reduceWorkflowProgress(this.state, input);
+		const taskSnapshot = findExisting(this.state, input.streamKey);
+		const taskId = input.taskId ?? taskSnapshot?.taskId;
+		const batchId = input.batchId ?? taskSnapshot?.batchId;
+		const aggregateStreamKey = taskId ? batchAggregateStreamKey(input.streamKey, taskId) : undefined;
+		if (aggregateStreamKey && batchId) {
+			this.state = updateBatchAggregate(this.state, aggregateStreamKey, input.toolName, batchId, nowMs(input.nowMs));
+		}
 		return this.publish(input.streamKey);
+	}
+
+	applyBatchTaskLifecycle(input: ObservatoryBatchTaskInput): SubagentProgressSnapshot | undefined {
+		const now = nowMs(input.nowMs);
+		const workflow = lifecycleWorkflowInput({ ...input, nowMs: now });
+		this.state = reduceWorkflowProgress(this.state, workflow);
+		this.state = updateBatchAggregate(this.state, input.aggregateStreamKey, input.toolName, input.event.batchId, now);
+		return this.publish(workflow.streamKey);
 	}
 
 	subscribe(listener: (state: ObservatoryState) => void): () => void {
@@ -864,6 +1123,22 @@ function formatDuration(milliseconds: number): string {
 	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function formatBatchCounts(counts: ObservatoryBatchCounts): string {
+	const parts = [`${counts.total} tasks`];
+	for (const [label, count] of [
+		["queued", counts.queued],
+		["starting", counts.starting],
+		["running", counts.running],
+		["completed", counts.completed],
+		["failed", counts.failed],
+		["cancelled", counts.cancelled],
+		["timed out", counts.timedOut],
+	] as const) {
+		if (count > 0) parts.push(`${count} ${label}`);
+	}
+	return parts.join(" · ");
+}
+
 export function formatProgressSnapshot(snapshot: SubagentProgressSnapshot): string {
 	const lines = [
 		`${snapshot.toolName}${snapshot.role ? ` ${snapshot.role}` : ""}${snapshot.runId ? ` ${snapshot.runId.slice(0, 6)}` : ""}`,
@@ -875,8 +1150,17 @@ export function formatProgressSnapshot(snapshot: SubagentProgressSnapshot): stri
 					`usage in ${snapshot.usage.inputTokens} · out ${snapshot.usage.outputTokens} · cost ${snapshot.usage.cost.toFixed(4)}`,
 				]
 			: []),
+		...(snapshot.batchCounts ? [`batch ${formatBatchCounts(snapshot.batchCounts)}`] : []),
 		...(snapshot.currentTool || snapshot.currentPath
 			? [`current ${snapshot.currentTool ?? "activity"}${snapshot.currentPath ? ` ${snapshot.currentPath}` : ""}`]
+			: []),
+		...(snapshot.activity.length > 0
+			? snapshot.activity
+					.slice(-6)
+					.map(
+						(activity, index) =>
+							`${index + 1}. ${activity.tool ?? activity.phase}${activity.path ? ` ${activity.path}` : ""}`,
+					)
 			: []),
 		...(snapshot.changedFileCount !== undefined ? [`${snapshot.changedFileCount} files changed`] : []),
 		...(snapshot.evidenceCount !== undefined ? [`evidence ${snapshot.evidenceCount} paths`] : []),
@@ -908,6 +1192,8 @@ export function formatObservatoryRows(
 	expandedKeys: ReadonlySet<string> = new Set(),
 	durableJobs: readonly DurableSubagentJobViewSnapshot[] = [],
 	completionInbox: readonly SubagentCompletionInboxItem[] = [],
+	liveRunIds: ReadonlySet<string> = new Set(),
+	displayedRunId?: string,
 ): string[] {
 	const sections = durableJobSections(durableJobs);
 	const foregroundEntries = [...state.active, ...state.recent];
@@ -927,9 +1213,25 @@ export function formatObservatoryRows(
 		for (const snapshot of sectionEntries) {
 			const marker = snapshot.terminal ? (snapshot.status === "completed" ? "✓" : "✗") : "●";
 			const prefix = index === selectedIndex ? ">" : " ";
-			rows.push(
-				`${prefix}${marker} ${snapshot.runId?.slice(0, 6) ?? "------"} ${snapshot.toolName} ${snapshot.status} ${formatDuration(snapshot.elapsedMs)}`,
-			);
+			const queuedMarker = !snapshot.terminal && snapshot.phase === "queued" ? "…" : marker;
+			const viewing = snapshot.runId && snapshot.runId === displayedRunId ? "← viewing" : undefined;
+			const row = snapshot.taskId
+				? [
+						`${prefix}${queuedMarker} ${snapshot.taskId} ${snapshot.role ?? "subagent"} ${snapshot.status}`,
+						snapshot.currentTool || snapshot.currentPath
+							? `${snapshot.currentTool ?? "activity"}${snapshot.currentPath ? ` ${snapshot.currentPath}` : ""}`
+							: undefined,
+						snapshot.evidenceCount !== undefined ? `evidence ${snapshot.evidenceCount}` : undefined,
+						`${formatDuration(snapshot.elapsedMs)}`,
+						snapshot.runId && liveRunIds.has(snapshot.runId) ? "→ attach" : undefined,
+						viewing,
+					]
+						.filter((part): part is string => part !== undefined)
+						.join(" ")
+				: snapshot.batchCounts
+					? `${prefix}${queuedMarker} ${snapshot.toolName} ${formatBatchCounts(snapshot.batchCounts)} ${formatDuration(snapshot.elapsedMs)}`
+					: `${prefix}${marker} ${snapshot.runId?.slice(0, 6) ?? "------"} ${snapshot.toolName} ${snapshot.status} ${formatDuration(snapshot.elapsedMs)}${viewing ? ` ${viewing}` : ""}`;
+			rows.push(row);
 			if (expandedKeys.has(snapshot.streamKey)) {
 				for (const line of formatProgressSnapshot(snapshot).split("\n").slice(1)) rows.push(`  ${line}`);
 			}
