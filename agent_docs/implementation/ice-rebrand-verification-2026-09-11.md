@@ -98,7 +98,7 @@ performed against a rebuilt tree.
 
 ## Review state and open items
 
-- `feat/ice` is pushed with verified implementation tip `e339a77`; PR [#11](https://github.com/Zykairotis/ice/pull/11) is open from `feat/ice` into `void` and its description is being synchronized with the final evidence.
+- `feat/ice` is pushed with verified implementation tip `e339a77`; PR [#11](https://github.com/Zykairotis/ice/pull/11) is open from `feat/ice` into `void` and its description is synchronized with the final evidence.
 - The `void` remote ref was observed unchanged at `b919dc81...` during verification. The PR has not been merged; merge remains subject to review and explicit approval.
 - The PR's external Cubic reviewer was still pending at the last status query.
 - `.github/workflows/issue-analysis.yml` remains intentionally fail-closed until a real organization/team and `ZYKAIROTIS_ORG_READ_TOKEN` are provisioned.
