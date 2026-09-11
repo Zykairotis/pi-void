@@ -1,5 +1,7 @@
 # Changelog
 
+> This fork resets its changelog at the ICE rename. Pre-fork release history lives upstream at https://github.com/earendil-works/pi.
+
 ## [Unreleased]
 
 ### Breaking Changes
@@ -14,8 +16,8 @@
 - File agents support effective `model`/`fallbackModel` references with deterministic call/primary/fallback/parent candidate order, bounded skip reasons, startup-only retry, aggregate budgets, and durable route/candidate capture; stale captured routes fail explicitly. File agents also support explicit opt-in `mcp` server/tool selectors dispatched only through the parent-owned adapter.
 - `ice` settings, skills, prompts, context, and hooks resolve global-first; denies, mode restrictions, caps, and trust requirements still win. Stock `ice` behavior is unchanged.
 - Default delegation uses the exact current parent model; globally opted-in file/call candidates may select another configured route. Durable async jobs capture the chosen route at acceptance and reject stale promotion instead of rerouting. Isolated writer model policy is unchanged.
-- Changed JSON and RPC `message_update` events to emit only `assistantMessageEvent` deltas, removing the cumulative `message` and `assistantMessageEvent.partial` fields that caused quadratic output growth. Clients that need partial messages must assemble deltas between `message_start` and `message_end`; the latter remains authoritative ([#7290](https://github.com/earendil-works/ice/issues/7290)).
-- `ModelRegistry.getApiKeyAndHeaders()` now returns `ProviderHeaders` with `string | null` values and preserves `null` header-deletion markers. Extensions that inspect returned headers must handle `null`; extensions forwarding them to ice-ai streams should pass them through unchanged. This prevents placeholder OpenAI credentials from being sent through Cloudflare AI Gateway ([#7030](https://github.com/earendil-works/ice/issues/7030)).
+- Changed JSON and RPC `message_update` events to emit only `assistantMessageEvent` deltas, removing the cumulative `message` and `assistantMessageEvent.partial` fields that caused quadratic output growth. Clients that need partial messages must assemble deltas between `message_start` and `message_end`; the latter remains authoritative ([#7290](https://github.com/earendil-works/pi/issues/7290)).
+- `ModelRegistry.getApiKeyAndHeaders()` now returns `ProviderHeaders` with `string | null` values and preserves `null` header-deletion markers. Extensions that inspect returned headers must handle `null`; extensions forwarding them to ice-ai streams should pass them through unchanged. This prevents placeholder OpenAI credentials from being sent through Cloudflare AI Gateway ([#7030](https://github.com/earendil-works/pi/issues/7030)).
 - Changed `ModelRegistry.refresh()` to accept `ModelsRefreshOptions` and return `ModelsRefreshResult` instead of discarding cancellation and provider errors.
 - Changed `ModelRuntime.setRuntimeApiKey()` to accept auth cancellation options rather than catalog refresh options. Call `refresh({ providers: [providerId], signal })` separately when remote freshness is required.
 - Required config-form extension OAuth `refreshToken(credentials, signal)` callbacks to accept and honor a concrete abort signal.
@@ -130,7 +132,7 @@
 - Added built-in Baseten provider support with `BASETEN_API_KEY` authentication and `zai-org/GLM-5.2` as the default model.
 - Added `CredentialSynchronizationError` for credential changes that commit successfully but fail to synchronize local model state.
 - Added chainable `ice.registerMarkdownTransformer()` hooks for display-only transformation of user and assistant Markdown.
-- Added an experimental fullscreen UI mode, selectable through `--ui-mode fullscreen` or `/settings` ([#7304](https://github.com/earendil-works/ice/issues/7304)).
+- Added an experimental fullscreen UI mode, selectable through `--ui-mode fullscreen` or `/settings` ([#7304](https://github.com/earendil-works/pi/issues/7304)).
 - Added runtime switching between regular and fullscreen UI modes through `/settings`.
 - Added a sticky editor, status, widget, and footer dock to fullscreen mode while keeping the transcript independently scrollable.
 - Added Cognee `$project` datasets (`ice-<repo>-<hash>` from the git root) so automatic memory is not shared across repositories.
@@ -179,34 +181,34 @@
 - Fixed observer SSE cleanup and request metrics so connected dashboards cannot block `ice` shutdown and lifecycle events count as one request.
 - Fixed valid oversized Cognee recall envelopes being rejected before normalization; transport remains capped at `128 KiB`, while injected memory remains bounded by the configured recall character limit.
 - Fixed extension selectors dropping supplied Markdown review content before mounting, which hid the ICE plan body from the approval menu, and kept selector controls visible when the review viewport shrinks ([#5](https://github.com/Zykairotis/ice/pull/5)).
-- Fixed project-level nested provider retry settings replacing unmodified global provider retry settings ([#7572](https://github.com/earendil-works/ice/issues/7572)).
-- Fixed inherited GitHub Copilot Grok 4.5 requests to use the supported Responses API ([#7560](https://github.com/earendil-works/ice/issues/7560)).
+- Fixed project-level nested provider retry settings replacing unmodified global provider retry settings ([#7572](https://github.com/earendil-works/pi/issues/7572)).
+- Fixed inherited GitHub Copilot Grok 4.5 requests to use the supported Responses API ([#7560](https://github.com/earendil-works/pi/issues/7560)).
 - Fixed fullscreen shutdown leaking terminal capability-query replies into the parent shell prompt.
-- Fixed bare exact `--model` IDs shared by multiple providers choosing the first catalog entry instead of the sole authenticated provider or a clear ambiguity error ([#7327](https://github.com/earendil-works/ice/issues/7327)).
-- Fixed standalone x64 binaries requiring Haswell-era AVX2/BMI2 instructions by compiling release executables against Bun's baseline runtime ([#7149](https://github.com/earendil-works/ice/issues/7149)).
+- Fixed bare exact `--model` IDs shared by multiple providers choosing the first catalog entry instead of the sole authenticated provider or a clear ambiguity error ([#7327](https://github.com/earendil-works/pi/issues/7327)).
+- Fixed standalone x64 binaries requiring Haswell-era AVX2/BMI2 instructions by compiling release executables against Bun's baseline runtime ([#7149](https://github.com/earendil-works/pi/issues/7149)).
 - Fixed `Ctrl+X` copy confirmations in fullscreen mode adding a transcript status line instead of showing the transient `Copied!` marker.
 - Fixed Kitty image previews in fullscreen mode overlapping the sticky editor and footer dock while scrolling.
 - Fixed image-heavy fullscreen sessions lagging when layout changes retransmitted visible Kitty image payloads and rendered the transcript twice per frame.
 - Fixed spaces in `/settings` searches toggling the highlighted setting while typing multi-word queries such as **UI mode** or **Quiet startup**.
-- Fixed custom editors not inheriting the default editor's autocomplete dropdown item limit ([#7333](https://github.com/earendil-works/ice/issues/7333)).
-- Fixed malformed resource arrays in package manifests crashing session startup ([#7187](https://github.com/earendil-works/ice/issues/7187)).
+- Fixed custom editors not inheriting the default editor's autocomplete dropdown item limit ([#7333](https://github.com/earendil-works/pi/issues/7333)).
+- Fixed malformed resource arrays in package manifests crashing session startup ([#7187](https://github.com/earendil-works/pi/issues/7187)).
 - Fixed the DOOM overlay example downloading its shareware WAD from a dead URL.
-- Fixed `setToolsExpanded(false)` to be a no-op when tool output is already collapsed, avoiding redundant `Tool output: collapsed` startup notices from extensions ([#7292](https://github.com/earendil-works/ice/issues/7292)).
-- Fixed extension-driven model calls in custom compaction, handoff, and Q&A examples to dispatch through the coding-agent model runtime so custom providers and resolved auth options are preserved ([#7325](https://github.com/earendil-works/ice/pull/7325)).
-- Fixed long-running sessions using stale credentials after another process updates `auth.json` without serializing concurrent credential reads and delaying startup ([#7319](https://github.com/earendil-works/ice/issues/7319)).
-- Updated the packaged `brace-expansion` dependency to 5.0.8 to address GHSA-mh99-v99m-4gvg ([#7316](https://github.com/earendil-works/ice/issues/7316)).
-- Fixed forced model availability refreshes remaining blocked behind a stalled earlier refresh ([#7301](https://github.com/earendil-works/ice/issues/7301), [#7421](https://github.com/earendil-works/ice/pull/7421) by [@a-yeyang](https://github.com/a-yeyang)).
+- Fixed `setToolsExpanded(false)` to be a no-op when tool output is already collapsed, avoiding redundant `Tool output: collapsed` startup notices from extensions ([#7292](https://github.com/earendil-works/pi/issues/7292)).
+- Fixed extension-driven model calls in custom compaction, handoff, and Q&A examples to dispatch through the coding-agent model runtime so custom providers and resolved auth options are preserved ([#7325](https://github.com/earendil-works/pi/pull/7325)).
+- Fixed long-running sessions using stale credentials after another process updates `auth.json` without serializing concurrent credential reads and delaying startup ([#7319](https://github.com/earendil-works/pi/issues/7319)).
+- Updated the packaged `brace-expansion` dependency to 5.0.8 to address GHSA-mh99-v99m-4gvg ([#7316](https://github.com/earendil-works/pi/issues/7316)).
+- Fixed forced model availability refreshes remaining blocked behind a stalled earlier refresh ([#7301](https://github.com/earendil-works/pi/issues/7301), [#7421](https://github.com/earendil-works/pi/pull/7421) by [@a-yeyang](https://github.com/a-yeyang)).
 - Fixed `/model` catalog refresh failures to identify every catalog that failed.
-- Fixed provider login remaining stuck after saving credentials when a model catalog refresh stalls by separating local credential consistency from bounded background freshness ([#7027](https://github.com/earendil-works/ice/issues/7027), [#7113](https://github.com/earendil-works/ice/issues/7113), [#7418](https://github.com/earendil-works/ice/issues/7418)).
-- Fixed `/scoped-models` waiting for remote catalogs before rendering instead of showing cached models and cancelling refresh on close ([#7153](https://github.com/earendil-works/ice/issues/7153)).
-- Fixed `/model <name>` waiting for catalog refresh before checking cached model matches ([#7443](https://github.com/earendil-works/ice/issues/7443)).
+- Fixed provider login remaining stuck after saving credentials when a model catalog refresh stalls by separating local credential consistency from bounded background freshness ([#7027](https://github.com/earendil-works/pi/issues/7027), [#7113](https://github.com/earendil-works/pi/issues/7113), [#7418](https://github.com/earendil-works/pi/issues/7418)).
+- Fixed `/scoped-models` waiting for remote catalogs before rendering instead of showing cached models and cancelling refresh on close ([#7153](https://github.com/earendil-works/pi/issues/7153)).
+- Fixed `/model <name>` waiting for catalog refresh before checking cached model matches ([#7443](https://github.com/earendil-works/pi/issues/7443)).
 - Fixed stale availability snapshots and errors publishing after a newer availability pass.
 - Fixed stale ice.dev, Radius, llama.cpp, and extension catalog refreshes publishing after a newer provider refresh.
 - Fixed cancellation while waiting for file-backed credential or model-catalog locks, preventing cancelled mutations from running or committing later.
 - Fixed concurrent in-memory credential mutations losing unrelated provider updates by serializing their read-modify-write sections.
 - Updated `undici` to 8.9.0 and the packaged `brace-expansion` to 5.0.9 to address GHSA-8xcm-r25x-g524, GHSA-4cwx-7wf7-3272, GHSA-m8rv-5g2x-5cg5, GHSA-jr45-8vmc-qm54, GHSA-v3r7-h72x-cjcm, and GHSA-rgw5-rvv9-x895.
-- Fixed GitHub Copilot compaction and branch summaries using the Individual endpoint instead of the credential-resolved Business or Enterprise endpoint ([#6768](https://github.com/earendil-works/ice/issues/6768)).
-- Fixed extension model calls dropping credential-resolved endpoints when forwarding request authentication, including custom compaction with GitHub Copilot Business and Enterprise accounts ([#7579](https://github.com/earendil-works/ice/issues/7579)).
-- Fixed fullscreen transcript navigation leaving no editor-accessible `Home`, `End`, `PageUp`, or `PageDown` variants by adding Ctrl-modified editor bindings ([#7574](https://github.com/earendil-works/ice/issues/7574)).
+- Fixed GitHub Copilot compaction and branch summaries using the Individual endpoint instead of the credential-resolved Business or Enterprise endpoint ([#6768](https://github.com/earendil-works/pi/issues/6768)).
+- Fixed extension model calls dropping credential-resolved endpoints when forwarding request authentication, including custom compaction with GitHub Copilot Business and Enterprise accounts ([#7579](https://github.com/earendil-works/pi/issues/7579)).
+- Fixed fullscreen transcript navigation leaving no editor-accessible `Home`, `End`, `PageUp`, or `PageDown` variants by adding Ctrl-modified editor bindings ([#7574](https://github.com/earendil-works/pi/issues/7574)).
 
 > Release notes for versions published under the previous product identity are not reproduced here. They are preserved in the archived source repository and in prior Git history.

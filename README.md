@@ -32,7 +32,7 @@ To learn more about Ice:
 | **[@zykairotis/ice-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
 | **[@zykairotis/ice-tui](packages/tui)** | Terminal UI library with differential rendering |
 
-For Slack/chat automation and workflows see [earendil-works/ice-chat](https://github.com/earendil-works/ice-chat).
+For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
 
 ## Permissions & Containerization
 

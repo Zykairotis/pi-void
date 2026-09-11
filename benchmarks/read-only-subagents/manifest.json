@@ -28,7 +28,7 @@
 		{
 			"id": "ice-stock",
 			"source": {
-				"repo": "https://github.com/earendil-works/ice.git",
+				"repo": "https://github.com/Zykairotis/ice.git",
 				"commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
 				"subdir": "packages/coding-agent"
 			},
@@ -37,7 +37,7 @@
 		{
 			"id": "ice-native-example",
 			"source": {
-				"repo": "https://github.com/earendil-works/ice.git",
+				"repo": "https://github.com/Zykairotis/ice.git",
 				"commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
 				"subdir": "packages/coding-agent/examples/extensions/subagent"
 			},

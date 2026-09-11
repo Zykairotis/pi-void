@@ -1,5 +1,7 @@
 # Changelog
 
+> This fork resets its changelog at the ICE rename. Pre-fork release history lives upstream at https://github.com/earendil-works/pi.
+
 ## [Unreleased]
 
 ### Breaking Changes
@@ -74,7 +76,7 @@
 
 - Added service-tier request metadata so capable callers can select provider priority tiers independently of reasoning level ([#5](https://github.com/Zykairotis/ice/pull/5)).
 - Added model-specific `ultra` thinking support through `thinkingLevelMap`, preserving provider-native values without enabling it for models that do not advertise the level ([#5](https://github.com/Zykairotis/ice/pull/5)).
-- Added deferred provider request contracts, durable response handles, authenticated fetch/cancel dispatch, and faux-provider support for pending, ready, failed, and cancelled responses ([#7339](https://github.com/earendil-works/ice/pull/7339) by [@davidbrai](https://github.com/davidbrai)).
+- Added deferred provider request contracts, durable response handles, authenticated fetch/cancel dispatch, and faux-provider support for pending, ready, failed, and cancelled responses ([#7339](https://github.com/earendil-works/pi/pull/7339) by [@davidbrai](https://github.com/davidbrai)).
 - Added Baseten as a built-in OpenAI-compatible provider with models.dev catalog generation and native `chat_template_args` reasoning controls.
 
 ### Changed
@@ -83,14 +85,14 @@
 
 ### Fixed
 
-- Fixed GitHub Copilot Grok 4.5 requests to use the supported Responses API ([#7560](https://github.com/earendil-works/ice/issues/7560)).
-- Bounded OAuth token refreshes so stalled requests release the credential-store lock ([#7508](https://github.com/earendil-works/ice/issues/7508)).
-- Fixed tool argument validation to preserve values that already match an `anyOf`/`oneOf` union arm before attempting coercion, avoiding nullable unions converting `null` to another primitive value ([#7328](https://github.com/earendil-works/ice/issues/7328)).
-- Fixed cancellation of model catalog refreshes so callers stop waiting even when a custom provider ignores its abort signal ([#7027](https://github.com/earendil-works/ice/issues/7027)).
+- Fixed GitHub Copilot Grok 4.5 requests to use the supported Responses API ([#7560](https://github.com/earendil-works/pi/issues/7560)).
+- Bounded OAuth token refreshes so stalled requests release the credential-store lock ([#7508](https://github.com/earendil-works/pi/issues/7508)).
+- Fixed tool argument validation to preserve values that already match an `anyOf`/`oneOf` union arm before attempting coercion, avoiding nullable unions converting `null` to another primitive value ([#7328](https://github.com/earendil-works/pi/issues/7328)).
+- Fixed cancellation of model catalog refreshes so callers stop waiting even when a custom provider ignores its abort signal ([#7027](https://github.com/earendil-works/pi/issues/7027)).
 - Fixed auth resolution, availability checks, OAuth refreshes, provider login, and in-memory credential queue waits to honor caller cancellation.
 - Fixed newer provider refreshes being blocked by or overwritten by an older stalled generation, including persisted catalog publication.
 - Updated GPT-5.6 Terra and Luna pricing across OpenAI and passthrough model catalogs.
-- Fixed Fireworks Kimi K3 models to use the OpenAI-compatible API with native reasoning-effort levels and deferred tools ([#7199](https://github.com/earendil-works/ice/issues/7199), [#7230](https://github.com/earendil-works/ice/pull/7230) by [@XBeg9](https://github.com/XBeg9)).
+- Fixed Fireworks Kimi K3 models to use the OpenAI-compatible API with native reasoning-effort levels and deferred tools ([#7199](https://github.com/earendil-works/pi/issues/7199), [#7230](https://github.com/earendil-works/pi/pull/7230) by [@XBeg9](https://github.com/XBeg9)).
 - Updated Groq's Qwen reasoning override for the replacement `qwen/qwen3.6-27b` model.
 
 > Release notes for versions published under the previous product identity are not reproduced here. They are preserved in the archived source repository and in prior Git history.

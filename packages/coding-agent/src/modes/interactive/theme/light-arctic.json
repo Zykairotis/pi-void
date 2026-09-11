@@ -1,5 +1,5 @@
 {
-	"$schema": "https://raw.githubusercontent.com/earendil-works/ice/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+	"$schema": "https://raw.githubusercontent.com/Zykairotis/ice/void/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
 	"name": "light-arctic",
 	"vars": {
 		"snow0": "#FFFFFF",

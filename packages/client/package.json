@@ -30,7 +30,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/ice.git",
+		"url": "git+https://github.com/Zykairotis/ice.git",
 		"directory": "packages/client"
 	},
 	"engines": { "node": ">=22.19.0" },

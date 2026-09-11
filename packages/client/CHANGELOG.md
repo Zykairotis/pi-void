@@ -1,5 +1,7 @@
 # Changelog
 
+> This fork resets its changelog at the ICE rename. Pre-fork release history lives upstream at https://github.com/earendil-works/pi.
+
 ## [Unreleased]
 
 ### Breaking Changes

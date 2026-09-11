@@ -1,11 +1,11 @@
 # Development
 
-See [AGENTS.md](https://github.com/earendil-works/ice-mono/blob/main/AGENTS.md) for additional guidelines.
+See [AGENTS.md](https://github.com/earendil-works/pi/blob/main/AGENTS.md) for additional guidelines.
 
 ## Setup
 
 ```bash
-git clone https://github.com/earendil-works/ice-mono
+git clone https://github.com/earendil-works/pi
 cd ice-mono
 npm install
 npm run build

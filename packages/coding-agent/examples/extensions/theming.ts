@@ -24,7 +24,7 @@ import {
 
 const USER_THEME = "user";
 const SCHEMA =
-	"https://raw.githubusercontent.com/earendil-works/ice/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json";
+	"https://raw.githubusercontent.com/Zykairotis/ice/void/packages/coding-agent/src/modes/interactive/theme/theme-schema.json";
 
 const PALETTE: { id: string; hex: string }[] = [
 	{ id: "default", hex: "" },

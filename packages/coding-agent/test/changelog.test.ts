@@ -19,17 +19,17 @@ describe("normalizeChangelogLinks", () => {
 
 		expect(normalizeChangelogLinks(markdown, entry)).toBe(
 			[
-				"[Project Trust](https://github.com/earendil-works/ice/blob/v0.79.0/packages/coding-agent/README.md#project-trust)",
-				"[Extensions](https://github.com/earendil-works/ice/blob/v0.79.0/packages/coding-agent/docs/extensions.md#project_trust)",
-				"[Examples](https://github.com/earendil-works/ice/tree/v0.79.0/packages/coding-agent/examples/extensions/)",
-				"[Root README](https://github.com/earendil-works/ice/blob/v0.79.0/README.md#supply-chain-hardening)",
+				"[Project Trust](https://github.com/Zykairotis/ice/blob/v0.79.0/packages/coding-agent/README.md#project-trust)",
+				"[Extensions](https://github.com/Zykairotis/ice/blob/v0.79.0/packages/coding-agent/docs/extensions.md#project_trust)",
+				"[Examples](https://github.com/Zykairotis/ice/tree/v0.79.0/packages/coding-agent/examples/extensions/)",
+				"[Root README](https://github.com/Zykairotis/ice/blob/v0.79.0/README.md#supply-chain-hardening)",
 			].join("\n"),
 		);
 	});
 
 	test("canonicalizes old repository URLs without changing external links", () => {
 		const markdown = [
-			"[#5167](https://github.com/earendil-works/ice-mono/pull/5167)",
+			"[#5167](https://github.com/earendil-works/pi/pull/5167)",
 			"[#4163](https://github.com/badlogic/ice-mono/issues/4163)",
 			"[Agent README](https://github.com/badlogic/ice-mono/blob/main/packages/agent/README.md)",
 			"[External](https://example.com/docs)",
@@ -38,9 +38,9 @@ describe("normalizeChangelogLinks", () => {
 
 		expect(normalizeChangelogLinks(markdown, "0.79.0")).toBe(
 			[
-				"[#5167](https://github.com/earendil-works/ice/pull/5167)",
-				"[#4163](https://github.com/earendil-works/ice/issues/4163)",
-				"[Agent README](https://github.com/earendil-works/ice/blob/v0.79.0/packages/agent/README.md)",
+				"[#5167](https://github.com/earendil-works/pi/pull/5167)",
+				"[#4163](https://github.com/Zykairotis/ice/issues/4163)",
+				"[Agent README](https://github.com/Zykairotis/ice/blob/v0.79.0/packages/agent/README.md)",
 				"[External](https://example.com/docs)",
 				"[Local anchor](#settings)",
 			].join("\n"),
