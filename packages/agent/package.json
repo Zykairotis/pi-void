@@ -46,7 +46,7 @@
 		"transport",
 		"state-management"
 	],
-	"author": "Mario Zechner",
+	"author": "Zykairotis/ICE",
 	"license": "MIT",
 	"repository": {
 		"type": "git",

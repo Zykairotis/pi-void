@@ -9,6 +9,7 @@ const ignoredDirectories = new Set([
 	".git",
 	".least",
 	"agent_references",
+	"Agent_harness_references",
 	"dist",
 	"node_modules",
 ]);

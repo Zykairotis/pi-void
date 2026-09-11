@@ -96,19 +96,19 @@ fi
 
 if [[ "$SKIP_DEPS" == "false" ]]; then
     echo "==> Installing cross-platform native bindings..."
-    CLIPBOARD_VERSION=$(node -p "require('./packages/coding-agent/package.json').optionalDependencies['@mariozechner/clipboard']")
+    CLIPBOARD_VERSION=$(node -p "require('./packages/coding-agent/package.json').optionalDependencies['@zykairotis/ice-clipboard']")
     # npm ci only installs optional deps for the current platform
     # We need the base clipboard package and all platform bindings for bun cross-compilation
     # Use --force to bypass platform checks (os/cpu restrictions in package.json)
     # Install all in one command to avoid npm removing packages from previous installs
     npm install --include=optional --no-save --package-lock=false --force --ignore-scripts \
-        @mariozechner/clipboard@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-darwin-arm64@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-darwin-x64@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-linux-x64-gnu@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-linux-arm64-gnu@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-win32-x64-msvc@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-win32-arm64-msvc@"$CLIPBOARD_VERSION"
+        @zykairotis/ice-clipboard@"$CLIPBOARD_VERSION" \
+        @zykairotis/ice-clipboard-darwin-arm64@"$CLIPBOARD_VERSION" \
+        @zykairotis/ice-clipboard-darwin-x64@"$CLIPBOARD_VERSION" \
+        @zykairotis/ice-clipboard-linux-x64-gnu@"$CLIPBOARD_VERSION" \
+        @zykairotis/ice-clipboard-linux-arm64-gnu@"$CLIPBOARD_VERSION" \
+        @zykairotis/ice-clipboard-win32-x64-msvc@"$CLIPBOARD_VERSION" \
+        @zykairotis/ice-clipboard-win32-arm64-msvc@"$CLIPBOARD_VERSION"
 else
     echo "==> Skipping cross-platform native bindings (--skip-deps)"
 fi
@@ -198,11 +198,11 @@ for platform in "${PLATFORMS[@]}"; do
             clipboard_native_file="clipboard.win32-arm64-msvc.node"
             ;;
     esac
-    mkdir -p "$OUTPUT_DIR/$platform/node_modules/@mariozechner"
-    cp -r ../../node_modules/@mariozechner/clipboard "$OUTPUT_DIR/$platform/node_modules/@mariozechner/"
-    cp -r ../../node_modules/@mariozechner/$clipboard_native_package "$OUTPUT_DIR/$platform/node_modules/@mariozechner/"
-    cp "../../node_modules/@mariozechner/$clipboard_native_package/$clipboard_native_file" \
-        "$OUTPUT_DIR/$platform/node_modules/@mariozechner/clipboard/"
+    mkdir -p "$OUTPUT_DIR/$platform/node_modules/@zykairotis"
+    cp -r ../../node_modules/@zykairotis/ice-clipboard "$OUTPUT_DIR/$platform/node_modules/@zykairotis/"
+    cp -r ../../node_modules/@zykairotis/ice-$clipboard_native_package "$OUTPUT_DIR/$platform/node_modules/@zykairotis/"
+    cp "../../node_modules/@zykairotis/ice-$clipboard_native_package/$clipboard_native_file" \
+        "$OUTPUT_DIR/$platform/node_modules/@zykairotis/ice-clipboard/"
 
     # Copy terminal input native helpers next to compiled binaries.
     if [[ "$platform" == darwin-* ]]; then

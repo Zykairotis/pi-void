@@ -26,7 +26,7 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"keywords": ["ice", "client", "protocol", "cbor", "binary"],
-	"author": "Earendil Works",
+	"author": "Zykairotis/ICE",
 	"license": "MIT",
 	"repository": {
 		"type": "git",

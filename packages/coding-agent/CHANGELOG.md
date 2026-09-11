@@ -143,6 +143,7 @@
 
 ### Changed
 
+- Changed clipboard and Gondolin integrations to the published `@zykairotis/ice-*` fork packages, including cross-platform binary packaging, example setup, and generated install metadata.
 - Changed ICE RPC and interactive settings projections to show deny-first effective values; empty role allowlists are neutral preferences, while malformed settings block new delegation.
 - Removed former specialist aliases, including `scout`; use self delegation or an actual Markdown agent name.
 - `ice` no longer fetches the local 9Router model catalog on every launch. Startup uses the last valid `models.json` and injects the local API key only; use `/settings` → Providers → Refetch catalog to update.
@@ -210,5 +211,6 @@
 - Fixed GitHub Copilot compaction and branch summaries using the Individual endpoint instead of the credential-resolved Business or Enterprise endpoint ([#6768](https://github.com/earendil-works/pi/issues/6768)).
 - Fixed extension model calls dropping credential-resolved endpoints when forwarding request authentication, including custom compaction with GitHub Copilot Business and Enterprise accounts ([#7579](https://github.com/earendil-works/pi/issues/7579)).
 - Fixed fullscreen transcript navigation leaving no editor-accessible `Home`, `End`, `PageUp`, or `PageDown` variants by adding Ctrl-modified editor bindings ([#7574](https://github.com/earendil-works/pi/issues/7574)).
+- Fixed the ICE clipboard integration to use the `0.3.10` fork release, whose Linux musl packages contain native addons and whose release CI builds and copies both musl targets.
 
 > Release notes for versions published under the previous product identity are not reproduced here. They are preserved in the archived source repository and in prior Git history.

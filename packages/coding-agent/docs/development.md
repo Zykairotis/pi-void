@@ -1,12 +1,12 @@
 # Development
 
-See [AGENTS.md](https://github.com/earendil-works/pi/blob/main/AGENTS.md) for additional guidelines.
+See [AGENTS.md](https://github.com/Zykairotis/ice/blob/void/AGENTS.md) for additional guidelines.
 
 ## Setup
 
 ```bash
-git clone https://github.com/earendil-works/pi
-cd ice-mono
+git clone https://github.com/Zykairotis/ice
+cd ice
 npm install
 npm run build
 ```
@@ -14,7 +14,7 @@ npm run build
 Run from source:
 
 ```bash
-/path/to/ice-mono/ice-test.sh
+/path/to/ice/ice-test.sh
 ```
 
 The script can be run from any directory. Ice keeps the caller's current working directory.

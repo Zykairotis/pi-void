@@ -18,7 +18,7 @@ Extensions run wherever the `ice` process runs. If you run host `ice` with a too
 
 ## Gondolin
 
-[Gondolin](https://github.com/earendil-works/gondolin) is a local Linux micro-VM.
+[Gondolin](https://github.com/Zykairotis/ice-gondolin) is a local Linux micro-VM.
 Use the [example extension](../examples/extensions/gondolin) when you want `ice` on the host but all built-in tools routed into the VM.
 
 Setup:
@@ -40,7 +40,7 @@ The extension mounts the host cwd at `/workspace` in the VM and overrides `read`
 User `!` commands are routed into the VM, as well.
 File changes under `/workspace` write through to the host.
 
-Requirements: Node.js >= 23.6.0 for `@earendil-works/gondolin`, plus QEMU (requires installation through your package manager).
+Requirements: Node.js >= 23.6.0 for `@zykairotis/ice-gondolin`, plus QEMU (requires installation through your package manager).
 
 ## Plain Docker
 

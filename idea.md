@@ -32,6 +32,7 @@ Implemented today:
 
 - `ice` remains upstream-compatible Ice.
 - `ice` is ICE entry point.
+- ICE consumes separately published, rebranded dependency forks through package seams: the MIT-licensed `@zykairotis/ice-clipboard` family and the Apache-2.0-licensed `@zykairotis/ice-gondolin` family. Their source repositories, native/runner packages, and upstream license attribution remain external to this repository.
 - `ice` loads the last valid local catalog and API key on launch and does not fetch `/v1/models` at startup. Refetch a provider catalog from `/settings` → Providers; the `local` provider is the OpenAI-compatible 9Router endpoint. Offline and metadata-only commands still skip network work.
 - Endpoint model metadata drives model selection and limits.
 - Last valid model catalog remains usable if endpoint is unavailable.

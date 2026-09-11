@@ -73,7 +73,7 @@
 		}
 	},
 	"optionalDependencies": {
-		"@mariozechner/clipboard": "0.3.9"
+		"@zykairotis/ice-clipboard": "0.3.10"
 	},
 	"devDependencies": {
 		"@types/cross-spawn": "6.0.6",
@@ -95,7 +95,7 @@
 		"tui",
 		"agent"
 	],
-	"author": "Mario Zechner",
+	"author": "Zykairotis/ICE",
 	"license": "MIT",
 	"repository": {
 		"type": "git",

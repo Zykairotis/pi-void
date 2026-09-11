@@ -23,6 +23,7 @@ packages/ai/src/providers/.model-generation-*/
 .ai-bridge/
 .least/
 agent_references/
+Agent_harness_references/
 *.swp
 *.swo
 *~

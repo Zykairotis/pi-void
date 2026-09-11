@@ -15,12 +15,11 @@
  *   ice -e /path/to/ice/packages/coding-agent/examples/extensions/gondolin
  *
  * Requirements:
- *   - Node.js >= 23.6.0 for @earendil-works/gondolin
+ *   - Node.js >= 23.6.0 for @zykairotis/ice-gondolin
  *   - QEMU installed (for example, `brew install qemu` on macOS)
  */
 
 import path from "node:path";
-import { RealFSProvider, VM } from "@earendil-works/gondolin";
 import type { ExtensionAPI, ExtensionContext } from "@zykairotis/ice-coding-agent";
 import {
 	type BashOperations,
@@ -43,6 +42,7 @@ import {
 	truncateLine,
 	type WriteOperations,
 } from "@zykairotis/ice-coding-agent";
+import { RealFSProvider, VM } from "@zykairotis/ice-gondolin";
 
 const GUEST_WORKSPACE = "/workspace";
 const DEFAULT_GREP_LIMIT = 100;
