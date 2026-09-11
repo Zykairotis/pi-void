@@ -1,0 +1,6 @@
+flowchart LR
+  A["You + parent model"] --> B["Pick a role"]
+  B --> C["Scope + budgets"]
+  C --> D["Hooks gate"]
+  D --> E["Child runs read-only"]
+  E --> F["Parent verifies + uses result"]

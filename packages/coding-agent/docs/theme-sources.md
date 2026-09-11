@@ -1,8 +1,8 @@
 # Bundled Theme Sources
 
-Pi bundles all 98 JSON themes from [OhMyPi](https://github.com/can1357/oh-my-pi) commit [`e06ac0b787d9d30adfbe13aca46784376d54c35a`](https://github.com/can1357/oh-my-pi/commit/e06ac0b787d9d30adfbe13aca46784376d54c35a), sourced from [`packages/coding-agent/src/modes/theme/defaults/`](https://github.com/can1357/oh-my-pi/tree/e06ac0b787d9d30adfbe13aca46784376d54c35a/packages/coding-agent/src/modes/theme/defaults).
+Ice bundles all 98 JSON themes from [OhMyPi](https://github.com/can1357/oh-my-pi) commit [`e06ac0b787d9d30adfbe13aca46784376d54c35a`](https://github.com/can1357/oh-my-pi/commit/e06ac0b787d9d30adfbe13aca46784376d54c35a), sourced from [`packages/coding-agent/src/modes/theme/defaults/`](https://github.com/can1357/oh-my-pi/tree/e06ac0b787d9d30adfbe13aca46784376d54c35a/packages/coding-agent/src/modes/theme/defaults).
 
-Each Pi filename matches its OhMyPi source filename. Adaptations remove OhMyPi-only color and symbol tokens and point `$schema` to Pi's theme schema. Poimandres' translucent selection color is preblended against its dark or light background because Pi themes use opaque terminal colors. Prism's color-token aliases are resolved to its palette variable, and Onyx's `$variable` references use Pi's unprefixed variable syntax. Other compatible palette, UI, syntax, diff, and HTML export colors remain unchanged. Pi's native `dark` and `light` themes remain bundled separately, for 100 built-in themes total.
+Each Ice filename matches its OhMyPi source filename. Adaptations remove OhMyPi-only color and symbol tokens and point `$schema` to Ice's theme schema. Poimandres' translucent selection color is preblended against its dark or light background because Ice themes use opaque terminal colors. Prism's color-token aliases are resolved to its palette variable, and Onyx's `$variable` references use Ice's unprefixed variable syntax. Other compatible palette, UI, syntax, diff, and HTML export colors remain unchanged. Ice's native `dark` and `light` themes remain bundled separately, for 100 built-in themes total.
 
 ## OhMyPi license
 

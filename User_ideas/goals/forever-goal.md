@@ -66,8 +66,8 @@ Read `User_ideas/goals/chatgpt-desktop.settings.json` (or `chatgpt-desktop.setti
 | `parallel-web-search` | External documentation and dependency research. | Cite sources with URLs. |
 | `parallel-web-extract` | Verbatim URL/document extraction. | Prefer over unspecialized fetchers. |
 | `context7` | Library and framework API reference resolution. | Resolve library ID before querying. |
-| `piv-simple-tests` | Unit and integration test runner. | Fallback to repo test commands if uninstalled. |
-| `piv-tui-interactive` | Interactive TUI regression testing. | Fallback to repo tmux runbook if uninstalled. |
+| `ice-simple-tests` | Unit and integration test runner. | Fallback to repo test commands if uninstalled. |
+| `ice-tui-interactive` | Interactive TUI regression testing. | Fallback to repo tmux runbook if uninstalled. |
 
 ---
 
@@ -204,7 +204,7 @@ To prevent hallucinated completion and quality degradation during unattended run
 3. **No Lint Suppression**: Never add `@ts-ignore`, `@ts-nocheck`, `any`, or disable eslint/biome rules to bypass typecheck or lint errors.
 4. **No Premature Victory Claims**: Model assertions of correctness do not override failing, stale, or unrun checks. Exit code `0` from authoritative commands is mandatory.
 5. **No Scope Creep or Unauthorized Actions**: Do not commit, push, merge, release, deploy, or modify Git history unless explicitly requested in the plan.
-6. **Pi Agent Loop Integrity**: Keep Pi as the single reasoning and execution loop. Do not spawn competing subagent planners or nested autonomous loops.
+6. **Ice Agent Loop Integrity**: Keep Ice as the single reasoning and execution loop. Do not spawn competing subagent planners or nested autonomous loops.
 
 ---
 
@@ -269,7 +269,7 @@ CONSTRAINTS & GUARDRAILS:
 - Preserve public contracts unless the plan explicitly mandates changes.
 - Never weaken assertions, delete failing tests, use @ts-ignore, or mock real implementations to force passes.
 - Do not commit, push, merge, release, deploy, or expand credentials.
-- Retain Pi as the single authoritative agent loop.
+- Retain Ice as the single authoritative agent loop.
 
 WORKING RULE:
 Work sequentially phase by phase. Re-read the full plan after major milestones to prevent requirement drift. Treat verification failures as defects to fix at the root cause.
@@ -308,13 +308,13 @@ Use `packages/coding-agent/test/suite/harness.ts` with the faux provider. Never 
 
 ### Interactive TUI Validation (tmux)
 ```bash
-tmux new-session -d -s pi-test -x 80 -y 24
-tmux send-keys -t pi-test "./pi-test.sh" Enter
-sleep 3 && tmux capture-pane -t pi-test -p
-tmux send-keys -t pi-test "your verification prompt" Enter
-sleep 2 && tmux capture-pane -t pi-test -p
-tmux send-keys -t pi-test Escape
-tmux kill-session -t pi-test
+tmux new-session -d -s ice-test -x 80 -y 24
+tmux send-keys -t ice-test "./ice-test.sh" Enter
+sleep 3 && tmux capture-pane -t ice-test -p
+tmux send-keys -t ice-test "your verification prompt" Enter
+sleep 2 && tmux capture-pane -t ice-test -p
+tmux send-keys -t ice-test Escape
+tmux kill-session -t ice-test
 ```
 
 ---

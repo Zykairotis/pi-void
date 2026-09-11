@@ -5,8 +5,8 @@
 - $parallel-web-extract
 - $parallel-web-searc
 - $context7
-- $piv-simple-tests
-- $piv-tui-intractive
+- $ice-simple-tests
+- $ice-tui-intractive
 
 
 

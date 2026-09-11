@@ -1,4 +1,4 @@
-> pi can create themes. Ask it to build one for your setup.
+> ice can create themes. Ask it to build one for your setup.
 
 # Themes
 
@@ -16,12 +16,12 @@ Themes are JSON files that define colors for the TUI.
 
 ## Locations
 
-Pi loads themes from:
+Ice loads themes from:
 
-- Built-in: 100 themes—Pi's `dark` and `light` plus all 98 themes from OhMyPi's pinned catalog
-- Global: `~/.pi/agent/themes/*.json`
-- Project: `.pi/themes/*.json` (only after the project is trusted)
-- Packages: `themes/` directories or `pi.themes` entries in `package.json`
+- Built-in: 100 themes—Ice's `dark` and `light` plus all 98 themes from OhMyPi's pinned catalog
+- Global: `~/.ice/agent/themes/*.json`
+- Project: `.ice/themes/*.json` (only after the project is trusted)
+- Packages: `themes/` directories or `ice.themes` entries in `package.json`
 - Settings: `themes` array with files or directories
 - CLI: `--theme <path>` (repeatable)
 
@@ -37,7 +37,7 @@ Select a theme via `/settings` or in `settings.json`:
 }
 ```
 
-On first run, pi detects your terminal background and defaults to `dark` or `light`.
+On first run, ice detects your terminal background and defaults to `dark` or `light`.
 
 Use separate themes for light and dark terminal appearance by joining their names with `/`:
 
@@ -54,15 +54,15 @@ See [Bundled Theme Sources](theme-sources.md) for source and license details of 
 1. Create a theme file:
 
 ```bash
-mkdir -p ~/.pi/agent/themes
-vim ~/.pi/agent/themes/my-theme.json
+mkdir -p ~/.ice/agent/themes
+vim ~/.ice/agent/themes/my-theme.json
 ```
 
 2. Define the theme with all required colors (see [Color Tokens](#color-tokens)):
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+  "$schema": "https://raw.githubusercontent.com/earendil-works/ice/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
   "name": "my-theme",
   "vars": {
     "primary": "#00aaff",
@@ -128,13 +128,13 @@ vim ~/.pi/agent/themes/my-theme.json
 
 3. Select the theme via `/settings`.
 
-**Hot reload:** When you edit the currently active custom theme file, pi reloads it automatically for immediate visual feedback.
+**Hot reload:** When you edit the currently active custom theme file, ice reloads it automatically for immediate visual feedback.
 
 ## Theme Format
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+  "$schema": "https://raw.githubusercontent.com/earendil-works/ice/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
   "name": "my-theme",
   "vars": {
     "blue": "#0066cc",
@@ -282,7 +282,7 @@ Four formats are supported:
 
 ### Terminal Compatibility
 
-Pi uses 24-bit RGB colors. Most modern terminals support this (iTerm2, Kitty, WezTerm, Windows Terminal, VS Code). For older terminals with only 256-color support, pi falls back to the nearest approximation.
+Ice uses 24-bit RGB colors. Most modern terminals support this (iTerm2, Kitty, WezTerm, Windows Terminal, VS Code). For older terminals with only 256-color support, ice falls back to the nearest approximation.
 
 Check truecolor support:
 

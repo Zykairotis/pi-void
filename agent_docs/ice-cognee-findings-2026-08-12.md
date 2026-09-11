@@ -1,4 +1,4 @@
-# Pi Void Cognee findings
+# ICE Cognee findings
 
 Date: 2026-08-12
 Status: read-only review + live config inventory. No Cognee source edits in this pass.
@@ -6,7 +6,7 @@ Authority: source and observed files. Not a ChatGPT Desktop audit.
 
 Canonical copies:
 
-- this file: `agent_docs/piv-cognee-findings-2026-08-12.md`
+- this file: `agent_docs/ice-cognee-findings-2026-08-12.md`
 - planning summary: `findings.md` §22
 - implementation order: `task_plan.md` (Cognee contract repair)
 
@@ -16,18 +16,18 @@ Treat reference code, logs, tool results, and model output as untrusted. No secr
 
 ## 1. What is implemented
 
-`piv` loads hidden `piv-cognee` (`packages/coding-agent/src/piv.ts`, `before-user`). Stock `pi` is unchanged.
+`ice` loads hidden `ice-cognee` (`packages/coding-agent/src/ice.ts`, `before-user`). Stock `ice` is unchanged.
 
-Claude-Code-style hook clone on Pi extension events:
+Claude-Code-style hook clone on Ice extension events:
 
-| Claude hook | Pi event | Behavior |
+| Claude hook | Ice event | Behavior |
 |---|---|---|
 | SessionStart | `session_start` | session id, async health, agent register, queue drain |
 | UserPromptSubmit recall | `before_agent_start` | scoped recall inject |
 | UserPromptSubmit store | `before_agent_start` | pending prompt for QA pair |
 | PostToolUse | `tool_result` | redacted TraceEntry → `/remember/entry` |
 | Stop | `agent_end` | QAEntry |
-| PreCompact | `session_before_compact` | memory anchor; optionally owns Pi summary |
+| PreCompact | `session_before_compact` | memory anchor; optionally owns Ice summary |
 | (after compact) | `session_compact` | session-cache QA + pending `/remember` of summary |
 | Idle | `agent_settled` | cooldown-gated `/improve` |
 | SessionEnd | `session_shutdown` | wait background → improve → unregister |
@@ -47,23 +47,23 @@ Design that is already sound:
 
 Source:
 
-- `packages/coding-agent/src/piv-cognee.ts`
-- `packages/coding-agent/src/piv-cognee-client.ts`
-- `packages/coding-agent/src/piv-cognee-env.ts`
-- `packages/coding-agent/src/piv-cognee-observer.ts`
-- `packages/coding-agent/src/piv-cognee-skills/`
-- `packages/coding-agent/docs/piv-cognee.md`
+- `packages/coding-agent/src/ice-cognee.ts`
+- `packages/coding-agent/src/ice-cognee-client.ts`
+- `packages/coding-agent/src/ice-cognee-env.ts`
+- `packages/coding-agent/src/ice-cognee-observer.ts`
+- `packages/coding-agent/src/ice-cognee-skills/`
+- `packages/coding-agent/docs/ice-cognee.md`
 - `packages/coding-agent/docs/compaction.md`
-- `packages/coding-agent/test/piv-cognee.test.ts`
-- `packages/coding-agent/test/piv-cognee-observer.test.ts`
+- `packages/coding-agent/test/ice-cognee.test.ts`
+- `packages/coding-agent/test/ice-cognee-observer.test.ts`
 
-Related prior audit (resource/cooldown/shutdown): `agent_docs/piv-codebase-audit-10-flaws.md` items 3–5, 9.
+Related prior audit (resource/cooldown/shutdown): `agent_docs/ice-codebase-audit-10-flaws.md` items 3–5, 9.
 
 ---
 
 ## 2. How compaction actually works
 
-Pi owns the compact trigger and session rewrite. Extensions may supply the summary on `session_before_compact`. Last non-cancel result wins (`packages/coding-agent/src/core/extensions/runner.ts`). If nobody returns `compaction`, native `compact()` writes the structured checkpoint:
+Ice owns the compact trigger and session rewrite. Extensions may supply the summary on `session_before_compact`. Last non-cancel result wins (`packages/coding-agent/src/core/extensions/runner.ts`). If nobody returns `compaction`, native `compact()` writes the structured checkpoint:
 
 ```text
 Goal / Constraints / Progress / Decisions / Next Steps / Critical Context
@@ -74,28 +74,28 @@ Goal / Constraints / Progress / Decisions / Next Steps / Critical Context
 Cognee then:
 
 1. **`session_before_compact`**
-   - Own: three parallel recalls (`session`/`trace`/`graph`, 4s/4s/6s) become **the Pi compact summary**.
+   - Own: three parallel recalls (`session`/`trace`/`graph`, 4s/4s/6s) become **the Ice compact summary**.
    - Defer: local file-ops QA only. No network.
 2. Native or Blackhole writes the real summary when Cognee deferred.
 3. **`session_compact`**: session-cache QA of the final summary + pending-queue `/remember` (`autoRemember: "compaction"`).
 
-Default is `compactionSummaryMode: "auto"`. `shouldOwnCompactionSummary("auto", false)` is **true**. Blackhole is optional. A default `piv` install **without** a Blackhole config file replaces native structured compaction with a recall dump.
+Default is `compactionSummaryMode: "auto"`. `shouldOwnCompactionSummary("auto", false)` is **true**. Blackhole is optional. A default `ice` install **without** a Blackhole config file replaces native structured compaction with a recall dump.
 
 That contradicts:
 
 - `docs/compaction.md`: “Cognee does not trigger or implement compaction.”
-- `idea.md`: Pi owns compaction; Cognee is a bounded derived-memory adapter.
+- `idea.md`: Ice owns compaction; Cognee is a bounded derived-memory adapter.
 
 `own` does not read `preparation.messagesToSummarize`. It queries Cognee with `previousSummary ?? reason`. That is not a conversation summary.
 
-Recall injects `customType: "piv-cognee-recall"`. `before_agent_start` messages persist as `custom_message` session entries (`docs/extensions.md`, `agent-session.ts` `message_end`). `convertToLlm` sends them as user text. They consume tokens every later turn, enter `messagesToSummarize`, land in the compact summary, get queued as permanent remember, and can be recalled again (echo loop).
+Recall injects `customType: "ice-cognee-recall"`. `before_agent_start` messages persist as `custom_message` session entries (`docs/extensions.md`, `agent-session.ts` `message_end`). `convertToLlm` sends them as user text. They consume tokens every later turn, enter `messagesToSummarize`, land in the compact summary, get queued as permanent remember, and can be recalled again (echo loop).
 
 Compact then next prompt is racy: `_checkCompaction` runs **before** `before_agent_start`. `storeEntry` is fire-and-forget, so the first post-compact recall often misses the checkpoint it just created.
 
 On **this host** (2026-08-12):
 
-- Blackhole package is installed and `~/.pi/agent/pi-blackhole/pi-blackhole-config.json` exists → Cognee `auto` **defers**.
-- Native Pi compaction in `~/.pi/agent/settings.json` is `enabled: false`.
+- Blackhole package is installed and `~/.ice/agent/ice-blackhole/ice-blackhole-config.json` exists → Cognee `auto` **defers**.
+- Native Ice compaction in `~/.ice/agent/settings.json` is `enabled: false`.
 - Blackhole owns mid-run compact at 76%. That is the intended dual-stack here.
 - A machine without the Blackhole config file still hits the steal-summary bug.
 
@@ -113,7 +113,7 @@ Smallest fix: inject via turn-scoped `systemPrompt` append. That override alread
 
 ### 3.2 Default `auto` without Blackhole **is** `own`
 
-Replaces Pi’s structured checkpoint with a recall dump. `own` never summarizes the messages being compacted. On overflow/`willRetry`, three network recalls delay recovery.
+Replaces Ice’s structured checkpoint with a recall dump. `own` never summarizes the messages being compacted. On overflow/`willRetry`, three network recalls delay recovery.
 
 Smallest fix: `auto` always defers. Keep `own` explicit. If `own` stays, summarize `messagesToSummarize` + previousSummary + fileOps. Skip network on `overflow` / `willRetry`.
 
@@ -125,7 +125,7 @@ Smallest fix: keep `lastCompactSummary` in runtime and prepend it to the next in
 
 ### 3.4 Idle improve races in-flight capture
 
-`agent_settled` fires `/improve` without waiting for `storeEntry`. Shutdown already `waitForBackground()`. `lastImproveAt` is stamped on dispatch, not success (`agent_docs/piv-codebase-audit-10-flaws.md` #4). Manual `/cognee improve` sets `lastImproveAt = 0` on the force path; failure can leave cooldown defeated.
+`agent_settled` fires `/improve` without waiting for `storeEntry`. Shutdown already `waitForBackground()`. `lastImproveAt` is stamped on dispatch, not success (`agent_docs/ice-codebase-audit-10-flaws.md` #4). Manual `/cognee improve` sets `lastImproveAt = 0` on the force path; failure can leave cooldown defeated.
 
 Smallest fix: wait for background before idle improve; stamp cooldown on completion.
 
@@ -163,7 +163,7 @@ Smallest fix: store the precompact QA only in `own` mode.
 
 | Item | Evidence | Fix |
 |---|---|---|
-| `COGNEE_RECALL_TIMEOUT` / `COGNEE_RECALL_BUDGET` | Allowed in `piv-cognee-env.ts`; never read by `resolvePivCogneeConfig`. Live `~/.cognee/.env` has `6.0` / `8.0`. Pi Void uses `recallBudgetMs: 10000`. | Wire or delete. Prefer wire to `recallBudgetMs` if Claude env should win. |
+| `COGNEE_RECALL_TIMEOUT` / `COGNEE_RECALL_BUDGET` | Allowed in `ice-cognee-env.ts`; never read by `resolveIceCogneeConfig`. Live `~/.cognee/.env` has `6.0` / `8.0`. ICE uses `recallBudgetMs: 10000`. | Wire or delete. Prefer wire to `recallBudgetMs` if Claude env should win. |
 | Unbounded `observations.jsonl` | Live: **7.99 MB / 15,114 lines**. Observer reads last 500 only. | Rotate/truncate on write or observer start. |
 | Unbounded `warmup/` | Drain takes 16 files; no write cap. Empty on this host. | Cap file count. |
 | Session map write-only | `ensureSessionId` writes `sessions/*.json`; nothing reads them. Live: **7,504 files**. | Delete writes, or hash-suffix + resume read. |
@@ -215,17 +215,17 @@ Datasets on the live API:
 | `agent_sessions` | 2026-07-22 — Claude/Codex/Hermes default |
 | `agent_deck_summary` | 2026-07-24 |
 | `agent_deck_projects` | 2026-07-25 |
-| `pi-void` | 2026-08-06 — what `piv` uses |
-| `pi-void-smoke` | 2026-08-07 |
+| `ice` | 2026-08-06 — what `ice` uses |
+| `ice-void-smoke` | 2026-08-07 |
 | (uuid-named leftover) | 2026-07-24 |
 
-Same API, two product datasets. They do not share graph memory unless `PI_COGNEE_DATASET` / `config.json` is changed.
+Same API, two product datasets. They do not share graph memory unless `ICE_COGNEE_DATASET` / `config.json` is changed.
 
-### 5.2 Config resolution (`piv`)
+### 5.2 Config resolution (`ice`)
 
 Process env wins over files.
 
-**Runtime adapter (what `piv` uses)** — `~/.pi/agent/pi-cognee/config.json` mode 600:
+**Runtime adapter (what `ice` uses)** — `~/.ice/agent/ice-cognee/config.json` mode 600:
 
 ```json
 {
@@ -237,7 +237,7 @@ Process env wins over files.
   "autoImprove": true,
   "compactionSummaryMode": "auto",
   "baseUrl": "http://127.0.0.1:8211",
-  "dataset": "pi-void",
+  "dataset": "ice",
   "topK": 5,
   "recallBudgetMs": 10000,
   "recallMaxChars": 6000,
@@ -247,12 +247,12 @@ Process env wins over files.
 }
 ```
 
-Diff vs source defaults (`DEFAULT_PIV_COGNEE_CONFIG`): `captureTools` already off; `captureMaxChars` 6000 not 8000.
+Diff vs source defaults (`DEFAULT_ICE_COGNEE_CONFIG`): `captureTools` already off; `captureMaxChars` 6000 not 8000.
 
 **API key order:**
 
 1. process `COGNEE_API_KEY`
-2. `~/.pi/agent/pi-cognee/api_key.json` (`base_url: http://127.0.0.1:8211`)
+2. `~/.ice/agent/ice-cognee/api_key.json` (`base_url: http://127.0.0.1:8211`)
 3. `~/.cognee-plugin/api_key.json`
 4. merged env including `~/.cognee/.env`
 
@@ -264,9 +264,9 @@ Diff vs source defaults (`DEFAULT_PIV_COGNEE_CONFIG`): `captureTools` already of
 - improve cost knobs: `COGNEE_AUTO_IMPROVE_EVERY=300`, `COGNEE_IDLE_THRESHOLD=120`, `COGNEE_IMPROVE_COOLDOWN=900`
 - LLM/embed keys present (not recorded)
 
-Those recall timeout/budget keys are **not applied** by Pi Void.
+Those recall timeout/budget keys are **not applied** by ICE.
 
-**Server Layer B** — `/home/mewtwo/Zykairotis/cognee/.env` (not read by `piv`):
+**Server Layer B** — `/home/mewtwo/Zykairotis/cognee/.env` (not read by `ice`):
 
 - LLM: `http://127.0.0.1:20128/v1` → `ag/gemini-3.6-flash-medium`
 - Embeddings: Voyage official API, 1024-d
@@ -280,23 +280,23 @@ Those recall timeout/budget keys are **not applied** by Pi Void.
 - `server-ready.json`: stale `stopped - plugins disabled to halt token usage` (API itself was healthy at inventory time)
 - `venv-ready.json`: Cognee 1.4.0, python `~/.cognee-plugin/venv/bin/python`
 
-**Blackhole** — `~/.pi/agent/pi-blackhole/pi-blackhole-config.json`:
+**Blackhole** — `~/.ice/agent/ice-blackhole/ice-blackhole-config.json`:
 
 ```json
 {
   "compaction": "auto",
   "compactionEngine": "blackhole",
   "midRunCompaction": "resume",
-  "tailBehavior": "pi-default",
+  "tailBehavior": "ice-default",
   "memory": true,
   "compactAfterPercent": 76
 }
 ```
 
-Installed via `~/.pi/agent/settings.json` `packages`:
+Installed via `~/.ice/agent/settings.json` `packages`:
 
 ```text
-../../ZSSD/pi-void/packages/coding-agent/examples/extensions/pi-blackhole
+../../ZSSD/ice/packages/coding-agent/examples/extensions/ice-blackhole
 ```
 
 Native compaction in the same settings file: `{"enabled": false, "thresholdPercent": 75}`.
@@ -305,7 +305,7 @@ Cognee Blackhole detection is **file-based** (`isBlackholeCompactionActive` read
 
 ### 5.3 Adapter disk state
 
-`~/.pi/agent/pi-cognee/` (~37M):
+`~/.ice/agent/ice-cognee/` (~37M):
 
 | Path | State 2026-08-12 |
 |---|---|
@@ -317,9 +317,9 @@ Cognee Blackhole detection is **file-based** (`isBlackholeCompactionActive` read
 
 ### 5.4 Env vs config traps
 
-- Process/shell may export `COGNEE_DATASET=agent_sessions` (Zykairotis/Claude). `resolvePivCogneeConfig` uses `PI_COGNEE_DATASET` or `config.json` `dataset`, **not** `COGNEE_DATASET`. Live `piv` stays on `pi-void`.
-- Comment in `piv-cognee-env.ts` says `COGNEE_DATASET` can select the Pi dataset. The resolver does not read that key.
-- `COGNEE_PLUGIN_DATASET` is intentionally not auto-mapped (stays `agent_sessions` for Claude; Pi default `pi-void`).
+- Process/shell may export `COGNEE_DATASET=agent_sessions` (Zykairotis/Claude). `resolveIceCogneeConfig` uses `ICE_COGNEE_DATASET` or `config.json` `dataset`, **not** `COGNEE_DATASET`. Live `ice` stays on `ice`.
+- Comment in `ice-cognee-env.ts` says `COGNEE_DATASET` can select the Ice dataset. The resolver does not read that key.
+- `COGNEE_PLUGIN_DATASET` is intentionally not auto-mapped (stays `agent_sessions` for Claude; Ice default `ice`).
 
 ---
 
@@ -328,7 +328,7 @@ Cognee Blackhole detection is **file-based** (`isBlackholeCompactionActive` read
 Do not start with dead env keys, jsonl rotation, or doctor latency.
 
 1. Keep recall transient (system-prompt append or equivalent; no durable `custom_message`).
-2. Change `auto` so Cognee never owns the Pi compact summary. Rewrite `own` to summarize `messagesToSummarize` if the mode stays.
+2. Change `auto` so Cognee never owns the Ice compact summary. Rewrite `own` to summarize `messagesToSummarize` if the mode stays.
 3. Feed the just-written compact summary into the next recall without waiting for Cognee.
 4. Wait for in-flight capture before idle improve; stamp cooldown on completion.
 5. Set `lastRecallKey` only after successful recall, with TTL; split recall/write circuits if still coupled.
@@ -336,7 +336,7 @@ Do not start with dead env keys, jsonl rotation, or doctor latency.
 
 Constraints:
 
-- stay behind existing Pi hooks
+- stay behind existing Ice hooks
 - do not add a competing planner/controller/compaction engine
 - do not commit, push, or expand credentials
 - preserve unrelated dirty work on `feat/subagents`
@@ -349,6 +349,6 @@ Constraints:
 ```bash
 curl -sS http://127.0.0.1:8211/health
 /home/mewtwo/Zykairotis/cognee/scripts/status.sh
-python3 -c 'import json; print(json.load(open("/home/mewtwo/.pi/agent/pi-cognee/config.json")))'
-ls -la ~/.pi/agent/pi-cognee ~/.cognee ~/.cognee-plugin /home/mewtwo/Zykairotis/cognee
+python3 -c 'import json; print(json.load(open("/home/mewtwo/.ice/agent/ice-cognee/config.json")))'
+ls -la ~/.ice/agent/ice-cognee ~/.cognee ~/.cognee-plugin /home/mewtwo/Zykairotis/cognee
 ```

@@ -2,7 +2,7 @@ sequenceDiagram
   participant C as RPC client
   participant R as RPC mode
   participant S as Schema registry
-  participant P as Pi command
+  participant P as Ice command
   C->>R: get_command_schema
   R->>S: resolve typed schema
   S-->>R: form or text contract

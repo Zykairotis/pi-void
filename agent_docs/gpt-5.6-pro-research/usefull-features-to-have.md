@@ -1,18 +1,18 @@
-# `pi-void` feature specification
+# `ice` feature specification
 
 **Research cutoff: July 22, 2026.**
 
-Your stated objective is not to produce the harness with the largest feature count. It is to retain Pi’s lightweight, provider-agnostic and inspectable core while adding repository intelligence, security boundaries, verification, recovery, long-running execution and controlled delegation. 
+Your stated objective is not to produce the harness with the largest feature count. It is to retain Ice’s lightweight, provider-agnostic and inspectable core while adding repository intelligence, security boundaries, verification, recovery, long-running execution and controlled delegation.
 
 The correct design is therefore:
 
-> **A minimal Pi-controlled core with progressively enabled capability profiles—not one permanently feature-rich agent loop.**
+> **A minimal Ice-controlled core with progressively enabled capability profiles—not one permanently feature-rich agent loop.**
 
 ## Recommended capability profiles
 
 | Profile       | Purpose                       | Enabled capabilities                                                                 |
 | ------------- | ----------------------------- | ------------------------------------------------------------------------------------ |
-| `interactive` | Fast daily terminal coding    | Pi loop, core tools, sessions, instructions, lightweight permissions                 |
+| `interactive` | Fast daily terminal coding    | Ice loop, core tools, sessions, instructions, lightweight permissions                 |
 | `safe`        | Normal recommended default    | Interactive profile plus tracing, checkpoints, protected paths and verification      |
 | `sandboxed`   | Untrusted or unattended work  | Safe profile plus isolated workspace, network policy and credential scoping          |
 | `autonomous`  | Long-running issue-to-PR work | Sandboxed profile plus durable task state, recovery, optional subagents and CI gates |
@@ -25,19 +25,19 @@ The **safe profile** should be your default. Multi-agent execution, browser auto
 
 | Harness            | Strongest mechanisms to adopt                                                                                                                                     | Reuse posture                                                        |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| **Pi**             | Minimal agent loop, broad model/provider support, extension events, session tree, compaction, TUI/JSON/RPC/SDK modes                                              | Preserve as the core. Pi is MIT-licensed.                            |
+| **Ice**             | Minimal agent loop, broad model/provider support, extension events, session tree, compaction, TUI/JSON/RPC/SDK modes                                              | Preserve as the core. Ice is MIT-licensed.                            |
 | **OpenHands**      | Workspace abstraction, Docker execution, agent-server separation, append-only event history, stuck detection, hooks, security policies, remote/headless execution | Adapt as external services and adapters. MIT-licensed.               |
 | **Claude Code**    | Deny-first permissions, protected paths, plan mode, rich lifecycle hooks, isolated subagent contexts, scoped tools and skills                                     | Behaviorally recreate. Do not depend on proprietary internals.       |
 | **Codex**          | OS-level sandboxing, approval profiles, worktrees, read-only review mode, non-interactive JSONL, parallel subagents, resumable automation                         | Adapt documented behavior; open CLI code is Apache-2.0.              |
 | **OpenCode**       | Provider abstraction, fine-grained permissions, primary/subagent roles, hidden compaction agents, child sessions and client/server separation                     | Adapt selectively. MIT-licensed.                                     |
 | **Aider**          | Repository maps, git-first checkpoints, automatic lint/test repair, architect/editor separation, cache-aware prompt organization                                  | Adapt repository and verification mechanisms.                        |
-| **OhMyPi**         | More reliable edit surfaces, LSP and debugger integration, isolated subagent worktrees, advisor model, curated project memory and ACP                             | Optional advanced packages, not default Pi behavior. MIT-licensed.   |
+| **OhMyPi**         | More reliable edit surfaces, LSP and debugger integration, isolated subagent worktrees, advisor model, curated project memory and ACP                             | Optional advanced packages, not default Ice behavior. MIT-licensed.   |
 | **Grok Build**     | Goal state, long-running task phases, planner/worker/verifier separation, budget accounting, stop classification and durable progress                             | Adapt only for autonomous profile. Apache-2.0 public code.           |
 | **mini-SWE-agent** | Extremely transparent fallback loop, linear history, bash-only compatibility and easily replaceable environments                                                  | Keep as a conceptual fallback and evaluation baseline. MIT-licensed. |
 | **Agentless**      | Explicit localization → candidate repair → validation/reranking pipeline                                                                                          | Adapt for difficult bug fixing, not as the universal loop.           |
 | **Goose**          | Declarative workflow recipes, ACP/MCP interoperability, subagents and explicit security layers                                                                    | Recipes and protocol adapters should be optional packages.           |
 
-Pi already provides a small coding loop, multiple interaction modes, provider flexibility, extensions, skills, session branching and automatic compaction. Its lack of a built-in sandbox is intentional; isolation is expected to come from a container, VM or extension.
+Ice already provides a small coding loop, multiple interaction modes, provider flexibility, extensions, skills, session branching and automatic compaction. Its lack of a built-in sandbox is intentional; isolation is expected to come from a container, VM or extension.
 
 OpenHands demonstrates the value of separating the agent from the workspace/runtime, using isolated Docker execution, lifecycle hooks and explicit stuck-pattern detection. Its SDK also supports local and remote execution without requiring the UI product. ([OpenHands Docs][1])
 
@@ -49,7 +49,7 @@ OpenCode adds useful patterns for pattern-based permissions, plan/build separati
 
 Aider provides the clearest implementations of repository maps, git checkpointing and deterministic lint/test feedback. ([Aider][5])
 
-OhMyPi adds an extensive IDE-like tool layer—including LSP, debugger integration, content-anchored editing, isolated subagent worktrees, advisor review and project memory—but its larger surface should be decomposed into optional Pi packages.
+OhMyPi adds an extensive IDE-like tool layer—including LSP, debugger integration, content-anchored editing, isolated subagent worktrees, advisor review and project memory—but its larger surface should be decomposed into optional Ice packages.
 
 Grok Build’s public code shows a distinct long-running goal subsystem with planning, workers, verification, progress events, token budgets, persistence and stop classification. That architecture is relevant to autonomous execution but excessive for every interactive turn.
 
@@ -65,7 +65,7 @@ These are the features that the harness **must have**. They should not all add p
 
 | Feature                                 | Required behavior                                                                                                                 |           Priority |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -----------------: |
-| **Single authoritative agent loop**     | Pi remains the only normal reasoning/tool loop. Policy, verification and runtime services wrap it rather than competing with it.  |                 P0 |
+| **Single authoritative agent loop**     | Ice remains the only normal reasoning/tool loop. Policy, verification and runtime services wrap it rather than competing with it.  |                 P0 |
 | **Provider-independent model registry** | Models are selected by provider and exact model ID, not by hard-coded vendor branches.                                            |                 P0 |
 | **Local/open-weight model support**     | OpenAI-compatible, Anthropic-compatible, llama.cpp and other local endpoints must work without cloud services.                    |                 P0 |
 | **Model capability descriptors**        | Record context size, vision, tool-calling support, reasoning controls, structured output support and provider limits.             |                 P0 |
@@ -74,9 +74,9 @@ These are the features that the harness **must have**. They should not all add p
 | **Streaming and cancellation**          | Preserve token streaming, abort, steering messages and queued follow-ups.                                                         |                 P0 |
 | **Tool-call compatibility layer**       | Normalize provider differences and reject malformed or truncated calls before execution.                                          |                 P0 |
 | **Shell-only fallback mode**            | Models that cannot reliably produce native tool calls should still operate through a constrained textual shell protocol.          |                 P1 |
-| **No duplicate LLM SDK**                | Reuse Pi’s provider/model abstraction rather than creating another parallel provider layer.                                       | Architectural rule |
+| **No duplicate LLM SDK**                | Reuse Ice’s provider/model abstraction rather than creating another parallel provider layer.                                       | Architectural rule |
 
-Pi’s current low-level loop already supports context transformation, provider-boundary conversion, steering, follow-ups, stop hooks and sequential or parallel tool execution. Truncated tool calls are explicitly prevented from executing. Those behaviors should remain upstream-owned.
+Ice’s current low-level loop already supports context transformation, provider-boundary conversion, steering, follow-ups, stop hooks and sequential or parallel tool execution. Truncated tool calls are explicitly prevented from executing. Those behaviors should remain upstream-owned.
 
 ### Required routing object
 
@@ -120,7 +120,7 @@ Unsupported numeric limits must remain `null`; do not guess them.
 | **Project memory**               | Store explicit, curated project facts with source and freshness metadata. Never silently treat an LLM summary as permanent truth. |                 P1 |
 | **No mandatory vector database** | Begin with files, symbol indexes and structured session state. Add embeddings only after measured retrieval gains.                | Architectural rule |
 
-Pi’s existing sessions are append-only JSONL trees with model changes, compaction entries, branch summaries and extension-defined custom entries. Its compaction format already tracks goals, decisions, progress and file activity.
+Ice’s existing sessions are append-only JSONL trees with model changes, compaction entries, branch summaries and extension-defined custom entries. Its compaction format already tracks goals, decisions, progress and file activity.
 
 Aider’s repository map is a useful reference: it represents files and important symbols rather than feeding every file into the conversation. ([Aider][6])
 
@@ -193,7 +193,7 @@ OhMyPi’s content-hash editing, LSP operations, debugger tools and worktree-iso
 | **Workspace abstraction**          | Core code calls a workspace API instead of assuming host filesystem and shell access.                                 |       P0 |
 | **Read-only profile**              | Repository exploration without writes or side-effecting commands.                                                     |       P0 |
 | **Workspace-write profile**        | Writes and routine commands only inside approved workspace roots.                                                     |       P0 |
-| **Container profile**              | Entire Pi worker runs in a rootless container, VM or remote isolated workspace.                                       |       P1 |
+| **Container profile**              | Entire Ice worker runs in a rootless container, VM or remote isolated workspace.                                       |       P1 |
 | **Network egress policy**          | Network disabled by default in unattended mode; allow domains or endpoints explicitly.                                |       P1 |
 | **Credential broker**              | Prefer short-lived, scoped credentials injected only when required.                                                   |       P1 |
 | **Secret redaction**               | Redact secret values from prompts, logs, traces and final reports.                                                    |       P0 |
@@ -251,7 +251,7 @@ OpenHands implements repeated-action and repeated-error detection, monologue det
 
 Grok Build’s goal subsystem is a useful reference for explicit planning, execution, verification, budget and pause states.
 
-Pi’s own durable-harness design notes correctly recognize that provider streams cannot be resumed and non-idempotent tool calls must not be blindly rerun after crashes.
+Ice’s own durable-harness design notes correctly recognize that provider streams cannot be resumed and non-idempotent tool calls must not be blindly rerun after crashes.
 
 ### Required recovery policy
 
@@ -338,7 +338,7 @@ OpenCode adds parent/child session navigation and permissions controlling which 
 
 | Feature                          | Required behavior                                                                          | Priority |
 | -------------------------------- | ------------------------------------------------------------------------------------------ | -------: |
-| **Interactive TUI**              | Preserve Pi’s low-latency terminal workflow.                                               |       P0 |
+| **Interactive TUI**              | Preserve Ice’s low-latency terminal workflow.                                               |       P0 |
 | **Print mode**                   | One-shot command execution and clean textual output.                                       |       P0 |
 | **JSONL event mode**             | Machine-readable event stream for CI and integrations.                                     |       P0 |
 | **RPC mode**                     | Long-lived stdin/stdout control for embedding.                                             |       P0 |
@@ -361,7 +361,7 @@ OpenCode adds parent/child session navigation and permissions controlling which 
 | **Declarative workflow recipes** | Reusable task definitions for CI and recurring repository work.                            |       P1 |
 | **`doctor` command**             | Diagnose providers, credentials, sandbox, tools, project trust and verifier configuration. |       P0 |
 
-Pi already exposes lifecycle events for provider requests, prompts, turns, tools, compaction, sessions and agent settlement, along with custom tools, providers, commands, messages and persistent extension entries.
+Ice already exposes lifecycle events for provider requests, prompts, turns, tools, compaction, sessions and agent settlement, along with custom tools, providers, commands, messages and persistent extension entries.
 
 Codex’s JSONL mode and OpenCode’s attachable client/server design are useful references for headless and remote integrations. ([ChatGPT Learn][11])
 
@@ -375,7 +375,7 @@ Goose’s declarative recipes and optional ACP/MCP support demonstrate how porta
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------: |
 | **Structured event trace**              | Every user message, provider turn, tool call, approval, patch and verifier result is ordered and timestamped.       |       P0 |
 | **Model provenance**                    | Exact provider, model ID, reasoning level and relevant parameters.                                                  |       P0 |
-| **Harness provenance**                  | Pi version, `pi-void` version, plugin versions and source commits.                                                  |       P0 |
+| **Harness provenance**                  | Ice version, `ice` version, plugin versions and source commits.                                                  |       P0 |
 | **Prompt provenance**                   | Hash effective system prompt and record contributing resources.                                                     |       P0 |
 | **Tool provenance**                     | Record tool implementation, schema version and permission metadata.                                                 |       P0 |
 | **Token accounting**                    | Input, output, cache read/write and tool-generated model usage when available.                                      |       P0 |
@@ -392,9 +392,9 @@ Goose’s declarative recipes and optional ACP/MCP support demonstrate how porta
 | **Output truncation policy**            | Summarize or artifact large outputs while preserving raw logs on disk.                                              |       P0 |
 | **Prompt caching metrics**              | Track cache hit and miss behavior when providers expose it.                                                         |       P1 |
 | **Sequential/parallel tool annotation** | Tools declare whether concurrent execution is safe.                                                                 |       P0 |
-| **Evaluation runner**                   | Compare stock Pi and `pi-void` under identical models, tasks, budgets and repeated runs.                            |       P0 |
+| **Evaluation runner**                   | Compare stock Ice and `ice` under identical models, tasks, budgets and repeated runs.                            |       P0 |
 
-Pi already tracks context, usage and cost in the interactive footer and stores sessions as durable JSONL. Aider’s prompt-caching organization shows how stable prompt sections can be arranged for cache reuse.  ([Aider][13])
+Ice already tracks context, usage and cost in the interactive footer and stores sessions as durable JSONL. Aider’s prompt-caching organization shows how stable prompt sections can be arranged for cache reuse.  ([Aider][13])
 
 ---
 
@@ -452,9 +452,9 @@ These are valuable, but they are **not default must-haves** for normal interacti
 
 These should be explicitly rejected unless later evidence overturns the decision:
 
-1. **A rewritten Pi core loop.** It creates upstream conflict and duplicates a functioning abstraction.
-2. **A second provider SDK.** Add adapters to Pi’s registry instead.
-3. **Mandatory OpenHands.** OpenHands should be one workspace backend, not a dependency of every Pi invocation.
+1. **A rewritten Ice core loop.** It creates upstream conflict and duplicates a functioning abstraction.
+2. **A second provider SDK.** Add adapters to Ice’s registry instead.
+3. **Mandatory OpenHands.** OpenHands should be one workspace backend, not a dependency of every Ice invocation.
 4. **Mandatory MCP.** CLI tools and skills are simpler for many workflows.
 5. **Mandatory subagents.** Most small tasks do not justify extra contexts and cost.
 6. **An always-on planner model.** Plan only when task complexity warrants it.
@@ -477,60 +477,60 @@ These should be explicitly rejected unless later evidence overturns the decision
 
 # 6. Recommended package architecture
 
-Keep nearly all additions outside upstream Pi-owned files:
+Keep nearly all additions outside upstream Ice-owned files:
 
 ```text
 packages/
-├── pi-void-core/
+├── ice-void-core/
 │   ├── profiles/
 │   ├── config/
 │   └── capability-resolution/
-├── pi-void-policy/
+├── ice-void-policy/
 │   ├── permissions/
 │   ├── protected-paths/
 │   ├── network-policy/
 │   └── secret-redaction/
-├── pi-void-trace/
+├── ice-void-trace/
 │   ├── event-schema/
 │   ├── usage-accounting/
 │   ├── artifacts/
 │   └── replay/
-├── pi-void-verify/
+├── ice-void-verify/
 │   ├── command-discovery/
 │   ├── verifier-manifest/
 │   ├── regression-baseline/
 │   └── review/
-├── pi-void-repo/
+├── ice-void-repo/
 │   ├── repository-map/
 │   ├── language-detection/
 │   ├── git-checkpoints/
 │   └── edit-guards/
-├── pi-void-workspace/
+├── ice-void-workspace/
 │   ├── local/
 │   ├── docker/
 │   ├── ssh/
 │   └── openhands/
-├── pi-void-task/
+├── ice-void-task/
 │   ├── state/
 │   ├── planner/
 │   ├── budgets/
 │   └── recovery/
-├── pi-void-delegation/
+├── ice-void-delegation/
 │   ├── agent-registry/
 │   ├── worktrees/
 │   ├── result-contracts/
 │   └── scheduler/
-└── pi-void-headless/
+└── ice-void-headless/
     ├── runner/
     ├── jsonl/
     ├── ci/
     └── notifications/
 ```
 
-Pi integration should be one narrow extension package:
+Ice integration should be one narrow extension package:
 
 ```text
-.pi/extensions/pi-void/
+.ice/extensions/ice/
 ├── index.ts
 ├── register-tools.ts
 ├── register-hooks.ts
@@ -556,7 +556,7 @@ Build first:
 8. One bounded repair turn
 9. Final evidence report
 
-This stage creates measurable value without changing Pi’s reasoning loop.
+This stage creates measurable value without changing Ice’s reasoning loop.
 
 ## Stage 2 — Repository-scale reliability
 
@@ -610,9 +610,9 @@ Add only after single-agent evaluation:
 
 # Final checklist
 
-A serious `pi-void` release should not be considered complete unless it has:
+A serious `ice` release should not be considered complete unless it has:
 
-* [x] Pi-controlled minimal loop
+* [x] Ice-controlled minimal loop
 * [x] Multi-provider and local-model support
 * [x] Model capability profiles
 * [x] Hierarchical instructions and lazy skills
@@ -639,11 +639,11 @@ A serious `pi-void` release should not be considered complete unless it has:
 * [x] Final evidence-backed report
 * [x] Explicit protection against push, merge and deployment
 * [x] Optional isolated subagents
-* [x] Upstream Pi compatibility through extensions and composition
+* [x] Upstream Ice compatibility through extensions and composition
 
 The core differentiator should be:
 
-> **Pi’s inspectable model/tool loop, combined with deterministic safety, state and verification outside that loop.**
+> **Ice’s inspectable model/tool loop, combined with deterministic safety, state and verification outside that loop.**
 
 That is a stronger design than reproducing either OpenHands’ full platform weight or OhMyPi’s entire tool surface inside every invocation.
 

@@ -1,19 +1,19 @@
 # Compaction & Branch Summarization
 
-LLMs have limited context windows. When conversations grow too long, pi uses compaction to summarize older content while preserving recent work. This page covers both auto-compaction and branch summarization.
+LLMs have limited context windows. When conversations grow too long, ice uses compaction to summarize older content while preserving recent work. This page covers both auto-compaction and branch summarization.
 
-**Source files** ([pi-mono](https://github.com/earendil-works/pi-mono)):
-- [`packages/coding-agent/src/core/compaction/compaction.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) - Auto-compaction logic
-- [`packages/coding-agent/src/core/compaction/branch-summarization.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/branch-summarization.ts) - Branch summarization
-- [`packages/coding-agent/src/core/compaction/utils.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/utils.ts) - Shared utilities (file tracking, serialization)
-- [`packages/coding-agent/src/core/session-manager.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/session-manager.ts) - Entry types (`CompactionEntry`, `BranchSummaryEntry`)
-- [`packages/coding-agent/src/core/extensions/types.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/extensions/types.ts) - Extension event types
+**Source files** ([ice-mono](https://github.com/earendil-works/ice-mono)):
+- [`packages/coding-agent/src/core/compaction/compaction.ts`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) - Auto-compaction logic
+- [`packages/coding-agent/src/core/compaction/branch-summarization.ts`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/compaction/branch-summarization.ts) - Branch summarization
+- [`packages/coding-agent/src/core/compaction/utils.ts`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/compaction/utils.ts) - Shared utilities (file tracking, serialization)
+- [`packages/coding-agent/src/core/session-manager.ts`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/session-manager.ts) - Entry types (`CompactionEntry`, `BranchSummaryEntry`)
+- [`packages/coding-agent/src/core/extensions/types.ts`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/extensions/types.ts) - Extension event types
 
-For TypeScript definitions in your project, inspect `node_modules/@earendil-works/pi-coding-agent/dist/`.
+For TypeScript definitions in your project, inspect `node_modules/@zykairotis/ice-coding-agent/dist/`.
 
 ## Overview
 
-Pi has two summarization mechanisms:
+Ice has two summarization mechanisms:
 
 | Mechanism | Trigger | Purpose |
 |-----------|---------|---------|
@@ -32,13 +32,13 @@ Auto-compaction triggers when:
 contextTokens > floor(contextWindow * thresholdPercent / 100)
 ```
 
-`thresholdPercent` defaults to `85` and can be changed through `/settings` or `compaction.thresholdPercent` in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`. The comparison is strict, so compaction starts after the floored threshold is exceeded. `reserveTokens` remains the response budget for generating the compaction summary; it no longer controls the automatic trigger.
+`thresholdPercent` defaults to `85` and can be changed through `/settings` or `compaction.thresholdPercent` in `~/.ice/agent/settings.json` or `<project-dir>/.ice/settings.json`. The comparison is strict, so compaction starts after the floored threshold is exceeded. `reserveTokens` remains the response budget for generating the compaction summary; it no longer controls the automatic trigger.
 
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
 
 ### Optional Blackhole Compaction
 
-Pi Void includes an optional deterministic Blackhole compaction extension. Load it explicitly with `--extension` or install the local package through Pi's package settings. It uses `turn_end` after tool execution, compacts before the next model request, and resumes the task when configured with `midRunCompaction: "resume"`.
+ICE includes an optional deterministic Blackhole compaction extension. Load it explicitly with `--extension` or install the local package through Ice's package settings. It uses `turn_end` after tool execution, compacts before the next model request, and resumes the task when configured with `midRunCompaction: "resume"`.
 
 Keep native `compaction.enabled` set to `true` for overflow recovery, but set native `compaction.midRunCompaction` to `"off"` when Blackhole owns the mid-run trigger. Blackhole's default is `memory: false`; no observer, reflector, dropper, or recall workers run unless separately added.
 
@@ -50,22 +50,22 @@ Blackhole supports one automatic threshold at a time:
   "compactionEngine": "blackhole",
   "midRunCompaction": "resume",
   "compactAfterPercent": 20,
-  "tailBehavior": "pi-default",
+  "tailBehavior": "ice-default",
   "memory": false
 }
 ```
 
-Use `/settings` to tune all Blackhole fields while the extension is loaded, or use `/blackhole percent 20` and `/blackhole tokens 54400` for direct threshold commands. Percentage mode resolves against the active model on every turn, so `272000 * 20% = 54400` for a 272k context model. `compactAfterPercent` and `compactAfterTokens` are mutually exclusive. `tailBehavior: "minimal"` (default) summarizes Pi's retained tail and keeps only the new compact entry plus later resume/user messages. `tailBehavior: "pi-default"` keeps Pi's normal `keepRecentTokens` tail (~20k by default), which is why context can stay large after compact.
+Use `/settings` to tune all Blackhole fields while the extension is loaded, or use `/blackhole percent 20` and `/blackhole tokens 54400` for direct threshold commands. Percentage mode resolves against the active model on every turn, so `272000 * 20% = 54400` for a 272k context model. `compactAfterPercent` and `compactAfterTokens` are mutually exclusive. `tailBehavior: "minimal"` (default) summarizes Ice's retained tail and keeps only the new compact entry plus later resume/user messages. `tailBehavior: "ice-default"` keeps Ice's normal `keepRecentTokens` tail (~20k by default), which is why context can stay large after compact.
 
-If both native and Blackhole mid-run triggers are enabled, Blackhole yields to native Pi Void and displays a warning. This prevents duplicate compaction and abort races.
+If both native and Blackhole mid-run triggers are enabled, Blackhole yields to native ICE and displays a warning. This prevents duplicate compaction and abort races.
 
 ### Derived Cognee Memory
 
-When running through `piv`, the hidden `piv-cognee` extension provides Claude-Code-style Cognee memory over the local Cognee HTTP API. It does not replace Pi's session tree or compaction history.
+When running through `ice`, the hidden `ice-cognee` extension provides Claude-Code-style Cognee memory over the local Cognee HTTP API. It does not replace Ice's session tree or compaction history.
 
-Pi supports this through the **extension event API** (not Claude's `hooks.json` plugin format). The mapping is:
+Ice supports this through the **extension event API** (not Claude's `hooks.json` plugin format). The mapping is:
 
-| Claude Code hook | Pi extension event | Behavior |
+| Claude Code hook | Ice extension event | Behavior |
 |------------------|--------------------|----------|
 | SessionStart | `session_start` | Session id + optional agent register |
 | UserPromptSubmit (recall) | `before_agent_start` | Bounded recall inject (`session`+`trace`+`graph`) |
@@ -78,17 +78,17 @@ Pi supports this through the **extension event API** (not Claude's `hooks.json` 
 
 - Continuous capture defaults **on** (`captureSession` / `captureTools` / `autoImprove`). Toggle with `/cognee capture|tools|improve on|off` if cost is a concern.
 - Recall is injected as a turn-scoped system-prompt append, not a durable `custom_message`.
-- Compaction summaries still queue under `~/.pi/agent/pi-cognee/pending/` when `autoRemember` is `compaction`. The latest compact summary is also prepended once to the next turn without waiting for Cognee.
-- Skills: `cognee-remember`, `cognee-search`, `cognee-sync`. Commands include `/cognee doctor` and statusline key `piv-cognee`.
-- Loads Layer A keys from env + `~/.cognee/.env` (shared with Claude/Codex). Default dataset remains **`pi-void`** (not `agent_sessions`).
+- Compaction summaries still queue under `~/.ice/agent/ice-cognee/pending/` when `autoRemember` is `compaction`. The latest compact summary is also prepended once to the next turn without waiting for Cognee.
+- Skills: `cognee-remember`, `cognee-search`, `cognee-sync`. Commands include `/cognee doctor` and statusline key `ice-cognee`.
+- Loads Layer A keys from env + `~/.cognee/.env` (shared with Claude/Codex). Default dataset remains **`ice`** (not `agent_sessions`).
 - The model receives only the read-only `cognee_search` tool. Manual `/cognee remember ...` remains available.
-- Soft-fail on network/auth/timeouts; failed session-cache writes buffer under `~/.pi/agent/pi-cognee/warmup/`.
+- Soft-fail on network/auth/timeouts; failed session-cache writes buffer under `~/.ice/agent/ice-cognee/warmup/`.
 
-Blackhole is independent of Cognee. Native Pi compaction and a saved Blackhole compaction both produce valid remember sources. Cognee `auto`/`defer` never implement the compact summary; only explicit `own` may return one, and it must summarize the messages being compacted.
+Blackhole is independent of Cognee. Native Ice compaction and a saved Blackhole compaction both produce valid remember sources. Cognee `auto`/`defer` never implement the compact summary; only explicit `own` may return one, and it must summarize the messages being compacted.
 
 ### How It Works
 
-1. **Find cut point**: Walk backwards from newest message, accumulating token estimates until `keepRecentTokens` (default 20k, configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`) is reached
+1. **Find cut point**: Walk backwards from newest message, accumulating token estimates until `keepRecentTokens` (default 20k, configurable in `~/.ice/agent/settings.json` or `<project-dir>/.ice/settings.json`) is reached
 2. **Extract messages**: Collect messages from the previous kept boundary (or session start) up to the cut point
 3. **Generate summary**: Call LLM to summarize with structured format, passing the previous summary as iterative context when present
 4. **Append entry**: Save `CompactionEntry` with summary and `firstKeptEntryId`
@@ -126,7 +126,7 @@ What the LLM sees:
     prompt   from cmp          messages from firstKeptEntryId
 ```
 
-On repeated compactions, the summarized span starts at the previous compaction's kept boundary (`firstKeptEntryId`), not at the compaction entry itself, falling back to the entry after the previous compaction if that kept entry cannot be found in the path. This preserves messages that survived the earlier compaction by including them in the next summarization pass as well. Pi also recalculates `tokensBefore` from the rebuilt session context before writing the new `CompactionEntry`, so the token count reflects the actual pre-compaction context being replaced.
+On repeated compactions, the summarized span starts at the previous compaction's kept boundary (`firstKeptEntryId`), not at the compaction entry itself, falling back to the entry after the previous compaction if that kept entry cannot be found in the path. This preserves messages that survived the earlier compaction by including them in the next summarization pass as well. Ice also recalculates `tokensBefore` from the rebuilt session context before writing the new `CompactionEntry`, so the token count reflects the actual pre-compaction context being replaced.
 
 ### Split Turns
 
@@ -152,7 +152,7 @@ Split turn (one huge turn exceeds budget):
   turnPrefixMessages = [usr, ass, tool, ass, tool, tool]
 ```
 
-For split turns, pi generates two summaries and merges them:
+For split turns, ice generates two summaries and merges them:
 1. **History summary**: Previous context (if any)
 2. **Turn prefix summary**: The early part of the split turn
 
@@ -168,7 +168,7 @@ Never cut at tool results (they must stay with their tool call).
 
 ### CompactionEntry Structure
 
-Defined in [`session-manager.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/session-manager.ts):
+Defined in [`session-manager.ts`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/session-manager.ts):
 
 ```typescript
 interface CompactionEntry<T = unknown> {
@@ -193,13 +193,13 @@ interface CompactionDetails {
 
 Extensions can store any JSON-serializable data in `details`. The default compaction tracks file operations, but custom extension implementations can use their own structure. Generated and extension-provided summaries store their LLM `usage` when available so session totals include summarization work.
 
-See [`prepareCompaction()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) and [`compact()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) for the implementation. For direct programmatic summarization, `generateSummary()` returns the summary text and `generateSummaryWithUsage()` returns `{ text, usage }`.
+See [`prepareCompaction()`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) and [`compact()`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) for the implementation. For direct programmatic summarization, `generateSummary()` returns the summary text and `generateSummaryWithUsage()` returns `{ text, usage }`.
 
 ## Branch Summarization
 
 ### When It Triggers
 
-When you use `/tree` to navigate to a different branch, pi offers to summarize the work you're leaving. This injects context from the left branch into the new branch.
+When you use `/tree` to navigate to a different branch, ice offers to summarize the work you're leaving. This injects context from the left branch into the new branch.
 
 ### How It Works
 
@@ -228,7 +228,7 @@ After navigation with summary:
 
 ### Cumulative File Tracking
 
-Both compaction and branch summarization track files cumulatively. When generating a summary, pi extracts file operations from:
+Both compaction and branch summarization track files cumulatively. When generating a summary, ice extracts file operations from:
 - Tool calls in the messages being summarized
 - Previous compaction or branch summary `details` (if any)
 
@@ -236,7 +236,7 @@ This means file tracking accumulates across multiple compactions or nested branc
 
 ### BranchSummaryEntry Structure
 
-Defined in [`session-manager.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/session-manager.ts):
+Defined in [`session-manager.ts`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/session-manager.ts):
 
 ```typescript
 interface BranchSummaryEntry<T = unknown> {
@@ -260,7 +260,7 @@ interface BranchSummaryDetails {
 
 Same as compaction, extensions can store custom data in `details`.
 
-See [`collectEntriesForBranchSummary()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/branch-summarization.ts), [`prepareBranchEntries()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/branch-summarization.ts), and [`generateBranchSummary()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/branch-summarization.ts) for the implementation.
+See [`collectEntriesForBranchSummary()`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/compaction/branch-summarization.ts), [`prepareBranchEntries()`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/compaction/branch-summarization.ts), and [`generateBranchSummary()`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/compaction/branch-summarization.ts) for the implementation.
 
 ## Summary Format
 
@@ -304,7 +304,7 @@ path/to/changed.ts
 
 ### Message Serialization
 
-Before summarization, messages are serialized to text via [`serializeConversation()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/utils.ts):
+Before summarization, messages are serialized to text via [`serializeConversation()`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/compaction/utils.ts):
 
 ```
 [User]: What they said
@@ -320,14 +320,14 @@ Tool results are truncated to 2000 characters during serialization. Content beyo
 
 ## Custom Summarization via Extensions
 
-Extensions can intercept and customize both compaction and branch summarization. See [`extensions/types.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/extensions/types.ts) for event type definitions.
+Extensions can intercept and customize both compaction and branch summarization. See [`extensions/types.ts`](https://github.com/earendil-works/ice-mono/blob/main/packages/coding-agent/src/core/extensions/types.ts) for event type definitions.
 
 ### session_before_compact
 
 Fired before auto-compaction or `/compact`. Can cancel or provide custom summary. See `SessionBeforeCompactEvent` and `CompactionPreparation` in the types file.
 
 ```typescript
-pi.on("session_before_compact", async (event, ctx) => {
+ice.on("session_before_compact", async (event, ctx) => {
   const { preparation, branchEntries, customInstructions, reason, willRetry, signal } = event;
 
   // preparation.messagesToSummarize - messages to summarize
@@ -364,9 +364,9 @@ pi.on("session_before_compact", async (event, ctx) => {
 To generate a summary with your own model, convert messages to text using `serializeConversation`:
 
 ```typescript
-import { convertToLlm, serializeConversation } from "@earendil-works/pi-coding-agent";
+import { convertToLlm, serializeConversation } from "@zykairotis/ice-coding-agent";
 
-pi.on("session_before_compact", async (event, ctx) => {
+ice.on("session_before_compact", async (event, ctx) => {
   const { preparation } = event;
   
   // Convert AgentMessage[] to Message[], then serialize to text
@@ -401,7 +401,7 @@ See [custom-compaction.ts](../examples/extensions/custom-compaction.ts) for a co
 Fired before `/tree` navigation. Always fires regardless of whether user chose to summarize. Can cancel navigation or provide custom summary.
 
 ```typescript
-pi.on("session_before_tree", async (event, ctx) => {
+ice.on("session_before_tree", async (event, ctx) => {
   const { preparation, signal } = event;
 
   // preparation.targetId - where we're navigating to
@@ -430,7 +430,7 @@ See `SessionBeforeTreeEvent` and `TreePreparation` in the types file.
 
 ## Settings
 
-Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`:
+Configure compaction in `~/.ice/agent/settings.json` or `<project-dir>/.ice/settings.json`:
 
 ```json
 {

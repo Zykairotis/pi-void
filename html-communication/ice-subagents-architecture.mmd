@@ -1,6 +1,6 @@
 flowchart TD
-  subgraph Parent["Parent Pi Void Session (Trust & Authority)"]
-    PM["Parent Mode (plan/build)"] --> PE["piv-safe-verify"]
+  subgraph Parent["Parent ICE Session (Trust & Authority)"]
+    PM["Parent Mode (plan/build)"] --> PE["ice-safe-verify"]
     PE --> PT["Registered Tools & Authority Gate"]
     TUI["TUI /agents & /subagents Overlay / Agent View Bridge"]
   end
@@ -27,7 +27,7 @@ flowchart TD
     WT --> ART["WriterPatchProposal (Immutable Ref)"]
     ART --> IP["inspect_writer_patch"]
     ART --> RP["reject_writer_patch"]
-    ART --> INT["integrate_writer_patch\n(Transactional Apply + piv-verify)"]
+    ART --> INT["integrate_writer_patch\n(Transactional Apply + ice-verify)"]
     BG --> IJ["inspect_subagent_job / cancel_subagent_job"]
     RES --> OBS["SubagentObservatoryStore\n(Active / Recent / Completion Inbox)"]
   end

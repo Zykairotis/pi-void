@@ -1,4 +1,4 @@
-# pi-void: source-audited architecture and implementation plan
+# ice: source-audited architecture and implementation plan
 
 **Research cutoff:** 2026-07-22. All external sources were accessed on 2026-07-22; open-source projects are pinned to the exact commits listed below. The originating specification is the user-supplied `Pasted text(3).txt` brief.
 
@@ -6,28 +6,28 @@
 
 - **[VERIFIED]** Directly supported by primary source code, official documentation, raw benchmark artifacts or an audited paper.
 - **[INFERRED]** A reasonable architectural deduction from verified facts, but not directly measured.
-- **[PROPOSED]** An original pi-void design choice or acceptance threshold.
+- **[PROPOSED]** An original ice design choice or acceptance threshold.
 - **[UNRESOLVED]** Evidence is missing, conflicting or not sufficiently versioned. No numeric value is inferred.
 
 ## 1. Executive verdict
 
-**[PROPOSED]** **Select the Balanced Hybrid architecture. Pi remains the main driver.** Preserve Pi's provider/model layer, central loop, default tools, prompt construction, session tree, compaction, TUI/RPC/headless modes and extension system. Add pi-void as separate packages that subscribe to Pi events, enforce deterministic policy, write source-auditable traces, launch the whole unmodified Pi process inside an opt-in sandbox, verify repository outcomes, apply bounded recovery, and introduce subagents only as an optional late-stage profile. OpenHands should supply architectural patterns and, later, an optional workspace/agent-server adapter; it should not become the default controller or mandatory Python dependency.
+**[PROPOSED]** **Select the Balanced Hybrid architecture. Ice remains the main driver.** Preserve Ice's provider/model layer, central loop, default tools, prompt construction, session tree, compaction, TUI/RPC/headless modes and extension system. Add ice as separate packages that subscribe to Ice events, enforce deterministic policy, write source-auditable traces, launch the whole unmodified Ice process inside an opt-in sandbox, verify repository outcomes, apply bounded recovery, and introduce subagents only as an optional late-stage profile. OpenHands should supply architectural patterns and, later, an optional workspace/agent-server adapter; it should not become the default controller or mandatory Python dependency.
 
-The strongest evidence is structural rather than a single leaderboard: Pi already exposes the required extension and persistence seams without a loop rewrite; OpenHands demonstrates useful controller/workspace, confirmation, stuck-detection and event-history mechanisms; repeated benchmarks show that harness choices matter but also reverse by model and task. [PI-EXT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) [PI-SESSION](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts) [PI-LOOP](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/src/agent-loop.ts) [OH-CONVERSATION](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py) [OH-DOCKER](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-workspace/openhands/workspace/docker/workspace.py) [TUA](https://arxiv.org/html/2606.28480) [GITTASK](https://arxiv.org/html/2508.18993)
+The strongest evidence is structural rather than a single leaderboard: Ice already exposes the required extension and persistence seams without a loop rewrite; OpenHands demonstrates useful controller/workspace, confirmation, stuck-detection and event-history mechanisms; repeated benchmarks show that harness choices matter but also reverse by model and task. [ICE-EXT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) [ICE-SESSION](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts) [ICE-LOOP](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/src/agent-loop.ts) [OH-CONVERSATION](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py) [OH-DOCKER](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-workspace/openhands/workspace/docker/workspace.py) [TUA](https://arxiv.org/html/2606.28480) [GITTASK](https://arxiv.org/html/2508.18993)
 
-**Largest uncertainty:** no public benchmark directly compares stock Pi, the proposed pi-void hybrid and OpenHands on a synchronized, coding-specific, same-model, repeated matrix. Expected reliability gains therefore remain a hypothesis until the evaluation plan in Section 10 is run.
+**Largest uncertainty:** no public benchmark directly compares stock Ice, the proposed ice hybrid and OpenHands on a synchronized, coding-specific, same-model, repeated matrix. Expected reliability gains therefore remain a hypothesis until the evaluation plan in Section 10 is run.
 
-**Explicit build exclusions:** no Pi core rewrite, no second provider abstraction, no mandatory OpenHands SDK, MCP, browser, vector database or multi-agent mode, no copied proprietary Claude Code behavior beyond public semantics, no automatic merge/deploy, and no self-modifying harness before regression control exists.
+**Explicit build exclusions:** no Ice core rewrite, no second provider abstraction, no mandatory OpenHands SDK, MCP, browser, vector database or multi-agent mode, no copied proprietary Claude Code behavior beyond public semantics, no automatic merge/deploy, and no self-modifying harness before regression control exists.
 
 ### Decision summary
 
 | Decision | Verdict | Evidence confidence | Source-quality note |
 | --- | --- | --- | --- |
-| Main driver | Pi | high | Direct source inspection shows the loop, hooks, provider registry and session tree already exist. |
-| Default architecture | Balanced Hybrid | medium-high | Architecture follows verified seams; performance benefit still requires pi-void-specific trials. |
+| Main driver | Ice | high | Direct source inspection shows the loop, hooks, provider registry and session tree already exist. |
+| Default architecture | Balanced Hybrid | medium-high | Architecture follows verified seams; performance benefit still requires ice-void-specific trials. |
 | OpenHands role | Pattern source and optional runtime adapter | high | MIT source is inspectable; embedding the complete Python stack would add unnecessary coupling. |
-| First code slice | @pi-void/safe-verify | high for feasibility | Uses existing tool_call, agent_settled, provider and appendEntry APIs; zero upstream edits. |
-| Multi-agent | defer and opt in | medium | Mechanisms exist in OMP/Grok/OpenAI, but coding-specific Pi evidence and net-cost benefit are absent. |
+| First code slice | @ice/safe-verify | high for feasibility | Uses existing tool_call, agent_settled, provider and appendEntry APIs; zero upstream edits. |
+| Multi-agent | defer and opt in | medium | Mechanisms exist in OMP/Grok/OpenAI, but coding-specific Ice evidence and net-cost benefit are absent. |
 | Current frontier ceiling | Codex + GPT-5.6 Sol max, AA v1.2 index 61 | medium | Repeated aggregate is current, but model and harness are confounded and raw attempts/harness version are closed. [AA-CODEX](https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-opencode) |
 
 ## 2. Corrected research baseline
@@ -36,17 +36,17 @@ The strongest evidence is structural rather than a single leaderboard: Pi alread
 
 **[VERIFIED]** Harness-Bench v1 evaluates six configurable harnesses across eight model backends and 106 tasks in a full factorial, plus a separate Codex-native reference. It reports 5,088 configurable trajectories plus 106 Codex trajectories. NanoBot's 76.2 is the highest configurable-harness aggregate; the separate Codex reference is 80.4. This is unusually useful evidence that harness effects exist. [HB-PAPER](https://arxiv.org/html/2605.27922)
 
-**[VERIFIED]** It is not sufficiently coding-specific to choose pi-void: only 22 tasks are software engineering and 7 are SRE/DevOps; every task-model-harness cell is one trajectory; the aggregate includes an LLM-judged process component; no pairwise confidence intervals establish statistical significance. The repository has also moved to a materially changed 100+ task `HarnessBench 2.0` layout at commit `1025086...`. V1 paper scores must not be attached to the 2.0 suite without a versioned result artifact. [HB-REPO](https://github.com/Qihoo360/harness-bench)
+**[VERIFIED]** It is not sufficiently coding-specific to choose ice: only 22 tasks are software engineering and 7 are SRE/DevOps; every task-model-harness cell is one trajectory; the aggregate includes an LLM-judged process component; no pairwise confidence intervals establish statistical significance. The repository has also moved to a materially changed 100+ task `HarnessBench 2.0` layout at commit `1025086...`. V1 paper scores must not be attached to the 2.0 suite without a versioned result artifact. [HB-REPO](https://github.com/Qihoo360/harness-bench)
 
 ### 2.2 NanoBot's relevance
 
-**[VERIFIED]** NanoBot is a broad configurable-runtime leader in Harness-Bench v1, not a demonstrated coding-harness template. Its result argues for small, coherent harnesses and disciplined tool use, but does not show that NanoBot's architecture should replace Pi's. The benchmark mix and single-run design make causal feature extraction unsafe without source-level ablations.
+**[VERIFIED]** NanoBot is a broad configurable-runtime leader in Harness-Bench v1, not a demonstrated coding-harness template. Its result argues for small, coherent harnesses and disciplined tool use, but does not show that NanoBot's architecture should replace Ice's. The benchmark mix and single-run design make causal feature extraction unsafe without source-level ablations.
 
-### 2.3 Positioning Pi, OpenHands, OpenCode and Codex
+### 2.3 Positioning Ice, OpenHands, OpenCode and Codex
 
 | System | Correct architectural position | Best relevant evidence | Do not overstate |
 | --- | --- | --- | --- |
-| Pi | Minimal multi-provider terminal harness and embeddable runtime | Direct source inspection; preliminary local experiment 123/160 [LOCAL-WIP](https://www.neuralnoise.com/2026/harness-bench-wip/) | The local result uses private tasks and one run per cell; universal performance leadership is not established. |
+| Ice | Minimal multi-provider terminal harness and embeddable runtime | Direct source inspection; preliminary local experiment 123/160 [LOCAL-WIP](https://www.neuralnoise.com/2026/harness-bench-wip/) | The local result uses private tasks and one run per cell; universal performance leadership is not established. |
 | OpenHands | Software-agent platform/SDK/controller/workspace stack containing coding-agent implementations | Repeated GitTaskBench/TUA evidence plus inspectable SDK [GITTASK](https://arxiv.org/html/2508.18993) [TUA](https://arxiv.org/html/2606.28480) [OH-SDK](https://github.com/OpenHands/software-agent-sdk) | It is not a single monolithic coding agent, and OpenHands Index is owner-operated and usually single-run. |
 | OpenCode | Open-source multi-provider coding CLI/client-server product | Current AA v1.2 fixed-model Opus 4.7 chart favors OpenCode over Claude Code/Cursor [AA-LB](https://artificialanalysis.ai/agents/coding-agents) | One model/composite does not establish universal harness leadership. |
 | Codex | OpenAI-native coding CLI/runtime | Current AA v1.2 leader with GPT-5.6 Sol max; strong terminal results [AA-CODEX](https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-opencode) | Different-model comparisons cannot isolate the Codex harness; current top row is a system result. |
@@ -61,27 +61,27 @@ The strongest evidence is structural rather than a single leaderboard: Pi alread
 
 **[VERIFIED]** Claude Fable 5 uses API model ID `claude-fable-5`, is positioned for long-running coding work, costs $10/M input and $50/M output, and can route safeguarded requests to Opus 4.8. Current AA v1.2 reports Claude Code + Fable 5 max with fallback at index 59, versus Codex + GPT-5.6 Sol max at 61. Because model, harness and fallback behavior all differ, this is a frontier-system comparison, not controlled harness evidence. [FABLE](https://www.anthropic.com/claude/fable) [FABLE-DOCS](https://platform.claude.com/docs/en/release-notes/overview) [AA-CLAUDE-CODEX](https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-codex)
 
-### 2.5 Stronger benchmark signals for pi-void
+### 2.5 Stronger benchmark signals for ice
 
-| Benchmark/research | Design | Most relevant finding | Use for pi-void | Main limitation | Primary source |
+| Benchmark/research | Design | Most relevant finding | Use for ice | Main limitation | Primary source |
 | --- | --- | --- | --- | --- | --- |
 | GitTaskBench | 54 repository tasks, Aider/SWE-agent/OpenHands, two runs | OpenHands wins every shared-model task-pass-rate row in that study | Coding-specific reference for repo setup, execution and verification | 2025 harness versions; only two repeats; environments differ | [GITTASK](https://arxiv.org/html/2508.18993) |
 | TUA-Bench | 120 broad terminal tasks, five trials per configuration | Same-model ranking reverses: GPT-5.5 favors Codex/mini-SWE, Opus 4.8 favors OpenHands | Evidence to avoid one universal loop and to pin model/harness together | Broad terminal tasks, not coding-only; time budget strongly affects results | [TUA](https://arxiv.org/html/2606.28480) |
 | OpenHands Index | Five suites with raw aggregate/archive artifacts | OpenHands leads audited exact-model Codex/Claude ACP rows on GPT-5.5 and Opus 4.7 | Task-family diagnostics and trace examples | Owner conflict, version mismatch and normally one trajectory | [OH-INDEX](https://github.com/OpenHands/openhands-index-results) |
 | Artificial Analysis v1.2 | 321 tasks, three repeats, current frontier systems and a fixed Opus 4.7 chart | Current native-system ceiling and one controlled fixed-model harness slice | Current model-era target and efficiency metrics | Raw attempts and exact harness versions are closed | [AA-METHOD](https://artificialanalysis.ai/methodology/coding-agents-benchmarking) [AA-LB](https://artificialanalysis.ai/agents/coding-agents) |
-| AHE and harness-evolution papers | automated harness optimization and regression studies | Middleware/tool/memory changes can transfer, but composition/generalization is inconsistent | Justifies ablation, held-out tests and regression gates | Not a direct Pi/OpenHands comparison | [AHE](https://arxiv.org/abs/2604.25850) [COMPOUND](https://arxiv.org/abs/2607.14004) [RETHINK-EVAL](https://arxiv.org/abs/2607.12227) |
+| AHE and harness-evolution papers | automated harness optimization and regression studies | Middleware/tool/memory changes can transfer, but composition/generalization is inconsistent | Justifies ablation, held-out tests and regression gates | Not a direct Ice/OpenHands comparison | [AHE](https://arxiv.org/abs/2604.25850) [COMPOUND](https://arxiv.org/abs/2607.14004) [RETHINK-EVAL](https://arxiv.org/abs/2607.12227) |
 
 ## 3. Project identity and licensing
 
 | Product | Canonical repository/docs | Pinned version or commit | Category | License | Identity confidence | Audit note |
 | --- | --- | --- | --- | --- | --- | --- |
-| Pi / pi-mono | https://github.com/earendil-works/pi | @earendil-works/pi-coding-agent 0.81.1; dd6bea41efa8caa7a10fe5a6401676dc5699f83f | minimal multi-provider terminal coding harness and embeddable agent runtime | MIT | high | Canonical package coordinates changed with the repository transfer. Pin commit and package namespace in pi-void CI. |
+| Ice / ice-mono | https://github.com/earendil-works/ice | @zykairotis/ice-coding-agent 0.81.1; dd6bea41efa8caa7a10fe5a6401676dc5699f83f | minimal multi-provider terminal coding harness and embeddable agent runtime | MIT | high | Canonical package coordinates changed with the repository transfer. Pin commit and package namespace in ice CI. |
 | OpenHands | https://github.com/OpenHands/OpenHands; reusable SDK: https://github.com/OpenHands/software-agent-sdk | SDK 1.36.1; 9dda2df6f5432c32861eb21e8d57df7e5525133d | software-agent platform, SDK, controller, and workspace runtime | MIT | high | For architecture reuse, the SDK repository is the primary source. OpenHands is not one monolithic coding agent. |
 | Grok Build | https://github.com/xai-org/grok-build | 3af4d5d39897855bdcc74f23e690024a5dc05573 | vendor-native terminal coding/build harness | Apache-2.0 | high | Repository states it is periodically synchronized from a private monorepo; public code is inspectable but not the entire internal development environment. |
 | OpenAI Codex CLI | https://github.com/openai/codex | 9fce9e13fd649f8c4549079eb6ca5d697e2ce0e4 | vendor-native coding CLI and agent workflow runtime | Apache-2.0 | high | Open-source CLI/runtime does not imply that hosted Codex services or model internals are open. |
 | Claude Code | https://docs.anthropic.com/en/docs/claude-code/overview | not established | vendor-native proprietary coding CLI and IDE workflow | proprietary | high | Only documented behavior can be adapted clean-room; internal prompts and implementation are unavailable. |
-| OpenCode | https://github.com/anomalyco/opencode | 130038eb63a94d832b0aea0d3ea9c83511db3d4d | open-source multi-provider coding CLI/client-server system | MIT | high | Useful reference for client/server separation and session UX; replacing Pi's provider layer would be redundant. |
-| OhMyPi / OMP | https://github.com/can1357/oh-my-pi | 17.0.7; 7b141199d524b859c357fc89654f10b62b9f3df1 | feature-rich Pi fork | MIT | high | Rejected alternatives: oh-my-openagent is a different OpenCode/Codex ecosystem project; similarly named themes are not this harness. |
+| OpenCode | https://github.com/anomalyco/opencode | 130038eb63a94d832b0aea0d3ea9c83511db3d4d | open-source multi-provider coding CLI/client-server system | MIT | high | Useful reference for client/server separation and session UX; replacing Ice's provider layer would be redundant. |
+| OhMyPi / OMP | https://github.com/can1357/oh-my-pi | 17.0.7; 7b141199d524b859c357fc89654f10b62b9f3df1 | feature-rich Ice fork | MIT | high | Rejected alternatives: oh-my-openagent is a different OpenCode/Codex ecosystem project; similarly named themes are not this harness. |
 | mini-SWE-agent | https://github.com/SWE-agent/mini-swe-agent | 38c01a19ed1a58dd17dd7c95010e4f69d059c777 | minimal research and deployment coding harness | MIT | high | Strong minimal-loop reference: bash-only, linear history, stateless subprocess actions, explicit limits and serialized trajectories. |
 | SWE-agent | https://github.com/SWE-agent/SWE-agent | not established | research software-engineering agent and agent-computer interface | MIT | high | Current maintainers recommend mini-SWE-agent for many baseline/deployment uses; SWE-agent remains useful for ACI research. |
 | Agentless | https://github.com/OpenAutoCoder/Agentless | 5ce5888b9f149beaace393957a55ea8ee46c9f71 | localize-repair-validate software-repair pipeline | MIT | high | Not an interactive harness; relevant as evidence for explicit localization, candidate generation, and deterministic validation. |
@@ -90,18 +90,18 @@ The strongest evidence is structural rather than a single leaderboard: Pi alread
 
 ### 3.1 Ambiguous-name resolution
 
-- **[VERIFIED]** **Pi/pi-mono:** `https://github.com/badlogic/pi-mono` redirects to `earendil-works/pi`; current package coordinates use `@earendil-works/*`. pi-void must pin the new canonical identity and test package-name drift. [PI-REPO](https://github.com/earendil-works/pi)
-- **[VERIFIED]** **OhMyPi:** the selected identity is `can1357/oh-my-pi`, a substantial Pi fork. `oh-my-openagent` and similarly named themes are different projects and are excluded.
+- **[VERIFIED]** **Ice/ice-mono:** `https://github.com/badlogic/pi-mono` redirects to `earendil-works/ice`; current package coordinates use `@earendil-works/*`. ice must pin the new canonical identity and test package-name drift. [ICE-REPO](https://github.com/earendil-works/ice)
+- **[VERIFIED]** **OhMyPi:** the selected identity is `can1357/oh-my-pi`, a substantial Ice fork. `oh-my-openagent` and similarly named themes are different projects and are excluded.
 - **[VERIFIED]** **Grok Build:** the selected identity is the first-party `xai-org/grok-build` repository. It is now inspectable under Apache-2.0, but the repository states it is synchronized periodically from a private monorepo; unavailable proprietary services are not inferred. [GROK-BUILD](https://github.com/xai-org/grok-build)
 
 ### 3.2 Clean-room and license assessment
 
-| Source | SPDX/status | Reuse status | Obligations | Risk | pi-void action |
+| Source | SPDX/status | Reuse status | Obligations | Risk | ice action |
 | --- | --- | --- | --- | --- | --- |
-| Pi | MIT | reuse/adapt permitted | retain copyright and permission notice in substantial portions | low | May import small stable utilities, but prefer depending on upstream packages and extensions. |
+| Ice | MIT | reuse/adapt permitted | retain copyright and permission notice in substantial portions | low | May import small stable utilities, but prefer depending on upstream packages and extensions. |
 | OpenHands SDK | MIT | reuse/adapt permitted | retain MIT notice | low-to-medium | Behaviorally adapt interfaces; direct Python reuse would add a second runtime and increase maintenance. |
-| OpenCode | MIT | reuse/adapt permitted | retain MIT notice | low | Use client/server and session concepts; do not duplicate Pi's provider layer. |
-| OhMyPi | MIT | reuse/adapt permitted | retain OMP and inherited Pi notices; track provenance per file | medium | Cherry-pick only isolated, well-tested mechanisms. Avoid adopting its fork structure wholesale. |
+| OpenCode | MIT | reuse/adapt permitted | retain MIT notice | low | Use client/server and session concepts; do not duplicate Ice's provider layer. |
+| OhMyPi | MIT | reuse/adapt permitted | retain OMP and inherited Ice notices; track provenance per file | medium | Cherry-pick only isolated, well-tested mechanisms. Avoid adopting its fork structure wholesale. |
 | mini-SWE-agent | MIT | reuse/adapt permitted | retain MIT notice | low | Use as reference for trajectory and limit semantics; code reuse is optional. |
 | Agentless | MIT | reuse/adapt permitted | retain MIT notice | low | Adapt workflow behavior; avoid benchmark-specific implementation coupling. |
 | Codex CLI | Apache-2.0 | reuse/adapt permitted under Apache terms | retain license/notices, mark modified files, preserve NOTICE obligations and patent terms | medium | Prefer behavioral adaptation of sandbox/approval/review semantics. |
@@ -110,48 +110,48 @@ The strongest evidence is structural rather than a single leaderboard: Pi alread
 
 **[PROPOSED]** Maintain a per-file provenance manifest for any reused code. A mixed MIT/Apache project is possible, but Apache-derived files must retain Apache notices, modification notices, NOTICE obligations where present and patent-license terms. Proprietary Claude Code implementation, prompts or reverse-engineered internals must not enter the repository.
 
-## 4. What makes Pi effective
+## 4. What makes Ice effective
 
-**[VERIFIED]** The audited Pi commit is not merely a four-tool demo. It has a small central loop plus a higher-level harness, typed lifecycle events, project trust, provider registration, model switching, append-only session trees, compaction hooks, RPC/JSON/headless modes and extension persistence. [PI-LOOP](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/src/agent-loop.ts) [PI-HARNESS](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/agent-harness.md) [PI-EXT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) [PI-SESSION](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts)
+**[VERIFIED]** The audited Ice commit is not merely a four-tool demo. It has a small central loop plus a higher-level harness, typed lifecycle events, project trust, provider registration, model switching, append-only session trees, compaction hooks, RPC/JSON/headless modes and extension persistence. [ICE-LOOP](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/src/agent-loop.ts) [ICE-HARNESS](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/agent-harness.md) [ICE-EXT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) [ICE-SESSION](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts)
 
 | Mechanism | Evidence status | Why it matters | Keep pure? | Measured value | Primary source |
 | --- | --- | --- | --- | --- | --- |
-| Small default tool surface | VERIFIED | Only read/write/edit/bash are default; fewer schemas and action choices favor inspectability and weaker models | yes | Exact token overhead is not established; measure per tokenizer in Phase 0 | [PI-REPO](https://github.com/earendil-works/pi) [PI-PROMPT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/system-prompt.ts) |
-| Concise dynamic prompt | VERIFIED | Prompt includes active tools, guidelines, context resources and skills rather than a fixed maximal instruction block | yes | Prompt tokens not established; model-dependent | [PI-PROMPT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/system-prompt.ts) |
-| Direct model-tool loop | VERIFIED | Few control layers, typed tool results, steering/follow-up and parallel/sequential execution | yes | Turn/tool counts measured in Phase 0 | [PI-LOOP](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/src/agent-loop.ts) |
-| Provider abstraction | VERIFIED | Official and custom providers/local OpenAI-compatible endpoints without unofficial proxying | yes | Provider-specific correctness must be conformance-tested | [PI-REPO](https://github.com/earendil-works/pi) [PI-EXT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) |
-| Append-only session tree | VERIFIED | Inspectability, forks, compaction and extension state without forcing all state into context | yes | Session schema v3 at pinned commit | [PI-SESSION](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts) |
-| Extension API | VERIFIED | Policy, traces, verification, custom tools and context transforms can live outside upstream paths | yes | Runtime overhead not established; expected low unless hooks perform I/O/model calls | [PI-EXT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) |
-| No built-in all-purpose planner/MCP/subagent layer | VERIFIED | Avoids mandatory prompt/dependency/security cost; capabilities can be profiles | yes | Whether missing features hurt target tasks is task-dependent | [PI-REPO](https://github.com/earendil-works/pi) |
-| Current recovery durability | VERIFIED | Durable boundaries and append-only state are designed, but host runtime objects remain external and some harness migration work is active | preserve and extend externally | Reliability gain from pi-void recovery not established | [PI-DURABLE](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/durable-harness.md) [PI-HARNESS](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/agent-harness.md) |
+| Small default tool surface | VERIFIED | Only read/write/edit/bash are default; fewer schemas and action choices favor inspectability and weaker models | yes | Exact token overhead is not established; measure per tokenizer in Phase 0 | [ICE-REPO](https://github.com/earendil-works/ice) [ICE-PROMPT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/system-prompt.ts) |
+| Concise dynamic prompt | VERIFIED | Prompt includes active tools, guidelines, context resources and skills rather than a fixed maximal instruction block | yes | Prompt tokens not established; model-dependent | [ICE-PROMPT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/system-prompt.ts) |
+| Direct model-tool loop | VERIFIED | Few control layers, typed tool results, steering/follow-up and parallel/sequential execution | yes | Turn/tool counts measured in Phase 0 | [ICE-LOOP](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/src/agent-loop.ts) |
+| Provider abstraction | VERIFIED | Official and custom providers/local OpenAI-compatible endpoints without unofficial proxying | yes | Provider-specific correctness must be conformance-tested | [ICE-REPO](https://github.com/earendil-works/ice) [ICE-EXT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) |
+| Append-only session tree | VERIFIED | Inspectability, forks, compaction and extension state without forcing all state into context | yes | Session schema v3 at pinned commit | [ICE-SESSION](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts) |
+| Extension API | VERIFIED | Policy, traces, verification, custom tools and context transforms can live outside upstream paths | yes | Runtime overhead not established; expected low unless hooks perform I/O/model calls | [ICE-EXT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) |
+| No built-in all-purpose planner/MCP/subagent layer | VERIFIED | Avoids mandatory prompt/dependency/security cost; capabilities can be profiles | yes | Whether missing features hurt target tasks is task-dependent | [ICE-REPO](https://github.com/earendil-works/ice) |
+| Current recovery durability | VERIFIED | Durable boundaries and append-only state are designed, but host runtime objects remain external and some harness migration work is active | preserve and extend externally | Reliability gain from ice recovery not established | [ICE-DURABLE](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/durable-harness.md) [ICE-HARNESS](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/agent-harness.md) |
 
-### 4.1 Required measurements before claiming Pi's minimalism is faster
+### 4.1 Required measurements before claiming Ice's minimalism is faster
 
 **[PROPOSED]** For each exact model/provider route, record: tokenizer-counted system prompt; serialized tool-schema tokens; first-turn and steady-state context; context growth per tool result; compaction trigger and summary cost; turns and tool calls; provider/tool retries; wall time; cache reads/writes; and verifier cost. The extension must inject no prompt text during Phase 0 so instrumentation itself is a controlled no-behavior-change treatment.
 
 ## 5. Evidence matrix: mechanisms that can improve coding agents
 
-| ID | Status | Claim/mechanism | Sources | Contrary evidence | Confidence | Expected pi-void effect |
+| ID | Status | Claim/mechanism | Sources | Contrary evidence | Confidence | Expected ice effect |
 | --- | --- | --- | --- | --- | --- | --- |
-| E-PURE-PI-LOOP | VERIFIED | Pi's central loop is already a compact model-tool loop with steering/follow-up queues, sequential or parallel tool execution, tool blocking/transformation hooks, and typed events. | [PI-LOOP](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/src/agent-loop.ts) | The higher-level durable harness documentation still marks some automatic compaction/retry trigger integration as active migration work. | high | Do not rewrite the central loop. Add policy and operational behavior through extensions and the host supervisor. |
-| E-PURE-PI-EXT | VERIFIED | Pi's extension API exposes the seams required for a first pi-void implementation: pre/post tool hooks, provider request/response hooks, settled events, context transforms, custom tools, persistent custom entries, provider registration and programmatic messages. | [PI-EXT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) [PI-SESSION](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts) | Extensions execute with host privileges unless Pi itself is placed inside a sandbox or execution is delegated to a sandbox runtime. | high | Implement the first phases outside upstream-owned paths with zero Pi core edits. |
-| E-MINIMALISM | INFERRED | Pi's four default coding tools and concise prompt construction are performance features because they constrain schema overhead and action ambiguity, especially for smaller or local models. | [PI-PROMPT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/system-prompt.ts) [PI-REPO](https://github.com/earendil-works/pi) [MINISWE-LOOP](https://github.com/SWE-agent/mini-swe-agent/blob/38c01a19ed1a58dd17dd7c95010e4f69d059c777/src/minisweagent/agents/default.py) [SWEAGENT](https://arxiv.org/abs/2405.15793) | A richer tool can reduce turns when it encodes a high-value operation such as precise patch application, repository search or deterministic verification. The causal token benefit has not been measured for current Pi. | medium | Keep the default tool set small. Add tools only behind profiles and require an ablation showing net task-success or cost benefit. |
-| E-PI-STATE | VERIFIED | Pi's append-only JSONL session tree supports custom extension entries that persist across reloads without entering the LLM context. | [PI-SESSION](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts) [PI-DURABLE](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/durable-harness.md) | Tool implementations, provider clients and extension code remain host-runtime dependencies and are not serialized into the session. | high | Use Pi's session as conversational source of truth and store only references to large run artifacts externally. |
-| E-OH-CONTROLLER | VERIFIED | OpenHands separates conversation/controller concerns from agent logic and workspace execution, and its local controller handles budgets, confirmation, stuck detection, callbacks, persistence and errors. | [OH-CONVERSATION](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py) [OH-AGENT](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/agent/agent.py) | The SDK is a substantially heavier Python stack and its assumptions should not become mandatory for a TypeScript Pi harness. | high | Adapt the control-plane boundaries, not the whole SDK dependency graph. |
-| E-OH-SANDBOX | VERIFIED | OpenHands provides a Docker workspace that manages container lifecycle and exposes a remote workspace API through an agent-server process. | [OH-DOCKER](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-workspace/openhands/workspace/docker/workspace.py) | A container with writable host mounts, broad network and forwarded secrets is not a complete security boundary. | high | Implement a narrow Runtime interface and initially run the entire unmodified Pi process inside the selected runtime. |
-| E-PERMISSION | VERIFIED | Both OpenHands and Claude Code expose explicit confirmation/permission concepts rather than treating all tool calls uniformly. | [OH-POLICY](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/security/confirmation_policy.py) [CLAUDE-PERMISSIONS](https://docs.anthropic.com/en/docs/claude-code/permissions) | Prompt-based permissions alone are not a security control; deterministic enforcement must occur before execution. | high | Add deterministic allow/ask/deny policy at Pi's tool_call hook and reinforce it with sandbox boundaries. |
+| E-PURE-ICE-LOOP | VERIFIED | Ice's central loop is already a compact model-tool loop with steering/follow-up queues, sequential or parallel tool execution, tool blocking/transformation hooks, and typed events. | [ICE-LOOP](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/src/agent-loop.ts) | The higher-level durable harness documentation still marks some automatic compaction/retry trigger integration as active migration work. | high | Do not rewrite the central loop. Add policy and operational behavior through extensions and the host supervisor. |
+| E-PURE-ICE-EXT | VERIFIED | Ice's extension API exposes the seams required for a first ice implementation: pre/post tool hooks, provider request/response hooks, settled events, context transforms, custom tools, persistent custom entries, provider registration and programmatic messages. | [ICE-EXT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) [ICE-SESSION](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts) | Extensions execute with host privileges unless Ice itself is placed inside a sandbox or execution is delegated to a sandbox runtime. | high | Implement the first phases outside upstream-owned paths with zero Ice core edits. |
+| E-MINIMALISM | INFERRED | Ice's four default coding tools and concise prompt construction are performance features because they constrain schema overhead and action ambiguity, especially for smaller or local models. | [ICE-PROMPT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/system-prompt.ts) [ICE-REPO](https://github.com/earendil-works/ice) [MINISWE-LOOP](https://github.com/SWE-agent/mini-swe-agent/blob/38c01a19ed1a58dd17dd7c95010e4f69d059c777/src/minisweagent/agents/default.py) [SWEAGENT](https://arxiv.org/abs/2405.15793) | A richer tool can reduce turns when it encodes a high-value operation such as precise patch application, repository search or deterministic verification. The causal token benefit has not been measured for current Ice. | medium | Keep the default tool set small. Add tools only behind profiles and require an ablation showing net task-success or cost benefit. |
+| E-ICE-STATE | VERIFIED | Ice's append-only JSONL session tree supports custom extension entries that persist across reloads without entering the LLM context. | [ICE-SESSION](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts) [ICE-DURABLE](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/durable-harness.md) | Tool implementations, provider clients and extension code remain host-runtime dependencies and are not serialized into the session. | high | Use Ice's session as conversational source of truth and store only references to large run artifacts externally. |
+| E-OH-CONTROLLER | VERIFIED | OpenHands separates conversation/controller concerns from agent logic and workspace execution, and its local controller handles budgets, confirmation, stuck detection, callbacks, persistence and errors. | [OH-CONVERSATION](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py) [OH-AGENT](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/agent/agent.py) | The SDK is a substantially heavier Python stack and its assumptions should not become mandatory for a TypeScript Ice harness. | high | Adapt the control-plane boundaries, not the whole SDK dependency graph. |
+| E-OH-SANDBOX | VERIFIED | OpenHands provides a Docker workspace that manages container lifecycle and exposes a remote workspace API through an agent-server process. | [OH-DOCKER](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-workspace/openhands/workspace/docker/workspace.py) | A container with writable host mounts, broad network and forwarded secrets is not a complete security boundary. | high | Implement a narrow Runtime interface and initially run the entire unmodified Ice process inside the selected runtime. |
+| E-PERMISSION | VERIFIED | Both OpenHands and Claude Code expose explicit confirmation/permission concepts rather than treating all tool calls uniformly. | [OH-POLICY](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/security/confirmation_policy.py) [CLAUDE-PERMISSIONS](https://docs.anthropic.com/en/docs/claude-code/permissions) | Prompt-based permissions alone are not a security control; deterministic enforcement must occur before execution. | high | Add deterministic allow/ask/deny policy at Ice's tool_call hook and reinforce it with sandbox boundaries. |
 | E-STUCK | VERIFIED | OpenHands implements deterministic stuck-pattern checks over recent events, including repeated action/observation, repeated errors, monologues and alternating loops. | [OH-STUCK](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/stuck_detector.py) | Its source notes incomplete context-window-specific detection; pattern rules can also terminate legitimate repetitive workflows. | high | Adapt a small transparent detector with evidence in the trace, bounded recovery and user override. |
-| E-CONTEXT | VERIFIED | Pi already supports compaction hooks and session-tree summaries; OpenHands adds a view/tombstone model that retains an append-only event history while exposing a condensed working view. | [PI-COMPACTION](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/compaction.md) [PI-EXT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) [OH-CONDENSER](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/context/condenser/README.md) | LLM-generated summaries can omit constraints and failed attempts; large-context models do not eliminate retrieval and salience problems. | high | Keep Pi compaction, add structured artifact/state references and compaction quality checks rather than a separate memory system. |
+| E-CONTEXT | VERIFIED | Ice already supports compaction hooks and session-tree summaries; OpenHands adds a view/tombstone model that retains an append-only event history while exposing a condensed working view. | [ICE-COMPACTION](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/compaction.md) [ICE-EXT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) [OH-CONDENSER](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/context/condenser/README.md) | LLM-generated summaries can omit constraints and failed attempts; large-context models do not eliminate retrieval and salience problems. | high | Keep Ice compaction, add structured artifact/state references and compaction quality checks rather than a separate memory system. |
 | E-VERIFY | VERIFIED | Agentless and modern coding benchmarks reinforce a localize/modify/validate workflow in which deterministic repository tests, not model self-assessment, decide success. | [AGENTLESS](https://github.com/OpenAutoCoder/Agentless) [GITTASK](https://arxiv.org/html/2508.18993) [TUA](https://arxiv.org/html/2606.28480) [AA-METHOD](https://artificialanalysis.ai/methodology/coding-agents-benchmarking) | Many repositories have incomplete, flaky or expensive tests; frontend and design tasks often need additional visual evaluation. | high | Make verifier profiles first-class and allow bounded repair, while recording test coverage and unresolved human review. |
-| E-MULTIAGENT | INFERRED | Subagents are most defensible when they provide isolation or parallelism for decomposable work, not as a universal default. | [OMP](https://github.com/can1357/oh-my-pi) [GROK-GOAL](https://github.com/xai-org/grok-build/blob/3af4d5d39897855bdcc74f23e690024a5dc05573/crates/codegen/xai-grok-shell/src/session/goal_orchestrator.rs) [GPT56-LAUNCH](https://openai.com/index/gpt-5-6/) [AHE](https://arxiv.org/abs/2604.25850) | Additional workers can increase context duplication, merge conflicts, token cost and supervision burden; controlled coding-specific evidence for Pi subagents is absent. | medium | Defer to Phase 5, use separate worktrees/containers, typed results, bounded concurrency and parent verification. |
-| E-HARNESS-SENSITIVITY | VERIFIED | Harness choice materially changes outcomes for a fixed model, and ranking can reverse by model and task family. | [HB-PAPER](https://arxiv.org/html/2605.27922) [TUA](https://arxiv.org/html/2606.28480) [OH-INDEX](https://github.com/OpenHands/openhands-index-results) [AA-LB](https://artificialanalysis.ai/agents/coding-agents) | Several studies are single-run, owner-operated or use different harness versions, so effect sizes are not universally portable. | high for existence of harness effects; medium for any specific ranking | Evaluate stock Pi, pi-void and OpenHands with exact same models, limits, images and repeated trials. |
-| E-HB-LIMIT | VERIFIED | Harness-Bench v1 is a broad agent-runtime benchmark, not a coding-harness selector: 22 of 106 tasks are software engineering and 7 are SRE/DevOps, with one trajectory per task-model-harness cell. | [HB-PAPER](https://arxiv.org/html/2605.27922) | Its full-factorial six-harness by eight-model design is unusually useful for measuring broad harness sensitivity. | high | Use it as an architecture signal and smoke suite, not the primary pi-void acceptance benchmark. |
-| E-NANOBOT | VERIFIED | NanoBot's 76.2 Harness-Bench v1 aggregate is the best configurable-harness point estimate in that paper; Codex's separate model-bound reference is 80.4. | [HB-PAPER](https://arxiv.org/html/2605.27922) | The benchmark is mostly non-coding and each factorial cell is single-run; the repository has since changed to a 2.0 task/adaptor layout. | high for the reported paper values; low for selecting pi-void architecture | Do not imitate NanoBot simply because of the aggregate. Extract only mechanisms supported by code and task-specific ablations. |
-| E-PI-LOCAL | VERIFIED | Pi leads the audited independent local-model harness experiment at 123/160, with Qwen Code at 120/160, and Pi plus Qwen3.6-27B Q4 is the only 16/16 cell. | [LOCAL-WIP](https://www.neuralnoise.com/2026/harness-bench-wip/) | The experiment has 16 private tasks, one machine, one run per cell, no confidence intervals and some contaminated OpenCode cells where the grader was accessible. | low-to-medium | Treat Pi's local-model position as promising, not conclusive. Reproduce on public, hidden and repeated tasks. |
-| E-CURRENT-GPT56 | VERIFIED | The current Artificial Analysis Coding Agent Index v1.2 reports Codex plus GPT-5.6 Sol max at index 61 over 321 tasks with three repeats per task; its component scores are DeepSWE 69%, Terminal-Bench v2 88% and SWE-Atlas-QnA 27%. | [AA-METHOD](https://artificialanalysis.ai/methodology/coding-agents-benchmarking) [AA-CODEX](https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-opencode) [GPT56-MODEL](https://developers.openai.com/api/docs/models/gpt-5.6-sol) | Artificial Analysis does not publish raw task attempts or an exact harness-version ledger, and this combines a model with its native harness. | medium-high for the aggregate; low for attributing the score to the model or harness alone | Include GPT-5.6 Sol in pi-void evaluation but never compare its Codex score directly to a different-model Pi score. |
+| E-MULTIAGENT | INFERRED | Subagents are most defensible when they provide isolation or parallelism for decomposable work, not as a universal default. | [OMP](https://github.com/can1357/oh-my-pi) [GROK-GOAL](https://github.com/xai-org/grok-build/blob/3af4d5d39897855bdcc74f23e690024a5dc05573/crates/codegen/xai-grok-shell/src/session/goal_orchestrator.rs) [GPT56-LAUNCH](https://openai.com/index/gpt-5-6/) [AHE](https://arxiv.org/abs/2604.25850) | Additional workers can increase context duplication, merge conflicts, token cost and supervision burden; controlled coding-specific evidence for Ice subagents is absent. | medium | Defer to Phase 5, use separate worktrees/containers, typed results, bounded concurrency and parent verification. |
+| E-HARNESS-SENSITIVITY | VERIFIED | Harness choice materially changes outcomes for a fixed model, and ranking can reverse by model and task family. | [HB-PAPER](https://arxiv.org/html/2605.27922) [TUA](https://arxiv.org/html/2606.28480) [OH-INDEX](https://github.com/OpenHands/openhands-index-results) [AA-LB](https://artificialanalysis.ai/agents/coding-agents) | Several studies are single-run, owner-operated or use different harness versions, so effect sizes are not universally portable. | high for existence of harness effects; medium for any specific ranking | Evaluate stock Ice, ice and OpenHands with exact same models, limits, images and repeated trials. |
+| E-HB-LIMIT | VERIFIED | Harness-Bench v1 is a broad agent-runtime benchmark, not a coding-harness selector: 22 of 106 tasks are software engineering and 7 are SRE/DevOps, with one trajectory per task-model-harness cell. | [HB-PAPER](https://arxiv.org/html/2605.27922) | Its full-factorial six-harness by eight-model design is unusually useful for measuring broad harness sensitivity. | high | Use it as an architecture signal and smoke suite, not the primary ice acceptance benchmark. |
+| E-NANOBOT | VERIFIED | NanoBot's 76.2 Harness-Bench v1 aggregate is the best configurable-harness point estimate in that paper; Codex's separate model-bound reference is 80.4. | [HB-PAPER](https://arxiv.org/html/2605.27922) | The benchmark is mostly non-coding and each factorial cell is single-run; the repository has since changed to a 2.0 task/adaptor layout. | high for the reported paper values; low for selecting ice architecture | Do not imitate NanoBot simply because of the aggregate. Extract only mechanisms supported by code and task-specific ablations. |
+| E-ICE-LOCAL | VERIFIED | Ice leads the audited independent local-model harness experiment at 123/160, with Qwen Code at 120/160, and Ice plus Qwen3.6-27B Q4 is the only 16/16 cell. | [LOCAL-WIP](https://www.neuralnoise.com/2026/harness-bench-wip/) | The experiment has 16 private tasks, one machine, one run per cell, no confidence intervals and some contaminated OpenCode cells where the grader was accessible. | low-to-medium | Treat Ice's local-model position as promising, not conclusive. Reproduce on public, hidden and repeated tasks. |
+| E-CURRENT-GPT56 | VERIFIED | The current Artificial Analysis Coding Agent Index v1.2 reports Codex plus GPT-5.6 Sol max at index 61 over 321 tasks with three repeats per task; its component scores are DeepSWE 69%, Terminal-Bench v2 88% and SWE-Atlas-QnA 27%. | [AA-METHOD](https://artificialanalysis.ai/methodology/coding-agents-benchmarking) [AA-CODEX](https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-opencode) [GPT56-MODEL](https://developers.openai.com/api/docs/models/gpt-5.6-sol) | Artificial Analysis does not publish raw task attempts or an exact harness-version ledger, and this combines a model with its native harness. | medium-high for the aggregate; low for attributing the score to the model or harness alone | Include GPT-5.6 Sol in ice evaluation but never compare its Codex score directly to a different-model Ice score. |
 | E-AA-VERSION-DRIFT | VERIFIED | The GPT-5.6 launch article's coding index value of 80 used Artificial Analysis v1.1; the current v1.2 score is 61 after the index composition/scoring changed. | [AA-GPT56-ARTICLE](https://artificialanalysis.ai/articles/gpt-5-6-has-landed) [AA-METHOD](https://artificialanalysis.ai/methodology/coding-agents-benchmarking) [AA-CODEX](https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-opencode) | This is not evidence that GPT-5.6 or Codex regressed; the scales are not directly comparable. | high | Store benchmark version and scoring definition beside every result. |
 | E-FRONTIER-PAIR | VERIFIED | In the current v1.2 aggregate, Codex plus GPT-5.6 Sol max scores 61 and Claude Code plus Fable 5 max with fallback scores 59; cost and runtime also differ materially. | [AA-CLAUDE-CODEX](https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-codex) [FABLE](https://www.anthropic.com/claude/fable) [GPT56-MODEL](https://developers.openai.com/api/docs/models/gpt-5.6-sol) | Models and harnesses both differ, and Fable's safety fallback means not every attempt necessarily stays on the named model. | medium | Use those systems as frontier ceiling references, not controlled harness evidence. |
-| E-SELF-EVOLUTION | VERIFIED | Recent harness-optimization research is mixed: improvements can transfer, but optimizer composition and adaptive evolution require explicit regression control and often generalize weakly. | [AHE](https://arxiv.org/abs/2604.25850) [SELF-HARNESS](https://arxiv.org/abs/2606.09498) [COMPOUND](https://arxiv.org/abs/2607.14004) [RETHINK-EVAL](https://arxiv.org/abs/2607.12227) [MEMOHARNESS](https://arxiv.org/abs/2607.14159) | Some papers report meaningful gains under their tested conditions. | medium | Do not build a self-modifying pi-void harness before a stable evaluation and regression-control pipeline exists. |
+| E-SELF-EVOLUTION | VERIFIED | Recent harness-optimization research is mixed: improvements can transfer, but optimizer composition and adaptive evolution require explicit regression control and often generalize weakly. | [AHE](https://arxiv.org/abs/2604.25850) [SELF-HARNESS](https://arxiv.org/abs/2606.09498) [COMPOUND](https://arxiv.org/abs/2607.14004) [RETHINK-EVAL](https://arxiv.org/abs/2607.12227) [MEMOHARNESS](https://arxiv.org/abs/2607.14159) | Some papers report meaningful gains under their tested conditions. | medium | Do not build a self-modifying ice harness before a stable evaluation and regression-control pipeline exists. |
 
 ### 5.1 Planning versus reactive execution
 
@@ -173,28 +173,28 @@ The strongest evidence is structural rather than a single leaderboard: Pi alread
 
 | Source project | Feature | User benefit | Architectural mechanism | Decision | License status | Implementation cost | Maintenance cost |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Pi [PI-REPO](https://github.com/earendil-works/pi) [PI-EXT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) | small default tool set and concise dynamic prompt | fast interaction and lower schema/action burden | four core coding tools plus prompt sections built only from active resources | adopt unchanged | MIT; direct upstream dependency | none | low |
-| Pi [PI-REPO](https://github.com/earendil-works/pi) [PI-EXT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) | provider registry and custom providers | multi-provider and local-model flexibility | provider/model registry and extension registration API | adopt unchanged | MIT | none | low |
-| Pi [PI-REPO](https://github.com/earendil-works/pi) [PI-EXT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) | append-only session tree | inspectable history, forks, compaction and extension state | JSONL entries with parent IDs, custom entries and summaries | adopt unchanged | MIT | none | low |
-| Pi [PI-REPO](https://github.com/earendil-works/pi) [PI-EXT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) | typed lifecycle and tool hooks | customization without core fork | ExtensionAPI subscriptions and tool/result interception | adopt unchanged | MIT | low | low |
+| Ice [ICE-REPO](https://github.com/earendil-works/ice) [ICE-EXT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) | small default tool set and concise dynamic prompt | fast interaction and lower schema/action burden | four core coding tools plus prompt sections built only from active resources | adopt unchanged | MIT; direct upstream dependency | none | low |
+| Ice [ICE-REPO](https://github.com/earendil-works/ice) [ICE-EXT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) | provider registry and custom providers | multi-provider and local-model flexibility | provider/model registry and extension registration API | adopt unchanged | MIT | none | low |
+| Ice [ICE-REPO](https://github.com/earendil-works/ice) [ICE-EXT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) | append-only session tree | inspectable history, forks, compaction and extension state | JSONL entries with parent IDs, custom entries and summaries | adopt unchanged | MIT | none | low |
+| Ice [ICE-REPO](https://github.com/earendil-works/ice) [ICE-EXT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts) | typed lifecycle and tool hooks | customization without core fork | ExtensionAPI subscriptions and tool/result interception | adopt unchanged | MIT | low | low |
 | OpenHands [OH-SDK](https://github.com/OpenHands/software-agent-sdk) | controller/workspace separation | clean lifecycle and isolation boundary | Conversation controller coordinates an Agent and Workspace | adapt | MIT; behavioral adaptation preferred | medium | medium |
 | OpenHands [OH-SDK](https://github.com/OpenHands/software-agent-sdk) | confirmation policy | explicit risky-action approval | always/never/risk-threshold policy classes | adapt | MIT | low | low |
 | OpenHands [OH-SDK](https://github.com/OpenHands/software-agent-sdk) | stuck detector | bounded loops and clearer failures | transparent recent-event pattern checks | adapt | MIT | low | low |
 | OpenHands [OH-SDK](https://github.com/OpenHands/software-agent-sdk) | condensed working view over append-only history | longer productive sessions without deleting evidence | condenser marks hidden events and emits summary | adapt narrowly | MIT | medium | medium |
 | OpenHands [OH-SDK](https://github.com/OpenHands/software-agent-sdk) | full SDK and plugin stack as a mandatory dependency | large capability surface | Python packages, LiteLLM, MCP, telemetry, remote workspace | reject as default | MIT but architecture/language mismatch | high | high |
 | Claude Code [CLAUDE-PERMISSIONS](https://docs.anthropic.com/en/docs/claude-code/permissions) [CLAUDE-HOOKS](https://docs.anthropic.com/en/docs/claude-code/hooks) | permission modes and ordered rules | predictable interactive safety | mode presets and deny/ask/allow evaluation | behaviorally adapt | proprietary; no source reuse | low-to-medium | low |
-| Claude Code [CLAUDE-PERMISSIONS](https://docs.anthropic.com/en/docs/claude-code/permissions) [CLAUDE-HOOKS](https://docs.anthropic.com/en/docs/claude-code/hooks) | hooks, project instructions, skills and subagents | deep workflow customization | documented lifecycle hooks and scoped instruction resources | adapt only where Pi lacks behavior | proprietary; public behavior only | medium | medium |
+| Claude Code [CLAUDE-PERMISSIONS](https://docs.anthropic.com/en/docs/claude-code/permissions) [CLAUDE-HOOKS](https://docs.anthropic.com/en/docs/claude-code/hooks) | hooks, project instructions, skills and subagents | deep workflow customization | documented lifecycle hooks and scoped instruction resources | adapt only where Ice lacks behavior | proprietary; public behavior only | medium | medium |
 | Claude Code [CLAUDE-PERMISSIONS](https://docs.anthropic.com/en/docs/claude-code/permissions) [CLAUDE-HOOKS](https://docs.anthropic.com/en/docs/claude-code/hooks) | plan/execution separation | review before mutation | read-only planning mode followed by explicit execution | adapt as profile | proprietary behavior | low | low |
 | Codex [CODEX](https://github.com/openai/codex) | sandbox and approval policy | safer autonomous terminal execution | native sandbox policies plus approval decisions | behaviorally adapt | Apache-2.0; prefer independent implementation | medium | medium |
 | Codex [CODEX](https://github.com/openai/codex) | apply-patch, review and worktree workflows | structured changes and isolated parallel attempts | patch-oriented tools, review modes and branch/worktree support | adapt selectively | Apache-2.0 | medium | medium |
 | Codex [CODEX](https://github.com/openai/codex) | app-server/headless resumability | CI and external orchestrator integration | separate server protocol and durable state | adapt in Phase 6 | Apache-2.0 | high | medium |
 | OpenCode [OPENCODE](https://github.com/anomalyco/opencode) | client/server separation and persistent sessions | multiple interfaces over one execution service | server-backed sessions with TUI/client surfaces | adapt later for remote UI | MIT | medium | medium |
 | OpenCode [OPENCODE](https://github.com/anomalyco/opencode) | build versus plan roles | clear mutation boundary | role profiles with different tool access | adapt | MIT | low | low |
-| OpenCode [OPENCODE](https://github.com/anomalyco/opencode) | second provider abstraction | none over current Pi for pi-void | independent LLM provider layer | reject | MIT | high | high |
-| OhMyPi [OMP](https://github.com/can1357/oh-my-pi) | Hashline-style stable edit targeting | fewer ambiguous line edits | content-derived line anchors included in read/edit flow | prototype and benchmark | MIT; retain OMP/Pi notices if code reused | medium | medium |
+| OpenCode [OPENCODE](https://github.com/anomalyco/opencode) | second provider abstraction | none over current Ice for ice | independent LLM provider layer | reject | MIT | high | high |
+| OhMyPi [OMP](https://github.com/can1357/oh-my-pi) | Hashline-style stable edit targeting | fewer ambiguous line edits | content-derived line anchors included in read/edit flow | prototype and benchmark | MIT; retain OMP/Ice notices if code reused | medium | medium |
 | OhMyPi [OMP](https://github.com/can1357/oh-my-pi) | LSP/DAP and large built-in tool surface | semantic navigation and debugging | language/debug protocol integration plus many tools | defer to profiles | MIT | high | high |
 | OhMyPi [OMP](https://github.com/can1357/oh-my-pi) | worktree-isolated subagents | parallel attempts without direct file races | child sessions in separate Git worktrees with typed results | adapt in Phase 5 | MIT | high | medium-high |
-| OhMyPi [OMP](https://github.com/can1357/oh-my-pi) | whole-fork feature expansion | rapid integrated capability | large divergence from upstream Pi | reject | MIT but provenance/merge burden | very high | very high |
+| OhMyPi [OMP](https://github.com/can1357/oh-my-pi) | whole-fork feature expansion | rapid integrated capability | large divergence from upstream Ice | reject | MIT but provenance/merge burden | very high | very high |
 | Grok Build [GROK-BUILD](https://github.com/xai-org/grok-build) [GROK-GOAL](https://github.com/xai-org/grok-build/blob/3af4d5d39897855bdcc74f23e690024a5dc05573/crates/codegen/xai-grok-shell/src/session/goal_orchestrator.rs) | explicit long-running goal state | inspectable pause/backoff/no-progress/budget outcomes | goal orchestrator state machine and accounting | behaviorally adapt in autonomous mode | Apache-2.0 | medium | medium |
 | Grok Build [GROK-BUILD](https://github.com/xai-org/grok-build) [GROK-GOAL](https://github.com/xai-org/grok-build/blob/3af4d5d39897855bdcc74f23e690024a5dc05573/crates/codegen/xai-grok-shell/src/session/goal_orchestrator.rs) | planner/worker/verifier accounting | bounded autonomy and resource visibility | separate token/time/worker/verification budgets | adapt later | Apache-2.0 | medium-high | medium |
 | mini-SWE-agent [MINISWE](https://github.com/SWE-agent/mini-swe-agent) [MINISWE-LOOP](https://github.com/SWE-agent/mini-swe-agent/blob/38c01a19ed1a58dd17dd7c95010e4f69d059c777/src/minisweagent/agents/default.py) | minimal linear loop with explicit limits | inspectability, portability and predictable failure | query, execute actions, append observations, save trajectory | adopt as evaluation baseline and design constraint | MIT | none | low |
@@ -204,50 +204,50 @@ The strongest evidence is structural rather than a single leaderboard: Pi alread
 
 ### 6.1 OpenHands capability-by-capability decision
 
-| Capability | Decision | Evidence | Value | Complexity | Effect on Pi loop | Notes |
+| Capability | Decision | Evidence | Value | Complexity | Effect on Ice loop | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| Docker or stronger sandbox isolation | adapt | [OH-DOCKER](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-workspace/openhands/workspace/docker/workspace.py); [PI-CONTAINER](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/containerization.md); [PI-SECURITY](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/security.md) | contains filesystem/process/network damage and makes unattended execution defensible | medium | none when the whole stock Pi process runs inside the runtime | Default trusted mode stays host-local; isolated mode is opt-in initially and required for untrusted/headless tasks. |
-| Event-stream architecture | adopt semantics | [PI-EXT](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts); [OH-CONVERSATION](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py) | ordered traces, observability, replay and deterministic state transitions | low-to-medium | none; subscribe to existing Pi events | Define a stable pi-void event schema rather than copying the OpenHands event classes. |
+| Docker or stronger sandbox isolation | adapt | [OH-DOCKER](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-workspace/openhands/workspace/docker/workspace.py); [ICE-CONTAINER](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/containerization.md); [ICE-SECURITY](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/security.md) | contains filesystem/process/network damage and makes unattended execution defensible | medium | none when the whole stock Ice process runs inside the runtime | Default trusted mode stays host-local; isolated mode is opt-in initially and required for untrusted/headless tasks. |
+| Event-stream architecture | adopt semantics | [ICE-EXT](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts); [OH-CONVERSATION](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py) | ordered traces, observability, replay and deterministic state transitions | low-to-medium | none; subscribe to existing Ice events | Define a stable ice event schema rather than copying the OpenHands event classes. |
 | Workspace abstraction | adapt | [OH-DOCKER](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-workspace/openhands/workspace/docker/workspace.py) | host, Docker, OpenShell and future remote runtimes behind one narrow contract | medium | none in whole-process mode | Avoid exposing a large remote-filesystem API until required. |
-| Agent-controller separation | adapt | [OH-CONVERSATION](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py); [PI-HARNESS](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/agent-harness.md) | Pi remains reasoning/execution driver while a host supervisor owns lifecycle, sandbox and artifacts | medium | none | The controller must not replan or edit concurrently with Pi. |
-| Task-state persistence | adapt | [PI-SESSION](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts); [PI-DURABLE](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/durable-harness.md); [OH-CONVERSATION](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py) | crash recovery and long-running work | medium | none | Pi JSONL remains conversation truth; operational run state is append-only files referenced by custom entries. |
-| Context condensation | adapt narrowly | [PI-COMPACTION](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/compaction.md); [OH-CONDENSER](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/context/condenser/README.md) | retain recent interactions while preserving structured facts and artifact references | medium | uses existing compaction hooks | Do not replace Pi compaction with a second memory engine. |
+| Agent-controller separation | adapt | [OH-CONVERSATION](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py); [ICE-HARNESS](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/agent-harness.md) | Ice remains reasoning/execution driver while a host supervisor owns lifecycle, sandbox and artifacts | medium | none | The controller must not replan or edit concurrently with Ice. |
+| Task-state persistence | adapt | [ICE-SESSION](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts); [ICE-DURABLE](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/durable-harness.md); [OH-CONVERSATION](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py) | crash recovery and long-running work | medium | none | Ice JSONL remains conversation truth; operational run state is append-only files referenced by custom entries. |
+| Context condensation | adapt narrowly | [ICE-COMPACTION](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/compaction.md); [OH-CONDENSER](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/context/condenser/README.md) | retain recent interactions while preserving structured facts and artifact references | medium | uses existing compaction hooks | Do not replace Ice compaction with a second memory engine. |
 | Stuck detection | adapt | [OH-STUCK](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/stuck_detector.py) | prevents repetitive tool/error loops and unbounded spend | low | observation-only until a bounded recovery message or stop | Every detector firing must include the exact matched pattern in trace. |
-| Retry and recovery policies | adapt | [PI-DURABLE](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/durable-harness.md); [OH-CONVERSATION](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py) | separates transient provider errors from tool failures and no-progress states | medium | external retry coordinator plus one controlled repair turn | Never blindly replay a non-idempotent tool call. |
+| Retry and recovery policies | adapt | [ICE-DURABLE](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/durable-harness.md); [OH-CONVERSATION](https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py) | separates transient provider errors from tool failures and no-progress states | medium | external retry coordinator plus one controlled repair turn | Never blindly replay a non-idempotent tool call. |
 | Browser integration | defer | OpenHands platform behavior; no coding-specific causal evidence | frontend/web research tasks | high | adds schemas, security surface and multimodal state | Add only as a profile with isolated browser and domain allowlists. |
-| Delegation and subagents | defer to Phase 5 | [OMP](https://github.com/can1357/oh-my-pi); [GROK-GOAL](https://github.com/xai-org/grok-build/blob/3af4d5d39897855bdcc74f23e690024a5dc05573/crates/codegen/xai-grok-shell/src/session/goal_orchestrator.rs); [GPT56-LAUNCH](https://openai.com/index/gpt-5-6/) | parallelizable work and specialist isolation | high | external child Pi sessions; parent remains authoritative | Separate worktree/container per worker; no shared write workspace. |
+| Delegation and subagents | defer to Phase 5 | [OMP](https://github.com/can1357/oh-my-pi); [GROK-GOAL](https://github.com/xai-org/grok-build/blob/3af4d5d39897855bdcc74f23e690024a5dc05573/crates/codegen/xai-grok-shell/src/session/goal_orchestrator.rs); [GPT56-LAUNCH](https://openai.com/index/gpt-5-6/) | parallelizable work and specialist isolation | high | external child Ice sessions; parent remains authoritative | Separate worktree/container per worker; no shared write workspace. |
 | Evaluation, traces and replay | adopt | [OH-INDEX](https://github.com/OpenHands/openhands-index-results); [MINISWE-LOOP](https://github.com/SWE-agent/mini-swe-agent/blob/38c01a19ed1a58dd17dd7c95010e4f69d059c777/src/minisweagent/agents/default.py); [AHE](https://arxiv.org/abs/2604.25850) | source-audited regressions, cost accounting and debuggability | medium | event subscribers only | Deterministic replay is exact only for captured model responses and pure/idempotent tools. |
-| Headless issue-to-PR workflow | adapt in Phase 6 | OpenHands platform; [CODEX](https://github.com/openai/codex); [PI-HARNESS](https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/agent-harness.md) | CI and autonomous maintenance | high | use Pi RPC/JSON/headless modes | No automatic merge. PR output must include tests, trace, risk and unresolved items. |
+| Headless issue-to-PR workflow | adapt in Phase 6 | OpenHands platform; [CODEX](https://github.com/openai/codex); [ICE-HARNESS](https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/agent-harness.md) | CI and autonomous maintenance | high | use Ice RPC/JSON/headless modes | No automatic merge. PR output must include tests, trace, risk and unresolved items. |
 
 ## 7. Three competing architectures
 
 ### 7.1 Option 1 - Minimal Extension
 
 ```text
-User -> stock Pi process
+User -> stock Ice process
            |
-           +-- pi-void extension
+           +-- ice extension
                +-- policy hook
                +-- trace/cost ledger
                +-- Git snapshot
                +-- final verifier
 
-Optional launcher -> whole Pi process inside Docker
+Optional launcher -> whole Ice process inside Docker
 ```
 
 | Dimension | Minimal Extension |
 | --- | --- |
-| Execution flow | Pi receives request, runs its normal loop, extension gates tools and verifies on settled event |
-| Trust boundary | Host Pi is privileged unless optional whole-process container is selected |
-| State model | Pi session plus run artifact directory |
+| Execution flow | Ice receives request, runs its normal loop, extension gates tools and verifies on settled event |
+| Trust boundary | Host Ice is privileged unless optional whole-process container is selected |
+| State model | Ice session plus run artifact directory |
 | Extension points | tool_call, tool_result, provider hooks, context, agent_settled, appendEntry |
-| New dependencies | prefer Node standard library and existing Pi dependencies; Docker CLI optional |
-| Pi files changed | none |
+| New dependencies | prefer Node standard library and existing Ice dependencies; Docker CLI optional |
+| Ice files changed | none |
 | Files outside upstream | protocol, extension, repo utilities, eval runner |
 | Conflict risk | very low |
 | Effort | small-to-medium |
 | Runtime overhead | low, plus verifier cost |
-| Model compatibility | highest; Pi native |
+| Model compatibility | highest; Ice native |
 | Security | moderate on host, high only when container mode is used correctly |
 | Expected benchmark strengths | interactive speed, local models, simple coding tasks |
 | Expected weaknesses | less durable autonomy and weaker remote/multi-worker lifecycle |
@@ -258,7 +258,7 @@ Optional launcher -> whole Pi process inside Docker
 ```text
                          trusted host
 +-----------------------------------------------------------+
-| pi-void CLI / supervisor                                  |
+| ice CLI / supervisor                                  |
 |  - run state and locks                                    |
 |  - runtime selection                                      |
 |  - secret/network policy                                  |
@@ -268,14 +268,14 @@ Optional launcher -> whole Pi process inside Docker
              +---------v------------------+
              | host or isolated runtime   |
              |  +----------------------+  |
-             |  | unmodified Pi        |  |
+             |  | unmodified Ice        |  |
              |  | - provider/model     |  |
              |  | - prompt/tools/loop  |  |
              |  | - session/compaction |  |
              |  +----------+-----------+  |
-             |             | Pi events     |
+             |             | Ice events     |
              |  +----------v-----------+  |
-             |  | pi-void extension    |  |
+             |  | ice extension    |  |
              |  | policy/trace/context |  |
              |  | recovery/verification|  |
              |  +----------------------+  |
@@ -286,17 +286,17 @@ Optional launcher -> whole Pi process inside Docker
 
 | Dimension | Balanced Hybrid |
 | --- | --- |
-| Execution flow | Supervisor prepares run/worktree/runtime; Pi remains sole agent driver; extension emits policy/trace/recovery/verification events; supervisor collects artifacts |
+| Execution flow | Supervisor prepares run/worktree/runtime; Ice remains sole agent driver; extension emits policy/trace/recovery/verification events; supervisor collects artifacts |
 | Trust boundary | Host supervisor trusted; model/repo/tools run in optional container; untrusted/headless mode requires isolation |
-| State model | Pi JSONL conversation plus external append-only operational run journal and Git/artifact hashes |
+| State model | Ice JSONL conversation plus external append-only operational run journal and Git/artifact hashes |
 | Extension points | all Minimal Extension seams plus runtime lifecycle, recovery, context and optional child-process API |
-| New dependencies | none mandatory beyond current Node/Pi; Docker/OpenShell adapters optional; JSON Schema validator may use existing dependency if available |
-| Pi files changed | none under current audited API |
-| Files outside upstream | all pi-void packages and schemas; temporary patches directory normally empty |
+| New dependencies | none mandatory beyond current Node/Ice; Docker/OpenShell adapters optional; JSON Schema validator may use existing dependency if available |
+| Ice files changed | none under current audited API |
+| Files outside upstream | all ice packages and schemas; temporary patches directory normally empty |
 | Conflict risk | low |
 | Effort | medium-to-large |
 | Runtime overhead | near-stock in trusted mode; container startup, trace I/O and verification in autonomous mode |
-| Model compatibility | high; uses Pi provider layer; weak-model profiles are declarative |
+| Model compatibility | high; uses Ice provider layer; weak-model profiles are declarative |
 | Security | high when isolation, network and secret controls are enabled; moderate in host mode |
 | Expected benchmark strengths | repo bug fixing, testing, terminal/DevOps, long tasks, local-model flexibility and debuggability |
 | Expected weaknesses | not as turnkey as a full cloud scheduler; frontend browser/visual tooling remains optional |
@@ -315,10 +315,10 @@ API/UI -> scheduler -> planner -> worker pool -> sandbox fleet
 | --- | --- |
 | Execution flow | Durable scheduler decomposes jobs, allocates multiple workers, merges candidates, verifies and prepares PRs |
 | Trust boundary | Strong sandbox fleet, but much larger control-plane and plugin attack surface |
-| State model | Job database, event bus, worker leases, artifact store and Pi sessions |
-| Extension points | Pi plus scheduler/browser/MCP/remote runtime APIs |
+| State model | Job database, event bus, worker leases, artifact store and Ice sessions |
+| Extension points | Ice plus scheduler/browser/MCP/remote runtime APIs |
 | New dependencies | scheduler/store/queue/browser/MCP/remote runtime components |
-| Pi files changed | possibly none, but integration pressure creates future fork risk |
+| Ice files changed | possibly none, but integration pressure creates future fork risk |
 | Files outside upstream | large service tree |
 | Conflict risk | medium-to-high architectural drift |
 | Effort | very large |
@@ -345,11 +345,11 @@ API/UI -> scheduler -> planner -> worker pool -> sandbox fleet
 
 ```text
 1. User/CI submits task and selects profile.
-2. Supervisor resolves exact Pi/pi-void/model/provider/runtime versions.
+2. Supervisor resolves exact Ice/ice/model/provider/runtime versions.
 3. Supervisor creates run ID, worktree, baseline Git/test snapshot and policy.
-4. For isolated mode, supervisor launches whole unmodified Pi inside runtime.
-5. Pi assembles its normal prompt/tools and starts the agent loop.
-6. pi-void extension records events and evaluates every tool intent deterministically.
+4. For isolated mode, supervisor launches whole unmodified Ice inside runtime.
+5. Ice assembles its normal prompt/tools and starts the agent loop.
+6. ice extension records events and evaluates every tool intent deterministically.
 7. Allowed tools execute; denied/approval-required actions return typed evidence.
 8. Context extension keeps operational state outside prompt and injects only selected facts.
 9. Recovery classifies transient provider, malformed tool, repeated error, no-progress or budget failure.
@@ -364,7 +364,7 @@ API/UI -> scheduler -> planner -> worker pool -> sandbox fleet
 | Principal/zone | Trust | Allowed responsibility | Must not control |
 | --- | --- | --- | --- |
 | Host supervisor | trusted code | runtime lifecycle, locks, policy config, artifact collection, secret brokering | model planning or concurrent repository edits |
-| Pi process | trusted harness, untrusted model decisions | prompt, provider, tools, loop, session and compaction | host resources outside policy/runtime |
+| Ice process | trusted harness, untrusted model decisions | prompt, provider, tools, loop, session and compaction | host resources outside policy/runtime |
 | LLM | untrusted decision source | propose tool calls, edits and explanations | policy, credentials, final success assignment |
 | Repository/task content | untrusted data | evidence and project instructions with provenance | system policy or extension loading without trust |
 | Sandbox/worktree | partially trusted disposable environment | execute tools/tests and hold task state | broad host mounts, Docker socket or undeclared secrets |
@@ -388,12 +388,12 @@ tool intent
 
 ### 8.4 Context lifecycle
 
-1. Trusted system policy and tool definitions come from pinned Pi/pi-void code, never repository text.
+1. Trusted system policy and tool definitions come from pinned Ice/ice code, never repository text.
 2. User and project instructions are loaded with source path/hash and trust label.
 3. Repository evidence is selected on demand; maps/indexes are caches, not authority.
 4. Tool outputs are capped and large outputs become artifacts with summaries and hashes.
-5. Pi native compaction remains authoritative. pi-void's compaction hook supplies a structured state block and validates retained constraints.
-6. Full traces, costs, policy decisions and verifier logs remain external and are referenced by a Pi `CustomEntry`, so they do not inflate normal context.
+5. Ice native compaction remains authoritative. ice's compaction hook supplies a structured state block and validates retained constraints.
+6. Full traces, costs, policy decisions and verifier logs remain external and are referenced by a Ice `CustomEntry`, so they do not inflate normal context.
 
 ### 8.5 Recovery loop
 
@@ -403,7 +403,7 @@ tool intent
 | Malformed tool arguments | return precise schema error; one model correction | one per call | do not guess destructive arguments |
 | Tool execution failure | surface exit/status and relevant capped output | agent decides; stuck detector observes | non-idempotent actions are never auto-replayed |
 | Repeated action/error or no progress | emit matched pattern; request one strategy change or stop | one recovery message | user can override interactively |
-| Context overflow | Pi compaction plus structured state validation | native/one retry | aborted non-idempotent tool is not rerun |
+| Context overflow | Ice compaction plus structured state validation | native/one retry | aborted non-idempotent tool is not rerun |
 | Verifier failure | one evidence-bearing repair turn | 0 or 1 | same worktree; final verifier remains authoritative |
 | Crash/interruption | resume from last durable session/run boundary | one job lease | external side effects use idempotency journal |
 
@@ -417,7 +417,7 @@ baseline tests/snapshot -> agent changes -> changed-file risk scan
         -> pass | fail | human-review-required
 ```
 
-**[PROPOSED]** Verifier profiles are repository-local configuration interpreted by trusted pi-void code. Discovery may suggest commands, but running a newly discovered package script is itself policy-controlled because repository scripts are untrusted executable content.
+**[PROPOSED]** Verifier profiles are repository-local configuration interpreted by trusted ice code. Discovery may suggest commands, but running a newly discovered package script is itself policy-controlled because repository scripts are untrusted executable content.
 
 ### 8.7 Subagent rules
 
@@ -430,16 +430,16 @@ baseline tests/snapshot -> agent changes -> changed-file risk scan
 
 ### 8.8 Provider and model routing
 
-**[PROPOSED]** Reuse Pi's provider registry. A pi-void `ModelProfile` may specify tool-call capability, parser, sequential/parallel mode, maximum tool-result size, context budget, reasoning preservation and local-serving details. Automatic cross-provider fallback is off by default because it breaks reproducibility and may change data-retention/security terms. Interactive fallback requires consent and creates a model-change event.
+**[PROPOSED]** Reuse Ice's provider registry. A ice `ModelProfile` may specify tool-call capability, parser, sequential/parallel mode, maximum tool-result size, context budget, reasoning preservation and local-serving details. Automatic cross-provider fallback is off by default because it breaks reproducibility and may change data-retention/security terms. Interactive fallback requires consent and creates a model-change event.
 
 ### 8.9 Persistence model
 
 ```text
-Pi session JSONL
+Ice session JSONL
   - messages, model changes, compaction, branch summaries
-  - pi-void custom entry -> run/artifact reference
+  - ice custom entry -> run/artifact reference
 
-.pi-void/runs/<run-id>/
+.ice/runs/<run-id>/
   run.json            exact versions/config/state
   events.jsonl        ordered normalized events
   policy.jsonl        intent and decision records
@@ -454,7 +454,7 @@ Pi session JSONL
 
 ### Phase 0: Measurement baseline
 
-**Smallest useful deliverable:** A no-behavior-change instrumentation extension and reproducible runner that measure stock Pi prompt/tool-schema tokens, context growth, turns, tool errors, model usage, wall time and final verifier status.
+**Smallest useful deliverable:** A no-behavior-change instrumentation extension and reproducible runner that measure stock Ice prompt/tool-schema tokens, context growth, turns, tool errors, model usage, wall time and final verifier status.
 
 **Modules/files:**
 - `packages/protocol/src/events.ts`
@@ -463,19 +463,19 @@ Pi session JSONL
 - `packages/eval/src/run-matrix.ts`
 - `schemas/run-record.schema.json`
 
-**Upstream Pi files changed:** none
+**Upstream Ice files changed:** none
 
 **Tests:**
 - event ordering and schema validation
 - usage/cost aggregation with missing telemetry
 - trace redaction for configured secret patterns
-- reproducibility manifest includes Pi commit, extension commit, model id, provider, sampling/effort, runtime image and task hash
+- reproducibility manifest includes Ice commit, extension commit, model id, provider, sampling/effort, runtime image and task hash
 
-**Benchmark:** 24-task pilot: four tasks from each of bug fixing, greenfield, testing, frontend, terminal/DevOps and long-running; three repeats per stock-Pi configuration.
+**Benchmark:** 24-task pilot: four tasks from each of bug fixing, greenfield, testing, frontend, terminal/DevOps and long-running; three repeats per stock-Ice configuration.
 
 **Exit criteria:**
 - Every run produces valid run.json, events.jsonl, final artifact hash and verifier result.
-- No statistically or practically meaningful task-success change versus Pi without instrumentation on the same configuration.
+- No statistically or practically meaningful task-success change versus Ice without instrumentation on the same configuration.
 - Unattributed token/cost fields are null, never zero-filled.
 - System-prompt and tool-schema token counts are recorded for each exact tokenizer/model route.
 
@@ -485,7 +485,7 @@ Pi session JSONL
 
 ### Phase 1: Safe extension seams
 
-**Smallest useful deliverable:** The @pi-void/safe-verify extension: deterministic tool policy, pre-run Git snapshot, structured traces, final verifier and at most one bounded repair turn.
+**Smallest useful deliverable:** The @ice/safe-verify extension: deterministic tool policy, pre-run Git snapshot, structured traces, final verifier and at most one bounded repair turn.
 
 **Modules/files:**
 - `packages/extension/src/index.ts`
@@ -495,7 +495,7 @@ Pi session JSONL
 - `packages/repo/src/git-snapshot.ts`
 - `packages/repo/src/verify-profile.ts`
 
-**Upstream Pi files changed:** none
+**Upstream Ice files changed:** none
 
 **Tests:**
 - allow/ask/deny decisions for bash, write and edit
@@ -504,22 +504,22 @@ Pi session JSONL
 - one-repair latch survives session reload through appendEntry
 - verifier output truncation preserves exit code and artifact path
 
-**Benchmark:** Stock Pi versus safe-verify on the Phase 0 set, five repeats for high-variance tasks. Primary endpoint: verified success; guardrails: unsafe-action attempts, tool-error rate and median overhead.
+**Benchmark:** Stock Ice versus safe-verify on the Phase 0 set, five repeats for high-variance tasks. Primary endpoint: verified success; guardrails: unsafe-action attempts, tool-error rate and median overhead.
 
 **Exit criteria:**
-- Zero upstream Pi source edits.
+- Zero upstream Ice source edits.
 - All critical-risk fixtures are blocked or explicitly approved before execution.
 - Every completed coding run has a deterministic verifier record or an explicit not-applicable reason.
 - Median orchestration overhead excluding verifier commands is below the proposed 5% guardrail.
 - No unbounded repair loop is possible.
 
-**Rollback:** Remove the extension from the Pi package/config profile; run artifacts remain readable.
+**Rollback:** Remove the extension from the Ice package/config profile; run artifacts remain readable.
 
 **Upstream-sync risk:** very low
 
 ### Phase 2: Sandbox and permissions
 
-**Smallest useful deliverable:** A host launcher and Runtime contract with host and Docker adapters; isolated mode runs the entire unmodified Pi process in the sandbox with a task worktree, default-deny network and explicit secret forwarding.
+**Smallest useful deliverable:** A host launcher and Runtime contract with host and Docker adapters; isolated mode runs the entire unmodified Ice process in the sandbox with a task worktree, default-deny network and explicit secret forwarding.
 
 **Modules/files:**
 - `packages/runtime/src/runtime.ts`
@@ -528,7 +528,7 @@ Pi session JSONL
 - `packages/cli/src/run.ts`
 - `packages/protocol/src/policy.ts`
 
-**Upstream Pi files changed:** none
+**Upstream Ice files changed:** none
 
 **Tests:**
 - filesystem write outside mounted workspace fails
@@ -537,15 +537,15 @@ Pi session JSONL
 - container termination, timeout and cleanup
 - host crash leaves resumable run metadata and no orphaned write lock
 
-**Benchmark:** Host versus Docker runtime on identical stock Pi and pi-void tasks. Report success, startup cost, wall time, filesystem behavior and unsafe-action containment separately.
+**Benchmark:** Host versus Docker runtime on identical stock Ice and ice tasks. Report success, startup cost, wall time, filesystem behavior and unsafe-action containment separately.
 
 **Exit criteria:**
 - Untrusted/headless profiles cannot execute on the host by configuration error.
 - Secrets are not present in the sandbox unless explicitly requested for the run.
 - Worktree and container IDs are recorded in run metadata.
-- The same Pi package/commit and tool schemas run in host and isolated modes.
+- The same Ice package/commit and tool schemas run in host and isolated modes.
 
-**Rollback:** Select runtime=host or uninstall the runtime package; no Pi state conversion.
+**Rollback:** Select runtime=host or uninstall the runtime package; no Ice state conversion.
 
 **Upstream-sync risk:** very low
 
@@ -560,7 +560,7 @@ Pi session JSONL
 - `packages/protocol/src/run-state.ts`
 - `packages/repo/src/artifact-index.ts`
 
-**Upstream Pi files changed:** none
+**Upstream Ice files changed:** none
 
 **Tests:**
 - compaction preserves task constraints, changed-file list, failing tests and pending decisions
@@ -576,7 +576,7 @@ Pi session JSONL
 - No hidden prompt mutation: injected context entries and compaction summaries are traceable.
 - Recovery improves verified success or reduces wasted turns without increasing regression rate beyond the predeclared guardrail.
 
-**Rollback:** Disable context/recovery features independently; Pi native compaction/session remains valid.
+**Rollback:** Disable context/recovery features independently; Ice native compaction/session remains valid.
 
 **Upstream-sync risk:** low
 
@@ -591,7 +591,7 @@ Pi session JSONL
 - `packages/repo/src/verifiers/*.ts`
 - `packages/extension/src/verification.ts`
 
-**Upstream Pi files changed:** none
+**Upstream Ice files changed:** none
 
 **Tests:**
 - repository map invalidation on file change
@@ -613,7 +613,7 @@ Pi session JSONL
 
 ### Phase 5: Optional delegation and parallelism
 
-**Smallest useful deliverable:** A parent Pi session can spawn one or two bounded child Pi workers in separate worktrees/containers and receive typed result manifests; no automatic merge.
+**Smallest useful deliverable:** A parent Ice session can spawn one or two bounded child Ice workers in separate worktrees/containers and receive typed result manifests; no automatic merge.
 
 **Modules/files:**
 - `packages/extension/src/delegation.ts`
@@ -621,7 +621,7 @@ Pi session JSONL
 - `packages/repo/src/worktree.ts`
 - `packages/protocol/src/delegation.ts`
 
-**Upstream Pi files changed:** none
+**Upstream Ice files changed:** none
 
 **Tests:**
 - workers cannot write another worker's worktree
@@ -637,7 +637,7 @@ Pi session JSONL
 - Parallelism produces a statistically credible benefit on the predeclared decomposable subset after total cost.
 - No worker output is trusted without parent-side verification.
 
-**Rollback:** Disable delegation profile; child sessions remain ordinary Pi session artifacts.
+**Rollback:** Disable delegation profile; child sessions remain ordinary Ice session artifacts.
 
 **Upstream-sync risk:** low-to-medium
 
@@ -652,7 +652,7 @@ Pi session JSONL
 - `packages/integrations/src/git-provider.ts`
 - `packages/protocol/src/job.ts`
 
-**Upstream Pi files changed:** none
+**Upstream Ice files changed:** none
 
 **Tests:**
 - atomic job-state transitions and lock recovery
@@ -668,21 +668,21 @@ Pi session JSONL
 - No automatic merge; risky external actions require configured approval.
 - A resumed job cannot silently duplicate an external side effect.
 
-**Rollback:** Stop scheduler and retain job directories for audit; interactive Pi remains unaffected.
+**Rollback:** Stop scheduler and retain job directories for audit; interactive Ice remains unaffected.
 
 **Upstream-sync risk:** low-to-medium
 
 ## 10. Upstream-sync strategy
 
 ```text
-upstream/main             exact mirror of earendil-works/pi
-pi-void/main              separate packages, config and release history
+upstream/main             exact mirror of earendil-works/ice
+ice/main              separate packages, config and release history
 integration/upstream-head ephemeral compatibility branch created by CI
-patches/<pi-sha>/         normally empty; audited narrow patches only
+patches/<ice-sha>/         normally empty; audited narrow patches only
 ```
 
-1. Add remotes `upstream` and `origin`; never commit pi-void changes to the mirror branch.
-2. Keep custom code in a separate repository/package workspace. Depend on pinned Pi packages or install the exact Pi commit in CI.
+1. Add remotes `upstream` and `origin`; never commit ice changes to the mirror branch.
+2. Keep custom code in a separate repository/package workspace. Depend on pinned Ice packages or install the exact Ice commit in CI.
 3. Use small thematic commits; prohibit repository-wide rename, formatting-only changes and copied upstream files.
 4. Fetch upstream on a schedule and run compile, type, unit, integration and smoke-eval tests against both the supported pin and upstream HEAD.
 5. Generate a compatibility manifest listing required ExtensionAPI events, fields and session schema assumptions.
@@ -696,7 +696,7 @@ patches/<pi-sha>/         normally empty; audited narrow patches only
 
 ### 11.1 Controlled comparison design
 
-**[PROPOSED]** Compare **stock Pi**, **pi-void Balanced Hybrid** and **OpenHands** with identical model endpoints, task prompts, repositories, container images, network policy, resource limits, wall-clock/token/cost budgets and hidden verifiers. Record unavoidable native-tool differences as part of the harness treatment; never normalize them away silently.
+**[PROPOSED]** Compare **stock Ice**, **ice Balanced Hybrid** and **OpenHands** with identical model endpoints, task prompts, repositories, container images, network policy, resource limits, wall-clock/token/cost budgets and hidden verifiers. Record unavoidable native-tool differences as part of the harness treatment; never normalize them away silently.
 
 ### 11.2 Models
 
@@ -708,7 +708,7 @@ patches/<pi-sha>/         normally empty; audited narrow patches only
 | DeepSeek | deepseek-ai/DeepSeek-V4-Flash | not established | freeze official revision and dedicated encoding/parser implementation in Phase 0; record FP format and cluster topology | required self-hosted-cluster family; not a desktop-local model |
 | small local control | GLM-4-9B-0414 or a comparably current sub-15B independently licensed model | not established | candidate must be frozen before execution and pass a tool-schema conformance test | optional but recommended to test graceful degradation on constrained hardware |
 
-**[VERIFIED]** Qwen3.6-27B's official model card specifies 27B parameters, 262,144 native context, official tool-call parser recommendations and Apache-2.0. Those vendor benchmarks use different harnesses and cannot be transferred to pi-void. [QWEN36](https://huggingface.co/Qwen/Qwen3.6-27B)
+**[VERIFIED]** Qwen3.6-27B's official model card specifies 27B parameters, 262,144 native context, official tool-call parser recommendations and Apache-2.0. Those vendor benchmarks use different harnesses and cannot be transferred to ice. [QWEN36](https://huggingface.co/Qwen/Qwen3.6-27B)
 
 **[VERIFIED]** DeepSeek-V4-Flash is 284B total/13B active with one-million-token context and an MIT model card, but it is a self-hosted cluster model rather than ordinary desktop-local. Its dedicated encoding/parser must be frozen as part of the model treatment. [DEEPSEEK-V4](https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash)
 
@@ -779,7 +779,7 @@ Additional audit controls:
 | Credential leakage | API keys, SSH keys, cloud tokens | read environment/files or print secrets into traces/network requests | secret broker; explicit per-run forwarding; short-lived credentials; output redaction; deny home/SSH paths; separate inference proxy | a legitimately supplied task secret can still be mishandled | critical |
 | Network exfiltration | source code and confidential data | curl, package upload, DNS or browser request to attacker endpoint | default-deny egress; endpoint/domain allowlist; inference proxy; DNS logging; size/rate limits | allowed endpoints can be abused as covert channels | critical |
 | MCP, plugin and extension compromise | host process and credentials | third-party extension executes arbitrary host code or modifies prompts/tools | project trust; signed/pinned package hashes; separate plugin process where feasible; minimal allowlist; SBOM; review and CI | trusted extension has full capability in host mode | high |
-| Compromised upstream or dependency supply chain | pi-void build and release | malicious upstream commit, package takeover or CI artifact | pin commits/lockfiles; verify signatures/hashes; dependency review; provenance attestations; CI against but not auto-merge upstream HEAD | trusted maintainer compromise | high |
+| Compromised upstream or dependency supply chain | ice build and release | malicious upstream commit, package takeover or CI artifact | pin commits/lockfiles; verify signatures/hashes; dependency review; provenance attestations; CI against but not auto-merge upstream HEAD | trusted maintainer compromise | high |
 | Untrusted subagent | parent workspace and decision process | worker returns malicious patch, false claims or crafted result payload | separate worktree/container; typed result schema; no parent secrets; parent-side diff/test review; no auto-merge | valid-looking malicious changes can pass incomplete tests | high |
 | CI token exposure and external side effects | repositories, registries and cloud accounts | agent reads broad token or repeats PR/deploy/publish action after retry | OIDC/short-lived scoped token; idempotency key; approval checkpoint; dry-run; external action journal; protected environments | provider/API idempotency gaps | critical |
 
@@ -797,35 +797,35 @@ Additional audit controls:
 
 | Priority | Capability | Evidence | Expected gain | Complexity | Conflict risk | Security risk | Decision |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| P0 | Versioned run/trace schema | PI-EXT, PI-SESSION, MINISWE-LOOP | measurement and debuggability prerequisite | low | very low | medium if traces leak secrets | build first |
-| P0 | Deterministic allow/ask/deny policy | PI-EXT, OH-POLICY, CLAUDE-PERMISSIONS | safer interactive and headless operation | low-medium | very low | critical if incorrect | build first |
+| P0 | Versioned run/trace schema | ICE-EXT, ICE-SESSION, MINISWE-LOOP | measurement and debuggability prerequisite | low | very low | medium if traces leak secrets | build first |
+| P0 | Deterministic allow/ask/deny policy | ICE-EXT, OH-POLICY, CLAUDE-PERMISSIONS | safer interactive and headless operation | low-medium | very low | critical if incorrect | build first |
 | P0 | Git snapshot and deterministic verifier | AGENTLESS, GITTASK, AA-METHOD | higher verified reliability and clearer regressions | medium | very low | medium from test execution | build first |
-| P0 | Whole-Pi Docker runtime | PI-CONTAINER, PI-SECURITY, OH-DOCKER | strong reduction in host blast radius | medium | very low | critical configuration surface | build after safe-verify |
-| P1 | Bounded recovery classifier | PI-DURABLE, OH-CONVERSATION | less wasted work on transient and recoverable failures | medium | low | medium | build |
+| P0 | Whole-Ice Docker runtime | ICE-CONTAINER, ICE-SECURITY, OH-DOCKER | strong reduction in host blast radius | medium | very low | critical configuration surface | build after safe-verify |
+| P1 | Bounded recovery classifier | ICE-DURABLE, OH-CONVERSATION | less wasted work on transient and recoverable failures | medium | low | medium | build |
 | P1 | Transparent stuck detector | OH-STUCK | lower loop/token waste | low | low | low | build |
-| P1 | Structured compaction state | PI-COMPACTION, OH-CONDENSER | long-session reliability | medium | low | medium if untrusted text is elevated | build narrowly |
+| P1 | Structured compaction state | ICE-COMPACTION, OH-CONDENSER | long-session reliability | medium | low | medium if untrusted text is elevated | build narrowly |
 | P1 | Repository localization/map | AGENTLESS, SWEAGENT | fewer exploratory turns on large repos | medium | low | low | prototype and ablate |
 | P1 | Weak-model compatibility profiles | MINISWE-LOOP, LOCAL-WIP, QWEN36 | graceful local-model operation | medium | low | medium | build |
 | P2 | Hashline edit anchors | OMP | potentially fewer stale/ambiguous edits | medium | low | low | prototype only after baseline |
 | P2 | Plan/read-only mode | CLAUDE-PERMISSIONS, OPENCODE | human review before mutation | low | very low | low | build as profile |
 | P2 | Worktree subagents | OMP, GROK-GOAL | parallelism on decomposable tasks | high | low-medium | high | defer to Phase 5 |
-| P2 | Headless job journal | PI-HARNESS, CODEX, OH-CONVERSATION | CI and long-running resume | high | low | high | defer to Phase 6 |
+| P2 | Headless job journal | ICE-HARNESS, CODEX, OH-CONVERSATION | CI and long-running resume | high | low | high | defer to Phase 6 |
 | P3 | Browser/visual worker | OpenHands platform and frontend benchmarks | frontend/web task coverage | high | low | high | defer; profile only |
-| P3 | Mandatory MCP layer | Pi intentionally leaves MCP to extensions | broad integrations | high | medium | high | reject as core requirement |
+| P3 | Mandatory MCP layer | Ice intentionally leaves MCP to extensions | broad integrations | high | medium | high | reject as core requirement |
 | P3 | Self-modifying harness | AHE, SELF-HARNESS, COMPOUND, RETHINK-EVAL | uncertain benchmark adaptation | very high | high | high | reject until mature regression control |
-| P3 | Always-on vector memory/database | no direct need; Pi has session tree and compaction | uncertain | high | medium | high for data retention | reject |
+| P3 | Always-on vector memory/database | no direct need; Ice has session tree and compaction | uncertain | high | medium | high for data retention | reject |
 
-## 14. First implementation slice: @pi-void/safe-verify
+## 14. First implementation slice: @ice/safe-verify
 
-**[PROPOSED]** This is the smallest slice that can create measurable reliability and safety value while preserving a zero-diff upstream Pi core.
+**[PROPOSED]** This is the smallest slice that can create measurable reliability and safety value while preserving a zero-diff upstream Ice core.
 
 ### Scope
-- external Pi extension only; zero modifications to earendil-works/pi
+- external Ice extension only; zero modifications to earendil-works/ice
 - deterministic tool risk policy at tool_call
 - pre-turn Git/workspace snapshot metadata
 - ordered event, usage, cost and tool-error trace
 - configured deterministic verifier when agent_settled fires
-- one optional bounded repair turn, persisted through a Pi custom entry
+- one optional bounded repair turn, persisted through a Ice custom entry
 
 ### Interfaces
 
@@ -868,8 +868,8 @@ interface RunRecord {
   schemaVersion: string;
   runId: string;
   sessionId: string | null;
-  piCommit: string;
-  piVoidCommit: string;
+  iceCommit: string;
+  iceVoidCommit: string;
   model: string;
   provider: string;
   startedAt: string;
@@ -888,11 +888,11 @@ interface RunRecord {
 - `session_start`: reconstruct the repair latch and current run reference from custom entries.
 
 ### Acceptance criteria
-- No upstream Pi files changed.
+- No upstream Ice files changed.
 - Critical-risk fixtures cannot execute without explicit approval and are denied in headless deny-unknown mode.
 - A settled coding run writes a verifier record with command, exit code, duration, capped output and artifact hashes.
 - Repair budget cannot exceed one even after reload/resume.
-- Disabling the extension restores stock Pi behavior and requires no session migration.
+- Disabling the extension restores stock Ice behavior and requires no session migration.
 - On the pilot suite, report verified success, regression, token/cost/runtime and unsafe attempts with paired uncertainty; improvement is not claimed from point estimates alone.
 
 ### Test cases
@@ -909,7 +909,7 @@ interface RunRecord {
 
 ### Benchmark protocol
 
-Run the Phase 0 24-task pilot on stock Pi and safe-verify with the same model, provider, prompt, runtime, limits and three repeats; expand high-variance cells to five repeats. Predeclare primary endpoint verified success and guardrails regression rate, unsafe-action containment, wall time, token/cost and human intervention.
+Run the Phase 0 24-task pilot on stock Ice and safe-verify with the same model, provider, prompt, runtime, limits and three repeats; expand high-variance cells to five repeats. Predeclare primary endpoint verified success and guardrails regression rate, unsafe-action containment, wall time, token/cost and human intervention.
 
 ### Deliberately excluded
 - new planner
@@ -924,13 +924,13 @@ Run the Phase 0 24-task pilot on stock Pi and safe-verify with the same model, p
 
 ## 15. Final build/no-build verdict
 
-### What should remain pure Pi?
+### What should remain pure Ice?
 
-**[PROPOSED]** Keep the provider/model registry, four default coding tools, central agent loop, prompt construction, session tree, compaction, resource/skill loading, TUI, RPC/JSON/headless modes and ExtensionAPI as upstream Pi. Do not shadow these with pi-void equivalents.
+**[PROPOSED]** Keep the provider/model registry, four default coding tools, central agent loop, prompt construction, session tree, compaction, resource/skill loading, TUI, RPC/JSON/headless modes and ExtensionAPI as upstream Ice. Do not shadow these with ice equivalents.
 
 ### What should come from OpenHands?
 
-**[PROPOSED]** Adapt the controller/workspace boundary, runtime abstraction, explicit confirmation policy, transparent stuck detection, typed recovery causes, append-only event/view distinction, budget accounting and evaluation/replay discipline. Use OpenHands Agent Server only as an optional adapter if it proves simpler or safer than the native pi-void runtime contract.
+**[PROPOSED]** Adapt the controller/workspace boundary, runtime abstraction, explicit confirmation policy, transparent stuck detection, typed recovery causes, append-only event/view distinction, budget accounting and evaluation/replay discipline. Use OpenHands Agent Server only as an optional adapter if it proves simpler or safer than the native ice runtime contract.
 
 ### What should be behaviorally adapted from the reference products?
 
@@ -946,13 +946,13 @@ A new core loop, a second provider layer, an always-on planner, mandatory OpenHa
 
 ### What should be built first?
 
-`@pi-void/safe-verify`: instrumentation, deterministic policy, Git snapshot, source-auditable trace, deterministic verifier and one bounded repair turn. It can be built entirely through current Pi extension seams and supplies the data needed to justify every later feature.
+`@ice/safe-verify`: instrumentation, deterministic policy, Git snapshot, source-auditable trace, deterministic verifier and one bounded repair turn. It can be built entirely through current Ice extension seams and supplies the data needed to justify every later feature.
 
 ### What evidence would change this recommendation?
 
-- A repeated, coding-specific same-model study showing that a full OpenHands-style controller materially outperforms Pi-plus-extensions after cost/runtime and version controls.
-- Upstream Pi adding native isolation, durable recovery and verification in a way that makes pi-void packages redundant.
-- pi-void Phase 0/1 results showing policy/verification overhead or context interference reduces verified success.
+- A repeated, coding-specific same-model study showing that a full OpenHands-style controller materially outperforms Ice-plus-extensions after cost/runtime and version controls.
+- Upstream Ice adding native isolation, durable recovery and verification in a way that makes ice packages redundant.
+- ice Phase 0/1 results showing policy/verification overhead or context interference reduces verified success.
 - A robust ablation showing default multi-agent or browser integration improves the user's real task distribution after total tokens, merge conflicts and review time.
 - Security testing showing whole-process container isolation is inadequate for the target threat model, requiring a stronger microVM/remote runtime as default.
 
@@ -961,9 +961,9 @@ A new core loop, a second provider layer, an always-on planner, mandatory OpenHa
 | Question | Status | Required resolution |
 | --- | --- | --- |
 | Does Claude Fable 5 behave as one exact model across all harnesses when safety fallback can route some requests to Opus 4.8? | UNRESOLVED | Capture response metadata and refusals/fallbacks; if exact routing cannot be audited, use Opus 4.8 for the controlled cell and report Fable only as a native-system ceiling. |
-| What is the actual prompt and tool-schema token overhead of current Pi for each target model/tokenizer? | UNRESOLVED | Phase 0 instrumentation; no model-independent number is defensible. |
-| Does Hashline editing improve verified success over Pi's current edit tool on current frontier and local models? | UNRESOLVED | Ablation on stale-line, multi-edit and merge-conflict tasks before adoption. |
-| Can OpenHands and Pi be placed in exactly equivalent tool/runtime environments without changing their native harness behavior? | UNRESOLVED | Document unavoidable treatment differences and run both native and normalized-tool experiments where practical. |
+| What is the actual prompt and tool-schema token overhead of current Ice for each target model/tokenizer? | UNRESOLVED | Phase 0 instrumentation; no model-independent number is defensible. |
+| Does Hashline editing improve verified success over Ice's current edit tool on current frontier and local models? | UNRESOLVED | Ablation on stale-line, multi-edit and merge-conflict tasks before adoption. |
+| Can OpenHands and Ice be placed in exactly equivalent tool/runtime environments without changing their native harness behavior? | UNRESOLVED | Document unavoidable treatment differences and run both native and normalized-tool experiments where practical. |
 | Which second sub-15B local model is current, independently licensed and sufficiently tool-call capable for the main matrix? | UNRESOLVED | Freeze candidate and exact serving stack in Phase 0 after conformance tests; do not silently substitute model families. |
 | Are HarnessBench 2.0 results and raw traces available in a versioned form comparable to the v1 paper? | UNRESOLVED | Treat the repository update as a new suite until a versioned paper/result artifact is published. |
 | What minimum network access is required for each language ecosystem without creating a broad exfiltration channel? | UNRESOLVED | Measure package cache hit rates; prefer prebuilt images and per-task allowlists/proxies. |
@@ -974,18 +974,18 @@ Source tier: 1 raw source/result/code; 2 official paper/methodology; 3 official 
 
 | ID | Tier | Provenance | Source | Direct URL | Version/commit | Access date |
 | --- | --- | --- | --- | --- | --- | --- |
-| BRIEF | 0 | user-supplied specification | pi-void research and architecture brief | not established | conversation upload: Pasted text(3).txt | 2026-07-22 |
-| PI-REPO | 3 | official repository | Pi canonical repository | https://github.com/earendil-works/pi | dd6bea41efa8caa7a10fe5a6401676dc5699f83f; @earendil-works/pi-coding-agent 0.81.1 | 2026-07-22 |
-| PI-LOOP | 1 | official source code | Pi agent loop | https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/src/agent-loop.ts | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
-| PI-HARNESS | 1 | official architecture documentation | Pi AgentHarness architecture | https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/agent-harness.md | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
-| PI-DURABLE | 1 | official architecture documentation | Pi durable harness design | https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/durable-harness.md | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
-| PI-EXT | 1 | official source code and documentation | Pi extension API and lifecycle events | https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
-| PI-SESSION | 1 | official source code | Pi append-only session tree and custom entries | https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts | dd6bea41efa8caa7a10fe5a6401676dc5699f83f; session schema v3 | 2026-07-22 |
-| PI-PROMPT | 1 | official source code | Pi system-prompt construction | https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/system-prompt.ts | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
-| PI-COMPACTION | 3 | official documentation | Pi context compaction | https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/compaction.md | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
-| PI-CONTAINER | 3 | official documentation | Pi containerization patterns | https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/containerization.md | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
-| PI-SECURITY | 3 | official documentation | Pi security model | https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/security.md | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
-| PI-LICENSE | 1 | official license file | Pi MIT license | https://github.com/earendil-works/pi/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/LICENSE | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
+| BRIEF | 0 | user-supplied specification | ice research and architecture brief | not established | conversation upload: Pasted text(3).txt | 2026-07-22 |
+| ICE-REPO | 3 | official repository | Ice canonical repository | https://github.com/earendil-works/ice | dd6bea41efa8caa7a10fe5a6401676dc5699f83f; @zykairotis/ice-coding-agent 0.81.1 | 2026-07-22 |
+| ICE-LOOP | 1 | official source code | Ice agent loop | https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/src/agent-loop.ts | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
+| ICE-HARNESS | 1 | official architecture documentation | Ice AgentHarness architecture | https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/agent-harness.md | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
+| ICE-DURABLE | 1 | official architecture documentation | Ice durable harness design | https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/agent/docs/durable-harness.md | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
+| ICE-EXT | 1 | official source code and documentation | Ice extension API and lifecycle events | https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/extensions/types.ts | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
+| ICE-SESSION | 1 | official source code | Ice append-only session tree and custom entries | https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/session-manager.ts | dd6bea41efa8caa7a10fe5a6401676dc5699f83f; session schema v3 | 2026-07-22 |
+| ICE-PROMPT | 1 | official source code | Ice system-prompt construction | https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/src/core/system-prompt.ts | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
+| ICE-COMPACTION | 3 | official documentation | Ice context compaction | https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/compaction.md | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
+| ICE-CONTAINER | 3 | official documentation | Ice containerization patterns | https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/containerization.md | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
+| ICE-SECURITY | 3 | official documentation | Ice security model | https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/packages/coding-agent/docs/security.md | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
+| ICE-LICENSE | 1 | official license file | Ice MIT license | https://github.com/earendil-works/ice/blob/dd6bea41efa8caa7a10fe5a6401676dc5699f83f/LICENSE | dd6bea41efa8caa7a10fe5a6401676dc5699f83f | 2026-07-22 |
 | OH-SDK | 3 | official repository | OpenHands Software Agent SDK | https://github.com/OpenHands/software-agent-sdk | 9dda2df6f5432c32861eb21e8d57df7e5525133d; SDK 1.36.1 | 2026-07-22 |
 | OH-CONVERSATION | 1 | official source code | OpenHands LocalConversation controller | https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/conversation/impl/local_conversation.py | 9dda2df6f5432c32861eb21e8d57df7e5525133d | 2026-07-22 |
 | OH-AGENT | 1 | official source code | OpenHands Agent implementation | https://github.com/OpenHands/software-agent-sdk/blob/9dda2df6f5432c32861eb21e8d57df7e5525133d/openhands-sdk/openhands/sdk/agent/agent.py | 9dda2df6f5432c32861eb21e8d57df7e5525133d | 2026-07-22 |
