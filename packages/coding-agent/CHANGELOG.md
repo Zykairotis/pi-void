@@ -212,5 +212,6 @@
 - Fixed extension model calls dropping credential-resolved endpoints when forwarding request authentication, including custom compaction with GitHub Copilot Business and Enterprise accounts ([#7579](https://github.com/earendil-works/pi/issues/7579)).
 - Fixed fullscreen transcript navigation leaving no editor-accessible `Home`, `End`, `PageUp`, or `PageDown` variants by adding Ctrl-modified editor bindings ([#7574](https://github.com/earendil-works/pi/issues/7574)).
 - Fixed the ICE clipboard integration to use the `0.3.10` fork release, whose Linux musl packages contain native addons and whose release CI builds and copies both musl targets.
+- Fixed source and binary builds after removing the legacy announcement asset; empty interactive asset directories are now handled without an unconditional PNG copy.
 
 > Release notes for versions published under the previous product identity are not reproduced here. They are preserved in the archived source repository and in prior Git history.
