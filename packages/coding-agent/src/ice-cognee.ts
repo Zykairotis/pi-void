@@ -799,21 +799,23 @@ export function createIceCogneeExtension(options: IceCogneeExtensionOptions = {}
 		} catch {
 			// Config validation reports invalid URLs before requests are made.
 		}
-		void appendCogneeObservation(storageDir, {
-			id: randomUUID(),
-			at: new Date().toISOString(),
-			agentId: runtime.sessionId,
-			sessionId: runtime.sessionId,
-			dataset: activeDataset(),
-			endpoint,
-			operation,
-			phase,
-			requestId: fields.requestId,
-			latencyMs: fields.latencyMs,
-			preview,
-			error: fields.error?.slice(0, 160),
-			meta: fields.meta,
-		});
+		trackBackground(
+			appendCogneeObservation(storageDir, {
+				id: randomUUID(),
+				at: new Date().toISOString(),
+				agentId: runtime.sessionId,
+				sessionId: runtime.sessionId,
+				dataset: activeDataset(),
+				endpoint,
+				operation,
+				phase,
+				requestId: fields.requestId,
+				latencyMs: fields.latencyMs,
+				preview,
+				error: fields.error?.slice(0, 160),
+				meta: fields.meta,
+			}),
+		);
 	};
 
 	const ensureSessionId = async (hostId: string): Promise<string> => {
