@@ -2,74 +2,82 @@
 
 Date: 2026-09-11
 Branch: `feat/ice`
-Environment: node v24.21.0, npm 12.0.2
-Verified tip: `d5d7438ed`
+Environment: Node v24.21.0, npm 12.0.2
+Verified tip: `57f798412a608b2ef2a60c52037fbe459c242d21`
+Base ref observed on `origin`: `void` at `b919dc81fb9764675fa2695feebc0bc62f02acb4`
 
 ## Scope
 
-Records what was actually executed and observed for the commit range
-`b919dc81f..d5d7438ed` (8 commits: three pre-existing checkpoints plus six
-authored commits). Intended for review of the ICE rename, not as a substitute
-for re-running the gates.
+Records the verification of the ICE rename, subagent controls, compatibility
+contract, dependency-fork integration, publishing fixes, and workflow repair
+through the current `feat/ice` tip. The branch contains 13 commits after the
+`void` base, including the three pre-existing checkpoints.
 
 ## Commits
 
 | Commit | Subject |
 |---|---|
-| `868c78f6c` | rename pi/piv product surface to ICE |
-| `b4b4d29a4` | subagent settings, routing, capability, and command-hook controls |
-| `0824c6b7e` | pin the no-legacy compatibility contract |
-| `19941cbac` | add piped stdin entrypoint |
-| `3e075e68c` | ICE subagent guide and compatibility plans |
+| `7cbd8a676` | checkpoint current work before subagents |
+| `a0e530b8c` | snapshot subagent Cognee work |
+| `c87052efb` | backup |
+| `868c78f6c` | ICE product-surface rename |
+| `b4b4d29a4` | subagent settings, routing, capabilities, and hooks |
+| `0824c6b7e` | no-legacy compatibility contract |
+| `19941cbac` | piped stdin entrypoint |
+| `3e075e68c` | ICE subagent documentation |
 | `d5d7438ed` | retarget dead identity references |
+| `5778b7bc9` | verification evidence record |
+| `4d4ecb2cc` | npm 12 publishing fixes, `ice-server`, package licenses, and release-branch fix |
+| `e9c7e8394` | dependency cleanup, lockfile refresh, clipboard `0.3.10` integration, and validation scope |
+| `57f798412` | npm 12 bootstrap before GitHub Actions package-manager caching |
 
-## Commands run and observed results
+## Commands and observed results
 
-| Command | Result |
+| Command or gate | Result |
 |---|---|
-| `npx biome check .` | exit 0, no diagnostics |
-| `npx tsgo --noEmit` | exit 0 (3,929 files) |
-| `npm run check:pinned-deps` | pass |
-| `npm run check:ts-imports` | pass |
-| `npm run check:shrinkwrap` | pass |
-| `npm run check:install-lock:coding-agent` | pass |
-| `npm run check:browser-smoke` | pass |
-| `./test.sh` | exit 0, 0 failures |
+| `npm run check` | exit 0; Biome checked 1,100 ICE files, generated-lock validators, TypeScript, and browser smoke passed |
+| `./test.sh` | exit 0; 2,505 tests passed, 48 skipped, 0 failures |
+| Clipboard-focused Vitest tests | 2 files passed, 3 tests passed |
+| `./node_modules/.bin/tsgo --noEmit` | exit 0 |
+| `git diff --check` | passed |
+| Generated lock validation | root lock, coding-agent shrinkwrap, and installer lock each contain 11 clipboard entries, all at `0.3.10` |
+| Clipboard registry audit | all 11 `0.3.10` tarballs are public, correctly named/licensed, and contain their expected payloads |
+| Published musl smoke tests | x86_64 and aarch64 musl native addons load in explicit Alpine containers with Node 24 |
+| Active old dependency scan | no active `@mariozechner/clipboard`, `@earendil-works/gondolin`, or Gondolin repository references outside preserved historical material |
+| GitHub run `34581105663` | `Publish Model Catalog / generate` passed; npm bootstrap, dependency installation, catalog generation, validation, and artifact upload passed |
 
-Per-package test counts from the final run: scripts 1 passed; agent-core 177
-passed / 1 skipped; ai 833 passed / 823 skipped; client 35; coding-agent 2505
-passed / 48 skipped; evals 23; protocol 144; server 47; storage/sqlite-node 63.
-These are identical to the pre-change baseline for the same tree.
+The previous GitHub run `34580749063` failed before dependency installation
+because `actions/setup-node` invoked runner npm 10.9.8 while reading
+`devEngines.packageManager`. Commit `57f798412` disables automatic
+package-manager caching in all seven `setup-node` steps until the explicit npm
+12.0.2 bootstrap completes. The replacement run passed that boundary.
 
 ## Required rebuild step
 
-`packages/*/dist` is gitignored and was stale relative to `src` when testing
-began. Tests that spawn the real CLI run from `dist`, so they failed with
-`ERR_MODULE_NOT_FOUND` until `npm run build` was run. The suite passes only
-after a rebuild; a stale `dist` produces 20 spurious failures. `npm run build`
-does not clean `dist`, so orphaned outputs from deleted sources can persist
-(for example `dist/core/legacy-compat/extension-aliases.js`, a fossil of a
-removed source file that nothing imports).
+`packages/*/dist` is gitignored and can be stale relative to `src`. Tests that
+spawn the real CLI must run after `npm run build`; otherwise stale or orphaned
+outputs can produce `ERR_MODULE_NOT_FOUND` failures. The verified test run was
+performed against a rebuilt tree.
 
-## Deliberate exclusions
+## Published dependency state
 
-- `agent_docs/` was not rewritten. Those are dated research artifacts and
-  their citations still reference `earendil-works/ice`, which does not exist.
-  Rewriting them would falsify evidence rather than fix code.
-- No push, merge, release, deploy, or credential change was performed; the
-  remote state is unchanged by this work.
+- All eight first-party `@zykairotis/ice-*` packages are public at `0.83.0`, including `@zykairotis/ice-server`.
+- The eleven-package clipboard fork family is public at `0.3.10`; both Linux musl packages contain native addons.
+- The three-package Gondolin fork family is public at `0.12.0`.
+- ICE lockfiles and `packages/coding-agent/package.json` resolve the clipboard wrapper and all platform entries at `0.3.10`.
+- ICE trusted publishing is configured for the eight first-party packages. The dependency forks were bootstrapped manually with local npm 2FA; no credentials or OTPs are stored in ICE.
 
-## Open items
+## Deliberate exclusions and external state
 
-- Intermediate commits are not independently resolvable. `868c78f6c` contains
-  `src/main.ts`, which imports `./cli/piped-stdin.ts` created in `19941cbac`,
-  and its renamed files reference `core/legacy-compat/*` created in
-  `0824c6b7e`. Only the tip is verified; bisecting this range will not build.
-- `.gitignore` now un-ignores `.ice/**` except `hf-sessions`. This was
-  required because the repo's pre-commit hook re-stages every staged path, and
-  `git add` refuses an ignored path. Consequence: new project-local state
-  written under `.ice/` will appear as untracked rather than being hidden.
-- Publishing `@zykairotis/ice-*` is not yet possible; the local npm token
-  returned 401 Unauthorized, independent of the scope change.
-- The fork's changelog history was reset to a single `[Unreleased]` section,
-  removing roughly 8,670 lines. Pre-fork history lives upstream.
+- `agent_docs/` retains dated historical citations and was not rewritten.
+- The untracked `Agent_harness_references/` comparison tree is ignored and excluded from ICE validation. It was not modified or staged. The root check uses explicit ICE paths, and both recursive ICE scanners exclude the exact case-sensitive directory.
+- Existing npm audit output reports four findings (three moderate, one high); no unrelated audit upgrade was applied.
+- The fork changelog remains reset to ICE's `[Unreleased]` section, with pre-fork history preserved upstream.
+
+## Review state and open items
+
+- `feat/ice` is pushed through `57f798412`; PR [#11](https://github.com/Zykairotis/ice/pull/11) is open from `feat/ice` into `void` and has the updated verification description.
+- The `void` remote ref was observed unchanged at `b919dc81...` during verification. The PR has not been merged; merge remains subject to review and explicit approval.
+- The PR's external Cubic reviewer was still pending at the last status query.
+- `.github/workflows/issue-analysis.yml` remains intentionally fail-closed until a real organization/team and `ZYKAIROTIS_ORG_READ_TOKEN` are provisioned.
+- Intermediate commits are not independently bisectable; only the verified tip is the acceptance state.
