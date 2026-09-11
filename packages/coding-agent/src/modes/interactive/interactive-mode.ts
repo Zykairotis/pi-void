@@ -7,9 +7,9 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
-import type { AssistantMessage, ImageContent, Message, Model } from "@earendil-works/pi-ai/compat";
+import type { AgentMessage } from "@zykairotis/ice-agent-core";
+import type { AuthEvent, AuthPrompt } from "@zykairotis/ice-ai";
+import type { AssistantMessage, ImageContent, Message, Model } from "@zykairotis/ice-ai/compat";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -22,8 +22,8 @@ import type {
 	SlashCommand,
 	Terminal,
 	TuiMainScreenRenderState,
-} from "@earendil-works/pi-tui";
-import * as TuiLayouts from "@earendil-works/pi-tui";
+} from "@zykairotis/ice-tui";
+import * as TuiLayouts from "@zykairotis/ice-tui";
 import {
 	CombinedAutocompleteProvider,
 	type Component,
@@ -42,7 +42,7 @@ import {
 	TuiAltScreen,
 	TuiMainScreen,
 	visibleWidth,
-} from "@earendil-works/pi-tui";
+} from "@zykairotis/ice-tui";
 import chalk from "chalk";
 import { spawn, spawnSync } from "child_process";
 import {
@@ -100,20 +100,20 @@ import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
 import { getUsageCostBreakdown } from "../../core/usage-totals.ts";
 import type {
-	PivAgentViewBridge,
-	PivAgentViewDescriptor,
-	PivAgentViewPresentation,
-} from "../../piv-agent-view-bridge.ts";
+	IceAgentViewBridge,
+	IceAgentViewDescriptor,
+	IceAgentViewPresentation,
+} from "../../ice-agent-view-bridge.ts";
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard, readClipboardText } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
 import { parseGitUrl } from "../../utils/git.ts";
+import { getIceUserAgent } from "../../utils/ice-user-agent.ts";
 import { openBrowser } from "../../utils/open-browser.ts";
 import { getCwdRelativePath } from "../../utils/paths.ts";
-import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
-import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
+import { checkForNewIceVersion, type LatestIceRelease } from "../../utils/version-check.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -322,7 +322,7 @@ export interface InteractiveModeOptions {
 	migratedProviders?: string[];
 	/** Warning message if session model couldn't be restored */
 	modelFallbackMessage?: string;
-	/** Cwd to trust after reload if it gained a .pi directory during this implicitly trusted session. */
+	/** Cwd to trust after reload if it gained a .ice directory during this implicitly trusted session. */
 	autoTrustOnReloadCwd?: string;
 	/** Initial message to send on startup (can include @file content) */
 	initialMessage?: string;
@@ -334,8 +334,8 @@ export interface InteractiveModeOptions {
 	verbose?: boolean;
 	/** UI layout mode. */
 	uiMode?: UiMode;
-	/** Optional Pi Void-only bridge for viewing live and historical subagents. */
-	agentViewBridge?: PivAgentViewBridge;
+	/** Optional ICE-only bridge for viewing live and historical subagents. */
+	agentViewBridge?: IceAgentViewBridge;
 }
 
 interface InteractiveTuiOptions {
@@ -432,6 +432,8 @@ export class InteractiveMode {
 	// Streaming message tracking
 	private streamingComponent: AssistantMessageComponent | undefined = undefined;
 	private streamingMessage: AssistantMessage | undefined = undefined;
+	// Failed attempt stashed while a retry may supersede its error line
+	private pendingRetryErrorComponent: AssistantMessageComponent | undefined = undefined;
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
@@ -501,14 +503,14 @@ export class InteractiveMode {
 	private options: InteractiveModeOptions;
 	private autoTrustOnReloadCwd: string | undefined;
 	private themeController: InteractiveThemeController;
-	private readonly agentViewBridge?: PivAgentViewBridge;
+	private readonly agentViewBridge?: IceAgentViewBridge;
 	private agentViewUnsubscribe?: () => void;
 	private displayedSessionUnsubscribe?: () => void;
 	private displayedViewId = "parent";
-	private displayedViewKind: PivAgentViewDescriptor["kind"] = "parent";
-	private displayedInteractionMode: PivAgentViewDescriptor["interactionMode"];
-	private displayedControlState: PivAgentViewDescriptor["controlState"];
-	private displayedViewPresentation?: PivAgentViewPresentation;
+	private displayedViewKind: IceAgentViewDescriptor["kind"] = "parent";
+	private displayedInteractionMode: IceAgentViewDescriptor["interactionMode"];
+	private displayedControlState: IceAgentViewDescriptor["controlState"];
+	private displayedViewPresentation?: IceAgentViewPresentation;
 	private displayedSessionForRender?: AgentSession;
 	private displayedViewBound = false;
 	private displayFooterDataProvider: FooterDataProvider;
@@ -520,7 +522,7 @@ export class InteractiveMode {
 	private get runtimeSession(): AgentSession {
 		return this.runtimeHost.session;
 	}
-	private get displayView(): PivAgentViewDescriptor | undefined {
+	private get displayView(): IceAgentViewDescriptor | undefined {
 		return this.agentViewBridge?.getDisplayedView();
 	}
 	private get displaySession(): AgentSession {
@@ -998,7 +1000,7 @@ export class InteractiveMode {
 			);
 			const onboarding = theme.fg(
 				"dim",
-				`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
+				`Ice can explain its own features and look up its docs. Ask it how to use or extend Ice.`,
 			);
 			this.builtInHeader = new ExpandableText(
 				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
@@ -1062,7 +1064,7 @@ export class InteractiveMode {
 	async run(): Promise<void> {
 		await this.init();
 
-		if (!process.env.PI_OFFLINE) {
+		if (!process.env.ICE_OFFLINE) {
 			const controller = new AbortController();
 			const timeout = setTimeout(() => controller.abort(), 15_000);
 			void this.session.modelRuntime
@@ -1073,7 +1075,7 @@ export class InteractiveMode {
 		}
 
 		// Start version check asynchronously
-		checkForNewPiVersion(this.version).then((newRelease) => {
+		checkForNewIceVersion(this.version).then((newRelease) => {
 			if (newRelease) {
 				this.showNewVersionNotification(newRelease);
 			}
@@ -1088,7 +1090,7 @@ export class InteractiveMode {
 			})
 			.finally(() => {
 				// On Windows, npm can overwrite the shared console title while checking
-				// extension package versions. Restore Pi's title after the startup check.
+				// extension package versions. Restore Ice's title after the startup check.
 				if (process.platform === "win32" && this.isInitialized) {
 					this.updateTerminalTitle();
 				}
@@ -1153,7 +1155,7 @@ export class InteractiveMode {
 	}
 
 	private async checkForPackageUpdates(): Promise<string[]> {
-		if (process.env.PI_OFFLINE) {
+		if (process.env.ICE_OFFLINE) {
 			return [];
 		}
 
@@ -1211,7 +1213,7 @@ export class InteractiveMode {
 		}
 
 		if (extendedKeysFormat === "xterm") {
-			return "tmux extended-keys-format is xterm. Pi works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
+			return "tmux extended-keys-format is xterm. Ice works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
 		}
 
 		return undefined;
@@ -1249,7 +1251,7 @@ export class InteractiveMode {
 	}
 
 	private reportInstallTelemetry(version: string): void {
-		if (process.env.PI_OFFLINE) {
+		if (process.env.ICE_OFFLINE) {
 			return;
 		}
 
@@ -1257,9 +1259,9 @@ export class InteractiveMode {
 			return;
 		}
 
-		void fetch(`https://pi.dev/api/report-install?version=${encodeURIComponent(version)}`, {
+		void fetch(`https://ice.dev/api/report-install?version=${encodeURIComponent(version)}`, {
 			headers: {
-				"User-Agent": getPiUserAgent(version),
+				"User-Agent": getIceUserAgent(version),
 			},
 			signal: AbortSignal.timeout(5000),
 		})
@@ -2001,7 +2003,7 @@ export class InteractiveMode {
 		this.updateTerminalTitle();
 	}
 
-	private formatAgentViewIdentity(view: PivAgentViewDescriptor | undefined): string {
+	private formatAgentViewIdentity(view: IceAgentViewDescriptor | undefined): string {
 		if (!this.agentViewBridge || !view || view.kind === "parent") return "";
 		const runId = view.runId ? view.runId.slice(0, 6) : undefined;
 		return [
@@ -2031,7 +2033,7 @@ export class InteractiveMode {
 		});
 	}
 
-	private restoreDisplayedViewState(view: PivAgentViewDescriptor): void {
+	private restoreDisplayedViewState(view: IceAgentViewDescriptor): void {
 		const state = this.agentViewBridge?.getUiState(view.id);
 		if (state) this.editor.setText(state.editorDraft);
 		else if (view.kind !== "parent") this.editor.setText("");
@@ -2046,7 +2048,7 @@ export class InteractiveMode {
 		});
 	}
 
-	private getFooterDataProviderForView(view: PivAgentViewDescriptor): FooterDataProvider {
+	private getFooterDataProviderForView(view: IceAgentViewDescriptor): FooterDataProvider {
 		if (view.kind === "parent") return this.footerDataProvider;
 		const existing = this.footerDataProviders.get(view.id);
 		if (existing) {
@@ -2103,9 +2105,9 @@ export class InteractiveMode {
 		);
 	}
 
-	private isPivInternalChildMessage(
+	private isIceInternalChildMessage(
 		message: AgentMessage,
-		view: PivAgentViewDescriptor | undefined,
+		view: IceAgentViewDescriptor | undefined,
 		sourceSession?: AgentSession,
 		sourceIndex?: number,
 	): boolean {
@@ -2134,7 +2136,7 @@ export class InteractiveMode {
 				return true;
 			}
 		}
-		// While a PIV turn is report-bound, text-only assistant output is the
+		// While a ICE turn is report-bound, text-only assistant output is the
 		// internal machine report. Tool-call messages remain visible so the child
 		// still looks like a normal agent session while it works.
 		return (
@@ -2144,7 +2146,7 @@ export class InteractiveMode {
 		);
 	}
 
-	private addSubagentDelegationCard(view: PivAgentViewDescriptor): void {
+	private addSubagentDelegationCard(view: IceAgentViewDescriptor): void {
 		const presentation = view.presentation;
 		const task = presentation?.delegatedTask?.trim();
 		if (!presentation || !task) return;
@@ -2153,7 +2155,7 @@ export class InteractiveMode {
 				? "YOLO (profile-aware)"
 				: presentation.authority === "safe"
 					? "SAFE (profile-clamped)"
-					: "PIV policy";
+					: "ICE policy";
 		const scope = presentation.scopeLabels?.length ? presentation.scopeLabels.join(", ") : ".";
 		const lines = [
 			"Delegated task",
@@ -2165,7 +2167,7 @@ export class InteractiveMode {
 		this.chatContainer.addChild(new Text(theme.fg("accent", lines.join("\n")), 1, 0));
 	}
 
-	private addSubagentFinalResult(view: PivAgentViewDescriptor): void {
+	private addSubagentFinalResult(view: IceAgentViewDescriptor): void {
 		const result = view.presentation?.finalResult;
 		if (!result) return;
 		const statusLabel =
@@ -2192,7 +2194,7 @@ export class InteractiveMode {
 		this.chatContainer.addChild(new Text(theme.fg(color, lines.join("\n")), 1, 0));
 	}
 
-	private renderProjectedChildView(view: PivAgentViewDescriptor): void {
+	private renderProjectedChildView(view: IceAgentViewDescriptor): void {
 		if (view.session) {
 			const items = view.session.sessionManager.buildContextEntries().flatMap((entry): RenderSessionItem[] => {
 				if (entry.type === "custom") return [entry];
@@ -2200,7 +2202,7 @@ export class InteractiveMode {
 			});
 			this.renderSessionItems(
 				items.filter(
-					(item) => isCustomSessionEntry(item) || !this.isPivInternalChildMessage(item, view, view.session),
+					(item) => isCustomSessionEntry(item) || !this.isIceInternalChildMessage(item, view, view.session),
 				),
 				{ updateFooter: true, populateHistory: false },
 			);
@@ -2208,19 +2210,19 @@ export class InteractiveMode {
 		}
 		if (view.messages) {
 			this.renderSessionItems(
-				view.messages.filter((message, index) => !this.isPivInternalChildMessage(message, view, undefined, index)),
+				view.messages.filter((message, index) => !this.isIceInternalChildMessage(message, view, undefined, index)),
 				{ updateFooter: true },
 			);
 		}
 	}
 
-	private renderDisplayedView(view: PivAgentViewDescriptor): void {
+	private renderDisplayedView(view: IceAgentViewDescriptor): void {
 		this.clearDisplayedSessionUi();
 		if (view.kind === "parent") {
 			this.showLoadedResources({ force: false, showDiagnosticsWhenQuiet: true });
 		} else {
 			// Child extensions are not rebound into the parent shell. The view uses
-			// core Pi renderers and the child session's immutable/current messages.
+			// core Ice renderers and the child session's immutable/current messages.
 			this.loadedResourcesContainer.clear();
 			const takeControlKeys = this.keybindings.getKeys("app.subagents.takeControl");
 			const takeControlHint = takeControlKeys.length > 0 ? ` (${formatKeyText(takeControlKeys.join("/"))})` : "";
@@ -2256,12 +2258,12 @@ export class InteractiveMode {
 		this.updateTerminalTitleForSession(view.session, view);
 	}
 
-	private updatePendingMessagesDisplayForDisplayedView(view: PivAgentViewDescriptor): void {
+	private updatePendingMessagesDisplayForDisplayedView(view: IceAgentViewDescriptor): void {
 		if (view.kind === "parent") this.updatePendingMessagesDisplay();
 		else this.pendingMessagesContainer.clear();
 	}
 
-	private updateTerminalTitleForSession(session: AgentSession | undefined, view?: PivAgentViewDescriptor): void {
+	private updateTerminalTitleForSession(session: AgentSession | undefined, view?: IceAgentViewDescriptor): void {
 		const cwd = session?.sessionManager.getCwd() ?? view?.cwd ?? this.runtimeSession.sessionManager.getCwd();
 		const sessionName = session?.sessionManager.getSessionName();
 		const suffix = view && view.kind !== "parent" ? ` - subagent ${view.role ?? view.label}` : "";
@@ -3282,7 +3284,7 @@ export class InteractiveMode {
 			if (image) {
 				const tmpDir = os.tmpdir();
 				const ext = extensionForImageMimeType(image.mimeType) ?? "png";
-				const fileName = `pi-clipboard-${crypto.randomUUID()}.${ext}`;
+				const fileName = `ice-clipboard-${crypto.randomUUID()}.${ext}`;
 				const filePath = path.join(tmpDir, fileName);
 				fs.writeFileSync(filePath, Buffer.from(image.bytes));
 
@@ -3614,13 +3616,13 @@ export class InteractiveMode {
 					this.addMessageToChat(event.message);
 					this.ui.requestRender();
 				} else if (event.message.role === "user") {
-					if (this.isPivInternalChildMessage(event.message, displayedView, eventSession)) break;
+					if (this.isIceInternalChildMessage(event.message, displayedView, eventSession)) break;
 					this.addMessageToChat(event.message);
 					if (!sourceSession || sourceSession === this.runtimeSession) this.updatePendingMessagesDisplay();
 					this.ui.requestRender();
 				} else if (event.message.role === "assistant") {
 					if (
-						this.isPivInternalChildMessage(event.message, displayedView, eventSession) &&
+						this.isIceInternalChildMessage(event.message, displayedView, eventSession) &&
 						!this.hasAssistantToolCall(event.message)
 					) {
 						break;
@@ -3643,7 +3645,7 @@ export class InteractiveMode {
 			case "message_update":
 				if (
 					event.message.role === "assistant" &&
-					this.isPivInternalChildMessage(event.message, displayedView, eventSession) &&
+					this.isIceInternalChildMessage(event.message, displayedView, eventSession) &&
 					!this.hasAssistantToolCall(event.message)
 				) {
 					break;
@@ -3686,7 +3688,7 @@ export class InteractiveMode {
 				if (event.message.role === "user") break;
 				if (
 					event.message.role === "assistant" &&
-					this.isPivInternalChildMessage(event.message, displayedView, eventSession) &&
+					this.isIceInternalChildMessage(event.message, displayedView, eventSession) &&
 					!this.hasAssistantToolCall(event.message)
 				) {
 					break;
@@ -3715,6 +3717,9 @@ export class InteractiveMode {
 							});
 						}
 						this.pendingTools.clear();
+						if (this.streamingMessage.stopReason === "error") {
+							this.pendingRetryErrorComponent = this.streamingComponent;
+						}
 					} else {
 						// Args are now complete - trigger diff computation for edit tools
 						for (const [, component] of this.pendingTools.entries()) {
@@ -3856,6 +3861,8 @@ export class InteractiveMode {
 				this.defaultEditor.onEscape = () => {
 					eventSession.abortRetry();
 				};
+				// The failed attempt's error line is transient while retrying.
+				this.discardPendingRetryError();
 				this.showStatusIndicator(
 					new RetryStatusIndicator(this.ui, event.attempt, event.maxAttempts, event.delayMs),
 				);
@@ -3870,6 +3877,9 @@ export class InteractiveMode {
 					this.retryEscapeHandler = undefined;
 				}
 				this.clearStatusIndicator("retry");
+				// Drop the last attempt's error line so only the terminal state shows:
+				// nothing on success, the summary on final failure.
+				this.discardPendingRetryError();
 				// Show error only on final failure (success shows normal response)
 				if (!event.success) {
 					this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);
@@ -4238,7 +4248,7 @@ export class InteractiveMode {
 			new Text(
 				theme.fg(
 					"warning",
-					`This project is not trusted. Project ${CONFIG_DIR_NAME} resources and packages are ignored. Use /trust to save a trust decision, then restart pi.`,
+					`This project is not trusted. Project ${CONFIG_DIR_NAME} resources and packages are ignored. Use /trust to save a trust decision, then restart ice.`,
 				),
 				1,
 				0,
@@ -4396,7 +4406,7 @@ export class InteractiveMode {
 		try {
 			this.ui.stop();
 		} catch {}
-		console.error("pi exiting due to uncaughtException:");
+		console.error("ice exiting due to uncaughtException:");
 		console.error(error);
 		process.exit(1);
 	}
@@ -4443,7 +4453,7 @@ export class InteractiveMode {
 
 		// Restore the terminal before the process dies on any uncaught throw.
 		// Without this, an unhandled exception from extension code (or anywhere
-		// in pi) leaves the terminal in raw mode with no cursor.
+		// in ice) leaves the terminal in raw mode with no cursor.
 		const uncaughtExceptionHandler = (error: Error) => this.uncaughtCrash(error);
 		process.prependListener("uncaughtException", uncaughtExceptionHandler);
 		this.signalCleanupHandlers.push(() => process.off("uncaughtException", uncaughtExceptionHandler));
@@ -4648,16 +4658,27 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	// Drop a failed attempt's error line once superseded: by the retry
+	// indicator while retrying, or by the terminal summary on final failure.
+	private discardPendingRetryError(): void {
+		const component = this.pendingRetryErrorComponent;
+		this.pendingRetryErrorComponent = undefined;
+		if (component) {
+			this.chatContainer.removeChild(component);
+			this.ui.requestRender();
+		}
+	}
+
 	showWarning(warningMessage: string): void {
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(theme.fg("warning", `Warning: ${warningMessage}`), 1, 0));
 		this.ui.requestRender();
 	}
 
-	showNewVersionNotification(release: LatestPiRelease): void {
+	showNewVersionNotification(release: LatestIceRelease): void {
 		const action = theme.fg("accent", `${APP_NAME} update`);
 		const updateInstruction = theme.fg("muted", `New version ${release.version} is available. Run `) + action;
-		const changelogUrl = "https://pi.dev/changelog";
+		const changelogUrl = "https://ice.dev/changelog";
 		const changelogLink = getCapabilities().hyperlinks
 			? hyperlink(theme.fg("accent", changelogUrl), changelogUrl)
 			: theme.fg("accent", changelogUrl);
@@ -5278,7 +5299,7 @@ export class InteractiveMode {
 					trustStore.setMany(selection.updates);
 					done();
 					this.showStatus(
-						`Saved trust decision: ${selection.trusted ? "trusted" : "untrusted"}. Restart pi for this to take effect.`,
+						`Saved trust decision: ${selection.trusted ? "trusted" : "untrusted"}. Restart ice for this to take effect.`,
 					);
 				},
 				onCancel: () => {
@@ -6083,7 +6104,7 @@ export class InteractiveMode {
 			providerOption.name,
 			`${providerOption.name} setup`,
 		);
-		dialog.showInfo(`${providerOption.method?.name ?? "Authentication"} is configured outside pi.`, [], true);
+		dialog.showInfo(`${providerOption.method?.name ?? "Authentication"} is configured outside ice.`, [], true);
 
 		this.editorContainer.clear();
 		this.editorContainer.addChild(dialog);

@@ -151,8 +151,8 @@ export class RpcCommandExecutionError extends Error {
 }
 
 export const COMMAND_FIELD_KEY_PATTERN = /^[A-Za-z0-9._-]+$/;
-export const PI_SETTINGS_COMMAND_NAME = "settings";
-export const PI_SETTINGS_SCHEMA_ID = "pi.settings";
+export const ICE_SETTINGS_COMMAND_NAME = "settings";
+export const ICE_SETTINGS_SCHEMA_ID = "ice.settings";
 
 function deterministicRevisionHash(data: unknown): string {
 	const str = JSON.stringify(data);
@@ -248,7 +248,7 @@ function mapSettingsFieldToCommandField(field: RpcSettingsField): RpcCommandFiel
 	}
 }
 
-export function buildPiSettingsCommandSchema(snapshot: RpcSettingsSnapshot): RpcCommandSchema {
+export function buildIceSettingsCommandSchema(snapshot: RpcSettingsSnapshot): RpcCommandSchema {
 	const fields: RpcCommandField[] = [];
 	const diagnostics: string[] = [];
 	const groups: RpcCommandGroup[] = [];
@@ -257,7 +257,7 @@ export function buildPiSettingsCommandSchema(snapshot: RpcSettingsSnapshot): Rpc
 	for (const f of snapshot.fields) {
 		const mapped = mapSettingsFieldToCommandField(f);
 		if (!mapped) {
-			diagnostics.push(`Advanced setting '${f.key}' is managed on the dedicated Pi settings page.`);
+			diagnostics.push(`Advanced setting '${f.key}' is managed on the dedicated Ice settings page.`);
 			continue;
 		}
 		fields.push(mapped);
@@ -268,8 +268,8 @@ export function buildPiSettingsCommandSchema(snapshot: RpcSettingsSnapshot): Rpc
 	}
 
 	const revision = deterministicRevisionHash({
-		commandName: PI_SETTINGS_COMMAND_NAME,
-		schemaId: PI_SETTINGS_SCHEMA_ID,
+		commandName: ICE_SETTINGS_COMMAND_NAME,
+		schemaId: ICE_SETTINGS_SCHEMA_ID,
 		cwd: snapshot.cwd,
 		projectTrusted: snapshot.projectTrusted,
 		fields,
@@ -277,11 +277,11 @@ export function buildPiSettingsCommandSchema(snapshot: RpcSettingsSnapshot): Rpc
 
 	return {
 		protocolVersion: 1,
-		commandName: PI_SETTINGS_COMMAND_NAME,
-		schemaId: PI_SETTINGS_SCHEMA_ID,
+		commandName: ICE_SETTINGS_COMMAND_NAME,
+		schemaId: ICE_SETTINGS_SCHEMA_ID,
 		revision,
-		title: "Pi settings",
-		description: "Configure Pi runtime settings for this session.",
+		title: "Ice settings",
+		description: "Configure Ice runtime settings for this session.",
 		invocationMode: "single-field",
 		...(groups.length > 0 ? { groups } : {}),
 		fields,
@@ -289,10 +289,10 @@ export function buildPiSettingsCommandSchema(snapshot: RpcSettingsSnapshot): Rpc
 	};
 }
 
-export function getPiSettingsCommandSchemaResult(context: RpcSettingsContext): RpcCommandSchemaResult {
+export function getIceSettingsCommandSchemaResult(context: RpcSettingsContext): RpcCommandSchemaResult {
 	try {
 		const snapshot = createRpcSettingsSnapshot(context);
-		const schema = buildPiSettingsCommandSchema(snapshot);
+		const schema = buildIceSettingsCommandSchema(snapshot);
 		return {
 			capability: "available",
 			schema,
@@ -307,7 +307,7 @@ export function getPiSettingsCommandSchemaResult(context: RpcSettingsContext): R
 	}
 }
 
-export async function invokePiSettingsCommand(
+export async function invokeIceSettingsCommand(
 	context: RpcSettingsContext,
 	input: {
 		schemaId?: string;
@@ -321,15 +321,30 @@ export async function invokePiSettingsCommand(
 		throw new RpcCommandExecutionError("busy", "Cannot change settings while a session turn is running.");
 	}
 
-	const snapshot = createRpcSettingsSnapshot(context);
-	const schema = buildPiSettingsCommandSchema(snapshot);
+	const normalizedArguments: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(input.arguments)) {
+		const canonical = key;
+		if (Object.hasOwn(normalizedArguments, canonical)) {
+			throw new RpcCommandExecutionError("validation", "Conflicting names for the same settings field.", {
+				field: canonical,
+			});
+		}
+		Object.defineProperty(normalizedArguments, canonical, { value, enumerable: true });
+	}
+	input = {
+		...input,
+		arguments: normalizedArguments,
+	};
 
-	if (input.schemaId && input.schemaId !== PI_SETTINGS_SCHEMA_ID) {
+	const snapshot = createRpcSettingsSnapshot(context);
+	const schema = buildIceSettingsCommandSchema(snapshot);
+
+	if (input.schemaId && input.schemaId !== ICE_SETTINGS_SCHEMA_ID) {
 		throw new RpcCommandExecutionError(
 			"stale",
-			`Command schema ID mismatch: expected '${PI_SETTINGS_SCHEMA_ID}', received '${input.schemaId}'.`,
+			`Command schema ID mismatch: expected '${ICE_SETTINGS_SCHEMA_ID}', received '${input.schemaId}'.`,
 			{
-				schemaId: PI_SETTINGS_SCHEMA_ID,
+				schemaId: ICE_SETTINGS_SCHEMA_ID,
 				schemaRevision: schema.revision,
 			},
 		);
@@ -362,7 +377,7 @@ export async function invokePiSettingsCommand(
 			field: key,
 		});
 	}
-	const updatedSchema = buildPiSettingsCommandSchema(updatedSnapshot);
+	const updatedSchema = buildIceSettingsCommandSchema(updatedSnapshot);
 
 	return {
 		status: "updated",

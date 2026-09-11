@@ -1,6 +1,7 @@
-import type { SettingItem } from "@earendil-works/pi-tui";
+import type { SettingItem } from "@zykairotis/ice-tui";
 import type { RegisteredSettings } from "../../core/extensions/types.ts";
-import type { PackageSource, SettingsManager, SettingsScope } from "../../core/settings-manager.ts";
+import type { IceSettingsValue, PackageSource, SettingsManager, SettingsScope } from "../../core/settings-manager.ts";
+import { parseIceSettings, resolveIceSubagentContract } from "../../ice-subagent-settings.ts";
 
 export type RpcSettingsFieldKind = "boolean" | "select" | "number" | "text" | "string-list" | "package-sources";
 export type RpcSettingsFieldScope = SettingsScope | "both";
@@ -22,6 +23,8 @@ interface RpcSettingsFieldBase {
 	kind: RpcSettingsFieldKind;
 	scope: RpcSettingsFieldScope;
 	projectOverride: boolean;
+	/** Preference source; ICE restrictions may further narrow effectiveValue. */
+	effectiveSource?: SettingsScope;
 	restartRequired: boolean;
 	hostOnly?: boolean;
 	value: RpcSettingsValue;
@@ -33,7 +36,7 @@ interface RpcSettingsFieldBase {
 export type RpcSettingsField = RpcSettingsFieldBase;
 
 export interface RpcSettingsDiagnostic {
-	code: "settings_io_error";
+	code: "settings_io_error" | "settings_parse_error" | "ice_policy_error";
 	scope: SettingsScope;
 	message: string;
 }
@@ -118,7 +121,195 @@ function setting(definition: Omit<RpcSettingsDefinition, "set"> & { key: string 
 	};
 }
 
+function effectiveIceValue(settings: SettingsManager, key: string, fallback: RpcSettingsValue): RpcSettingsValue {
+	try {
+		const global = parseIceSettings(settings.getGlobalSettings().ice).subagents;
+		const project = parseIceSettings(
+			settings.isProjectTrusted() ? settings.getProjectSettings().ice : undefined,
+		).subagents;
+		if (key === "ice.subagents.enabled") return global.enabled && project.enabled;
+		if (key === "ice.hooks.enabled") {
+			const globalHooks = parseIceSettings(settings.getGlobalSettings().ice).hooks;
+			const projectHooks = parseIceSettings(
+				settings.isProjectTrusted() ? settings.getProjectSettings().ice : undefined,
+			).hooks;
+			return settings.getGlobalSettings().ice?.hooks?.enabled === false
+				? false
+				: globalHooks.enabled || projectHooks.enabled;
+		}
+		const contract = resolveIceSubagentContract({
+			global,
+			project,
+			globalFirst: true,
+			projectTrusted: settings.isProjectTrusted(),
+			role: "__ice_defaults__",
+			bundledDefaults: {
+				thinking: "medium",
+				timeoutMs: 120_000,
+				maxTurns: 12,
+				maxToolCalls: 40,
+				maxOutputBytes: 24_576,
+			},
+		});
+		switch (key) {
+			case "ice.subagents.defaults.thinking":
+				return contract.values.thinking;
+			case "ice.subagents.defaults.timeoutMs":
+				return contract.values.timeoutMs;
+			case "ice.subagents.defaults.maxTurns":
+				return contract.values.maxTurns;
+			case "ice.subagents.defaults.maxToolCalls":
+				return contract.values.maxToolCalls;
+			case "ice.subagents.defaults.maxOutputBytes":
+				return contract.values.maxOutputBytes;
+			case "ice.subagents.allowedRoles":
+				return contract.allowedRoles.value ? [...contract.allowedRoles.value] : [];
+			default:
+				return cloneValue(fallback);
+		}
+	} catch {
+		// A malformed security-sensitive namespace must not appear enabled or
+		// expose stale permissive values through a headless projection.
+		if (key === "ice.subagents.enabled" || key === "ice.hooks.enabled") return false;
+		return cloneValue(fallback);
+	}
+}
+
+function setIceValue(settings: SettingsManager, scope: SettingsScope, key: string, value: RpcSettingsValue): void {
+	const current = (settings.getIceSettingsValue(scope) ?? {}) as unknown as Record<string, unknown>;
+	const next = structuredClone(current);
+	const parts = key.split(".").slice(1);
+	let target = next;
+	for (const part of parts.slice(0, -1)) {
+		const existing = target[part];
+		if (existing !== undefined && !isRecord(existing)) {
+			throw new RpcSettingsError("invalid_value", `Cannot update ${key}: ${part} is not an object`, { key, scope });
+		}
+		target[part] = isRecord(existing) ? existing : {};
+		target = target[part] as Record<string, unknown>;
+	}
+	const leaf = parts.at(-1);
+	if (!leaf) throw new RpcSettingsError("unknown_key", `Invalid ICE setting key: ${key}`, { key, scope });
+	target[leaf] = structuredClone(value);
+	try {
+		parseIceSettings(next);
+	} catch (error) {
+		throw new RpcSettingsError(
+			"invalid_value",
+			error instanceof Error ? error.message : `Invalid ICE setting: ${key}`,
+			{ key, scope },
+		);
+	}
+	settings.setIceSettingsValue(scope, next as IceSettingsValue);
+}
+
+function iceSetting(definition: Omit<RpcSettingsDefinition, "set"> & { key: string }): RpcSettingsDefinition {
+	return {
+		...definition,
+		set: (settings, scope, value) => setIceValue(settings, scope, definition.key, value),
+	};
+}
+
+const ICE_SETTINGS: RpcSettingsDefinition[] = [
+	iceSetting({
+		key: "ice.subagents.enabled",
+		label: "ICE subagents",
+		description: "Enable profile-based ICE delegation; disabling it blocks new child launches",
+		group: "ICE · Subagents",
+		kind: "boolean",
+		scope: "both",
+		defaultValue: true,
+		restartRequired: false,
+		read: (settings) => effectiveIceValue(settings, "ice.subagents.enabled", true) as boolean,
+	}),
+	iceSetting({
+		key: "ice.subagents.defaults.thinking",
+		label: "Subagent thinking",
+		description: "Default reasoning effort for delegated children; the parent model route is unchanged",
+		group: "ICE · Subagents",
+		kind: "select",
+		scope: "both",
+		defaultValue: "medium",
+		options: THINKING_LEVELS,
+		restartRequired: false,
+		read: (settings) => effectiveIceValue(settings, "ice.subagents.defaults.thinking", "medium") as string,
+	}),
+	iceSetting({
+		key: "ice.subagents.defaults.timeoutMs",
+		label: "Subagent timeout",
+		description: "Default bounded child execution timeout in milliseconds",
+		group: "ICE · Subagents",
+		kind: "number",
+		scope: "both",
+		defaultValue: 120_000,
+		constraints: { min: 1, max: 600_000, integer: true },
+		restartRequired: false,
+		read: (settings) => effectiveIceValue(settings, "ice.subagents.defaults.timeoutMs", 120_000) as number,
+	}),
+	iceSetting({
+		key: "ice.subagents.defaults.maxTurns",
+		label: "Subagent turn budget",
+		description: "Default model-turn budget, including the bounded final report turn",
+		group: "ICE · Subagents",
+		kind: "number",
+		scope: "both",
+		defaultValue: 12,
+		constraints: { min: 1, max: 64, integer: true },
+		restartRequired: false,
+		read: (settings) => effectiveIceValue(settings, "ice.subagents.defaults.maxTurns", 12) as number,
+	}),
+	iceSetting({
+		key: "ice.subagents.defaults.maxToolCalls",
+		label: "Subagent tool-call budget",
+		description: "Default enforced child tool-call budget",
+		group: "ICE · Subagents",
+		kind: "number",
+		scope: "both",
+		defaultValue: 40,
+		constraints: { min: 0, max: 512, integer: true },
+		restartRequired: false,
+		read: (settings) => effectiveIceValue(settings, "ice.subagents.defaults.maxToolCalls", 40) as number,
+	}),
+	iceSetting({
+		key: "ice.subagents.defaults.maxOutputBytes",
+		label: "Subagent output budget",
+		description: "Default complete parent-facing result budget in UTF-8 bytes",
+		group: "ICE · Subagents",
+		kind: "number",
+		scope: "both",
+		defaultValue: 24_576,
+		constraints: { min: 1_024, max: 65_536, integer: true },
+		restartRequired: false,
+		read: (settings) => effectiveIceValue(settings, "ice.subagents.defaults.maxOutputBytes", 24_576) as number,
+	}),
+	iceSetting({
+		key: "ice.subagents.allowedRoles",
+		label: "Allowed subagent roles",
+		description: "Optional role allowlist; an empty list means no additional role restriction",
+		group: "ICE · Subagents",
+		kind: "string-list",
+		scope: "both",
+		defaultValue: [],
+		constraints: { maxItems: 64, maxLength: 64 },
+		restartRequired: false,
+		read: (settings) => effectiveIceValue(settings, "ice.subagents.allowedRoles", []) as string[],
+	}),
+	iceSetting({
+		key: "ice.hooks.enabled",
+		label: "Subagent lifecycle hooks",
+		description:
+			"Enable parent-owned hooks; executable hooks additionally require global command policy, trusted build mode, Bash and approval",
+		group: "ICE · Hooks",
+		kind: "boolean",
+		scope: "both",
+		defaultValue: false,
+		restartRequired: false,
+		read: (settings) => effectiveIceValue(settings, "ice.hooks.enabled", false) as boolean,
+	}),
+];
+
 const BUILTIN_SETTINGS: RpcSettingsDefinition[] = [
+	...ICE_SETTINGS,
 	setting({
 		key: "defaultProvider",
 		label: "Default provider",
@@ -722,7 +913,11 @@ function fieldFromDefinition(definition: RpcSettingsDefinition, settingsManager:
 		scope: definition.scope,
 		value: configuredValue,
 		effectiveValue,
-		projectOverride: definition.scope !== "global" && hasPath(projectSettings, definition.key),
+		projectOverride:
+			definition.scope !== "global" &&
+			hasPath(projectSettings, definition.key) &&
+			!(settingsManager.isGlobalFirst() && hasPath(globalSettings, definition.key)),
+		effectiveSource: settingsManager.getSettingSource(definition.key),
 		restartRequired: definition.restartRequired,
 		...(definition.hostOnly ? { hostOnly: true } : {}),
 		...(definition.options ? { options: [...definition.options] } : {}),
@@ -731,11 +926,33 @@ function fieldFromDefinition(definition: RpcSettingsDefinition, settingsManager:
 }
 
 function diagnostics(settingsManager: SettingsManager): RpcSettingsDiagnostic[] {
-	return settingsManager.drainErrors().map(({ scope }) => ({
-		code: "settings_io_error",
+	const loadDiagnostics = settingsManager.getLoadErrors().map(({ scope }) => ({
+		code: "settings_parse_error" as const,
+		scope,
+		message: `Unable to parse ${scope} settings; ICE delegation remains blocked until it is repaired`,
+	}));
+	const iceDiagnostics: RpcSettingsDiagnostic[] = [];
+	const diagnoseIceScope = (scope: SettingsScope, value: unknown): void => {
+		try {
+			parseIceSettings(value);
+		} catch {
+			iceDiagnostics.push({
+				code: "ice_policy_error",
+				scope,
+				message: "ICE security-sensitive settings are invalid; delegation is blocked",
+			});
+		}
+	};
+	diagnoseIceScope("global", settingsManager.getGlobalSettings().ice);
+	if (settingsManager.isProjectTrusted()) {
+		diagnoseIceScope("project", settingsManager.getProjectSettings().ice);
+	}
+	const writeDiagnostics = settingsManager.drainErrors().map(({ scope }) => ({
+		code: "settings_io_error" as const,
 		scope,
 		message: `Unable to read or persist ${scope} settings`,
 	}));
+	return [...loadDiagnostics, ...iceDiagnostics, ...writeDiagnostics];
 }
 
 export function createRpcSettingsSnapshot(context: RpcSettingsContext): RpcSettingsSnapshot {

@@ -4,14 +4,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import {
-	buildPiSettingsCommandSchema,
+	buildIceSettingsCommandSchema,
 	COMMAND_FIELD_KEY_PATTERN,
 	clearCustomStructuredCommands,
-	getPiSettingsCommandSchemaResult,
-	invokePiSettingsCommand,
+	getIceSettingsCommandSchemaResult,
+	ICE_SETTINGS_COMMAND_NAME,
+	ICE_SETTINGS_SCHEMA_ID,
+	invokeIceSettingsCommand,
 	mergeCustomStructuredCommandInventory,
-	PI_SETTINGS_COMMAND_NAME,
-	PI_SETTINGS_SCHEMA_ID,
 	RpcCommandExecutionError,
 	type RpcCommandSchema,
 	registerCustomStructuredCommand,
@@ -21,7 +21,7 @@ import { createRpcSettingsSnapshot, type RpcSettingsContext } from "../src/modes
 const tempDirectories: string[] = [];
 
 function createTempDirectory(): string {
-	const directory = mkdtempSync(join(tmpdir(), "pi-rpc-cmd-schema-"));
+	const directory = mkdtempSync(join(tmpdir(), "ice-rpc-cmd-schema-"));
 	tempDirectories.push(directory);
 	return directory;
 }
@@ -45,20 +45,20 @@ afterEach(() => {
 });
 
 describe("rpc-command-schema", () => {
-	describe("buildPiSettingsCommandSchema", () => {
+	describe("buildIceSettingsCommandSchema", () => {
 		it("generates a valid V1 schema contract for /settings", () => {
 			const dir = createTempDirectory();
 			const manager = SettingsManager.create(dir, join(dir, "project"));
 			const context = createContext(manager);
-			const result = getPiSettingsCommandSchemaResult(context);
+			const result = getIceSettingsCommandSchemaResult(context);
 
 			expect(result.capability).toBe("available");
 			expect(result.schema).not.toBeNull();
 			const schema = result.schema!;
 
 			expect(schema.protocolVersion).toBe(1);
-			expect(schema.commandName).toBe(PI_SETTINGS_COMMAND_NAME);
-			expect(schema.schemaId).toBe(PI_SETTINGS_SCHEMA_ID);
+			expect(schema.commandName).toBe(ICE_SETTINGS_COMMAND_NAME);
+			expect(schema.schemaId).toBe(ICE_SETTINGS_SCHEMA_ID);
 			expect(schema.invocationMode).toBe("single-field");
 			expect(typeof schema.revision).toBe("string");
 			expect(schema.revision.length).toBeGreaterThan(0);
@@ -96,27 +96,27 @@ describe("rpc-command-schema", () => {
 			const manager = SettingsManager.create(dir, join(dir, "project"));
 			const context = createContext(manager);
 
-			const schema1 = buildPiSettingsCommandSchema(createRpcSettingsSnapshot(context));
-			const schema2 = buildPiSettingsCommandSchema(createRpcSettingsSnapshot(context));
+			const schema1 = buildIceSettingsCommandSchema(createRpcSettingsSnapshot(context));
+			const schema2 = buildIceSettingsCommandSchema(createRpcSettingsSnapshot(context));
 			expect(schema1.revision).toBe(schema2.revision);
 
 			manager.setFastMode(true);
-			const schema3 = buildPiSettingsCommandSchema(createRpcSettingsSnapshot(context));
+			const schema3 = buildIceSettingsCommandSchema(createRpcSettingsSnapshot(context));
 			expect(schema3.revision).not.toBe(schema1.revision);
 		});
 	});
 
-	describe("invokePiSettingsCommand", () => {
+	describe("invokeIceSettingsCommand", () => {
 		it("updates a setting with explicit scope and returns the updated schema", async () => {
 			const dir = createTempDirectory();
 			const manager = SettingsManager.create(dir, join(dir, "project"));
 			const context = createContext(manager);
-			const schema = buildPiSettingsCommandSchema(createRpcSettingsSnapshot(context));
+			const schema = buildIceSettingsCommandSchema(createRpcSettingsSnapshot(context));
 
-			const result = await invokePiSettingsCommand(
+			const result = await invokeIceSettingsCommand(
 				context,
 				{
-					schemaId: PI_SETTINGS_SCHEMA_ID,
+					schemaId: ICE_SETTINGS_SCHEMA_ID,
 					schemaRevision: schema.revision,
 					arguments: { fastMode: true },
 					options: { scope: "global" },
@@ -138,7 +138,7 @@ describe("rpc-command-schema", () => {
 			const context = createContext(manager);
 
 			await expect(
-				invokePiSettingsCommand(
+				invokeIceSettingsCommand(
 					context,
 					{
 						arguments: { fastMode: true },
@@ -148,7 +148,7 @@ describe("rpc-command-schema", () => {
 			).rejects.toThrowError(RpcCommandExecutionError);
 
 			try {
-				await invokePiSettingsCommand(
+				await invokeIceSettingsCommand(
 					context,
 					{
 						arguments: { fastMode: true },
@@ -169,7 +169,7 @@ describe("rpc-command-schema", () => {
 			const context = createContext(manager);
 
 			try {
-				await invokePiSettingsCommand(
+				await invokeIceSettingsCommand(
 					context,
 					{
 						schemaRevision: "stale-revision-xyz",
@@ -183,7 +183,7 @@ describe("rpc-command-schema", () => {
 				expect(err).toBeInstanceOf(RpcCommandExecutionError);
 				const execErr = err as RpcCommandExecutionError;
 				expect(execErr.errorCode).toBe("stale");
-				expect(execErr.errorDetails?.schemaId).toBe(PI_SETTINGS_SCHEMA_ID);
+				expect(execErr.errorDetails?.schemaId).toBe(ICE_SETTINGS_SCHEMA_ID);
 				expect(execErr.errorDetails?.schemaRevision).toBeDefined();
 			}
 		});
@@ -194,7 +194,7 @@ describe("rpc-command-schema", () => {
 			const context = createContext(manager);
 
 			try {
-				await invokePiSettingsCommand(
+				await invokeIceSettingsCommand(
 					context,
 					{
 						arguments: { fastMode: true },
@@ -217,7 +217,7 @@ describe("rpc-command-schema", () => {
 
 			// Invalid type for boolean
 			await expect(
-				invokePiSettingsCommand(
+				invokeIceSettingsCommand(
 					context,
 					{
 						arguments: { fastMode: "not-a-bool" as never },
@@ -229,7 +229,7 @@ describe("rpc-command-schema", () => {
 
 			// Out of bounds integer
 			await expect(
-				invokePiSettingsCommand(
+				invokeIceSettingsCommand(
 					context,
 					{
 						arguments: { "compaction.thresholdPercent": 150 },
@@ -241,7 +241,7 @@ describe("rpc-command-schema", () => {
 
 			// Invalid enum option
 			await expect(
-				invokePiSettingsCommand(
+				invokeIceSettingsCommand(
 					context,
 					{
 						arguments: { followUpMode: "invalid-mode" },
@@ -259,7 +259,7 @@ describe("rpc-command-schema", () => {
 			const context = createContext(manager);
 
 			try {
-				await invokePiSettingsCommand(
+				await invokeIceSettingsCommand(
 					context,
 					{
 						arguments: { "compaction.thresholdPercent": 80 },

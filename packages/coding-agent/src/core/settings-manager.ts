@@ -1,14 +1,16 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Transport } from "@earendil-works/pi-ai";
-import type { ScrollViewScrollbar, TuiMode } from "@earendil-works/pi-tui";
+import type { ThinkingLevel } from "@zykairotis/ice-agent-core";
+import type { Transport } from "@zykairotis/ice-ai";
+import type { ScrollViewScrollbar, TuiMode } from "@zykairotis/ice-tui";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
-import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
+import { getAgentDir, getProjectConfigDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { DEFAULT_COMPACTION_THRESHOLD_PERCENT, type MidRunCompaction } from "./compaction/compaction.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
+import { getIceEnv } from "./legacy-compat/env.ts";
+import { normalizeLegacySettings } from "./legacy-compat/identity.ts";
 
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
@@ -86,7 +88,27 @@ export type PackageSource =
 			themes?: string[];
 	  };
 
+export interface IceSubagentSettingsValue {
+	enabled?: boolean;
+	defaults?: Record<string, unknown>;
+	allowedRoles?: string[];
+	roleDefaults?: Record<string, Record<string, unknown>>;
+	restrictions?: Record<string, unknown>;
+	modelSelection?: { mode?: string };
+}
+
+export interface IceHooksSettingsValue {
+	enabled?: boolean;
+	definitions?: Array<Record<string, unknown>>;
+}
+
+export interface IceSettingsValue {
+	subagents?: IceSubagentSettingsValue;
+	hooks?: IceHooksSettingsValue;
+}
+
 export interface Settings {
+	ice?: IceSettingsValue;
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
 	defaultModel?: string;
@@ -130,7 +152,7 @@ export interface Settings {
 	markdown?: MarkdownSettings;
 	warnings?: WarningSettings;
 	sessionDir?: string; // Custom session storage directory (same format as --session-dir CLI flag)
-	httpProxy?: string; // Proxy URL applied as HTTP_PROXY and HTTPS_PROXY for Pi-managed HTTP clients
+	httpProxy?: string; // Proxy URL applied as HTTP_PROXY and HTTPS_PROXY for Ice-managed HTTP clients
 	httpIdleTimeoutMs?: number; // HTTP header/body idle timeout in milliseconds; 0 disables it
 	websocketConnectTimeoutMs?: number; // WebSocket connect/open handshake timeout in milliseconds; 0 disables it
 	uiMode?: UiMode; // default: "regular"
@@ -180,6 +202,8 @@ export type SettingsScope = "global" | "project";
 
 export interface SettingsManagerCreateOptions {
 	projectTrusted?: boolean;
+	/** Explicit distribution policy. Stock Ice remains project-first. */
+	globalFirst?: boolean;
 }
 
 export interface SettingsStorage {
@@ -199,7 +223,7 @@ export class FileSettingsStorage implements SettingsStorage {
 		const resolvedCwd = resolvePath(cwd);
 		const resolvedAgentDir = resolvePath(agentDir);
 		this.globalSettingsPath = join(resolvedAgentDir, "settings.json");
-		this.projectSettingsPath = join(resolvedCwd, CONFIG_DIR_NAME, "settings.json");
+		this.projectSettingsPath = join(getProjectConfigDir(resolvedCwd), "settings.json");
 	}
 
 	private acquireLockSyncWithRetry(path: string): () => void {
@@ -283,6 +307,7 @@ export class SettingsManager {
 	private projectSettings: Settings;
 	private settings: Settings;
 	private projectTrusted: boolean;
+	private readonly globalFirst: boolean;
 	private modifiedFields = new Set<keyof Settings>(); // Track global fields modified during session
 	private modifiedNestedFields = new Map<keyof Settings, Set<string>>(); // Track global nested field modifications
 	private modifiedProjectFields = new Set<keyof Settings>(); // Track project fields modified during session
@@ -300,15 +325,47 @@ export class SettingsManager {
 		projectLoadError: Error | null = null,
 		initialErrors: SettingsError[] = [],
 		projectTrusted = true,
+		globalFirst = false,
 	) {
 		this.storage = storage;
 		this.globalSettings = initialGlobal;
 		this.projectSettings = initialProject;
 		this.projectTrusted = projectTrusted;
+		this.globalFirst = globalFirst;
 		this.globalSettingsLoadError = globalLoadError;
 		this.projectSettingsLoadError = projectLoadError;
 		this.errors = [...initialErrors];
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = this.mergeScopedSettings();
+	}
+
+	/** Ordinary preferences only; ICE composes permission denies separately. */
+	private mergeScopedSettings(): Settings {
+		return this.globalFirst
+			? deepMergeSettings(this.projectSettings, this.globalSettings)
+			: deepMergeSettings(this.globalSettings, this.projectSettings);
+	}
+
+	isGlobalFirst(): boolean {
+		return this.globalFirst;
+	}
+
+	/** A copy of effective preferences, including non-persistent runtime overrides. */
+	getEffectiveSettings(): Settings {
+		return structuredClone(this.settings);
+	}
+
+	/** Source of an explicitly configured leaf; absence never becomes a global default. */
+	getSettingSource(key: string): SettingsScope | undefined {
+		const present = (settings: Settings): boolean => {
+			let value: unknown = settings;
+			for (const part of key.split(".")) {
+				if (!isMergeableObject(value) || !Object.hasOwn(value, part)) return false;
+				value = value[part];
+			}
+			return value !== undefined;
+		};
+		const scopes: SettingsScope[] = this.globalFirst ? ["global", "project"] : ["project", "global"];
+		return scopes.find((scope) => present(scope === "global" ? this.globalSettings : this.projectSettings));
 	}
 
 	/** Create a SettingsManager that loads from files */
@@ -342,6 +399,7 @@ export class SettingsManager {
 			projectLoad.error,
 			initialErrors,
 			projectTrusted,
+			options.globalFirst ?? false,
 		);
 	}
 
@@ -385,6 +443,7 @@ export class SettingsManager {
 
 	/** Migrate old settings format to new format */
 	private static migrateSettings(settings: Record<string, unknown>): Settings {
+		settings = normalizeLegacySettings(settings);
 		// Migrate queueMode -> steeringMode
 		if ("queueMode" in settings && !("steeringMode" in settings)) {
 			settings.steeringMode = settings.queueMode;
@@ -453,6 +512,39 @@ export class SettingsManager {
 		return structuredClone(this.projectSettings);
 	}
 
+	/** W04/W07: read the raw ICE `ice` namespace without exposing full settings blobs. */
+	getIceSettingsValue(scope: SettingsScope): IceSettingsValue | undefined {
+		const settings = scope === "global" ? this.globalSettings : this.projectSettings;
+		if (settings.ice === undefined) return undefined;
+		return structuredClone(settings.ice);
+	}
+
+	/**
+	 * W04: write the ICE `ice` namespace through the normal scoped
+	 * persistence path so unrelated keys are preserved and durability errors
+	 * surface through the existing write queue/diagnostics.
+	 */
+	setIceSettingsValue(scope: SettingsScope, value: IceSettingsValue): void {
+		const next = structuredClone(value);
+		if (scope === "project") {
+			this.assertProjectTrustedForWrite();
+			const previous = this.projectSettings.ice ?? {};
+			this.projectSettings.ice = next;
+			const keys = new Set([...Object.keys(previous), ...Object.keys(next)]);
+			for (const key of keys) this.markProjectModified("ice", key);
+			this.saveProjectSettings(this.projectSettings);
+			return;
+		}
+		if (scope !== "global") {
+			throw new Error(`Unsupported settings scope: ${scope}`);
+		}
+		const previous = this.globalSettings.ice ?? {};
+		this.globalSettings.ice = next;
+		const keys = new Set([...Object.keys(previous), ...Object.keys(next)]);
+		for (const key of keys) this.markModified("ice", key);
+		this.save();
+	}
+
 	/** Set a validated RPC setting through the normal scoped persistence path. */
 	setSettingValue(scope: SettingsScope, key: string, value: unknown): void {
 		const parts = key.split(".");
@@ -502,7 +594,7 @@ export class SettingsManager {
 		if (!trusted) {
 			this.projectSettings = {};
 			this.projectSettingsLoadError = null;
-			this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+			this.settings = this.mergeScopedSettings();
 			return;
 		}
 
@@ -512,7 +604,7 @@ export class SettingsManager {
 		if (projectLoad.error) {
 			this.recordError("project", projectLoad.error);
 		}
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = this.mergeScopedSettings();
 	}
 
 	async reload(): Promise<void> {
@@ -540,12 +632,12 @@ export class SettingsManager {
 			this.recordError("project", projectLoad.error);
 		}
 
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = this.mergeScopedSettings();
 	}
 
 	/** Apply additional overrides on top of current settings */
 	applyOverrides(overrides: Partial<Settings>): void {
-		this.settings = deepMergeSettings(this.settings, overrides);
+		this.settings = deepMergeSettings(this.settings, normalizeLegacySettings(overrides) as Settings);
 	}
 
 	/** Mark a global field as modified during this session */
@@ -646,7 +738,7 @@ export class SettingsManager {
 	}
 
 	private save(): void {
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = this.mergeScopedSettings();
 
 		if (this.globalSettingsLoadError) {
 			return;
@@ -664,7 +756,7 @@ export class SettingsManager {
 	private saveProjectSettings(settings: Settings): void {
 		this.assertProjectTrustedForWrite();
 		this.projectSettings = structuredClone(settings);
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = this.mergeScopedSettings();
 
 		if (this.projectSettingsLoadError) {
 			return;
@@ -688,6 +780,16 @@ export class SettingsManager {
 
 	async flush(): Promise<void> {
 		await this.writeQueue;
+	}
+
+	/** Non-consuming diagnostics for settings files that could not be loaded. */
+	getLoadErrors(): readonly SettingsError[] {
+		return Object.freeze([
+			...(this.globalSettingsLoadError ? [{ scope: "global" as const, error: this.globalSettingsLoadError }] : []),
+			...(this.projectSettingsLoadError
+				? [{ scope: "project" as const, error: this.projectSettingsLoadError }]
+				: []),
+		]);
 	}
 
 	drainErrors(): SettingsError[] {
@@ -1190,7 +1292,7 @@ export class SettingsManager {
 		if (this.settings.terminal?.clearOnShrink !== undefined) {
 			return this.settings.terminal.clearOnShrink;
 		}
-		return process.env.PI_CLEAR_ON_SHRINK === "1";
+		return getIceEnv("ICE_CLEAR_ON_SHRINK") === "1";
 	}
 
 	setClearOnShrink(enabled: boolean): void {
@@ -1295,7 +1397,7 @@ export class SettingsManager {
 	}
 
 	getShowHardwareCursor(): boolean {
-		return this.settings.showHardwareCursor ?? process.env.PI_HARDWARE_CURSOR === "1";
+		return this.settings.showHardwareCursor ?? getIceEnv("ICE_HARDWARE_CURSOR") === "1";
 	}
 
 	setShowHardwareCursor(enabled: boolean): void {

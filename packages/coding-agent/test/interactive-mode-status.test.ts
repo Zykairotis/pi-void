@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import * as path from "node:path";
-import { type AutocompleteProvider, CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
+import { type AutocompleteProvider, CombinedAutocompleteProvider } from "@zykairotis/ice-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { renderLayoutFrame } from "../../tui/src/layout.ts";
 import { type Component, Container, type Focusable, type TUI } from "../../tui/src/tui.ts";
@@ -692,21 +692,21 @@ describe("InteractiveMode.showLoadedResources", () => {
 	function createExtensionFixtures(): ExtensionFixture[] {
 		return [
 			{
-				path: "/tmp/project/.pi/extensions/answer.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/extensions/answer.ts", {
+				path: "/tmp/project/.ice/extensions/answer.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.ice/extensions/answer.ts", {
 					source: "local",
 					scope: "project",
 					origin: "top-level",
-					baseDir: "/tmp/project/.pi/extensions",
+					baseDir: "/tmp/project/.ice/extensions",
 				}),
 			},
 			{
-				path: "/tmp/project/.pi/extensions/local-index/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/extensions/local-index/index.ts", {
+				path: "/tmp/project/.ice/extensions/local-index/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.ice/extensions/local-index/index.ts", {
 					source: "local",
 					scope: "project",
 					origin: "top-level",
-					baseDir: "/tmp/project/.pi/extensions",
+					baseDir: "/tmp/project/.ice/extensions",
 				}),
 			},
 			{
@@ -719,44 +719,47 @@ describe("InteractiveMode.showLoadedResources", () => {
 				}),
 			},
 			{
-				path: "/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts", {
-					source: "npm:pi-markdown-preview",
-					scope: "project",
-					origin: "package",
-					baseDir: "/tmp/project/.pi/npm/node_modules/pi-markdown-preview",
-				}),
-			},
-			{
-				path: "/tmp/project/.pi/npm/node_modules/@scope/pi-scoped/extensions/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/@scope/pi-scoped/extensions/index.ts", {
-					source: "npm:@scope/pi-scoped",
-					scope: "project",
-					origin: "package",
-					baseDir: "/tmp/project/.pi/npm/node_modules/@scope/pi-scoped",
-				}),
-			},
-			{
-				path: "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/index.ts",
+				path: "/tmp/project/.ice/npm/node_modules/ice-markdown-preview/extensions/index.ts",
 				sourceInfo: createSourceInfo(
-					"/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/index.ts",
+					"/tmp/project/.ice/npm/node_modules/ice-markdown-preview/extensions/index.ts",
 					{
-						source: "git:github.com/HazAT/pi-interactive-subagents",
+						source: "npm:ice-markdown-preview",
 						scope: "project",
 						origin: "package",
-						baseDir: "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents",
+						baseDir: "/tmp/project/.ice/npm/node_modules/ice-markdown-preview",
 					},
 				),
 			},
 			{
-				path: "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
+				path: "/tmp/project/.ice/npm/node_modules/@scope/ice-scoped/extensions/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.ice/npm/node_modules/@scope/ice-scoped/extensions/index.ts", {
+					source: "npm:@scope/ice-scoped",
+					scope: "project",
+					origin: "package",
+					baseDir: "/tmp/project/.ice/npm/node_modules/@scope/ice-scoped",
+				}),
+			},
+			{
+				path: "/tmp/project/.ice/git/github.com/HazAT/ice-interactive-subagents/extensions/index.ts",
 				sourceInfo: createSourceInfo(
-					"/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents/extensions/subagents/index.ts",
+					"/tmp/project/.ice/git/github.com/HazAT/ice-interactive-subagents/extensions/index.ts",
 					{
-						source: "git:github.com/HazAT/pi-interactive-subagents",
+						source: "git:github.com/HazAT/ice-interactive-subagents",
 						scope: "project",
 						origin: "package",
-						baseDir: "/tmp/project/.pi/git/github.com/HazAT/pi-interactive-subagents",
+						baseDir: "/tmp/project/.ice/git/github.com/HazAT/ice-interactive-subagents",
+					},
+				),
+			},
+			{
+				path: "/tmp/project/.ice/git/github.com/HazAT/ice-interactive-subagents/extensions/subagents/index.ts",
+				sourceInfo: createSourceInfo(
+					"/tmp/project/.ice/git/github.com/HazAT/ice-interactive-subagents/extensions/subagents/index.ts",
+					{
+						source: "git:github.com/HazAT/ice-interactive-subagents",
+						scope: "project",
+						origin: "package",
+						baseDir: "/tmp/project/.ice/git/github.com/HazAT/ice-interactive-subagents",
 					},
 				),
 			},
@@ -852,7 +855,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
-  @scope/pi-scoped, answer.ts, cli-extension.ts, HazAT/pi-interactive-subagents, HazAT/pi-interactive-subagents:subagents, local-index, pi-markdown-preview, user-index"`);
+  @scope/ice-scoped, answer.ts, cli-extension.ts, HazAT/ice-interactive-subagents, HazAT/ice-interactive-subagents:subagents, ice-markdown-preview, local-index, user-index"`);
 	});
 
 	test("adds more parent folders until local extension labels are unique", () => {
@@ -1099,13 +1102,16 @@ describe("InteractiveMode.showLoadedResources", () => {
 	test("package extensions still strip index.ts correctly (regression guard)", () => {
 		const extensions: ExtensionFixture[] = [
 			{
-				path: "/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/pi-markdown-preview/extensions/index.ts", {
-					source: "npm:pi-markdown-preview",
-					scope: "project",
-					origin: "package",
-					baseDir: "/tmp/project/.pi/npm/node_modules/pi-markdown-preview",
-				}),
+				path: "/tmp/project/.ice/npm/node_modules/ice-markdown-preview/extensions/index.ts",
+				sourceInfo: createSourceInfo(
+					"/tmp/project/.ice/npm/node_modules/ice-markdown-preview/extensions/index.ts",
+					{
+						source: "npm:ice-markdown-preview",
+						scope: "project",
+						origin: "package",
+						baseDir: "/tmp/project/.ice/npm/node_modules/ice-markdown-preview",
+					},
+				),
 			},
 		];
 
@@ -1121,27 +1127,27 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
-  pi-markdown-preview"`);
+  ice-markdown-preview"`);
 	});
 
 	test("labels npm sibling extensions relative to the declaring package", () => {
 		const extensions: ExtensionFixture[] = [
 			{
-				path: "/tmp/project/.pi/npm/node_modules/primary-package/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/primary-package/index.ts", {
+				path: "/tmp/project/.ice/npm/node_modules/primary-package/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.ice/npm/node_modules/primary-package/index.ts", {
 					source: "npm:primary-package",
 					scope: "project",
 					origin: "package",
-					baseDir: "/tmp/project/.pi/npm/node_modules/primary-package",
+					baseDir: "/tmp/project/.ice/npm/node_modules/primary-package",
 				}),
 			},
 			{
-				path: "/tmp/project/.pi/npm/node_modules/sibling-package/index.ts",
-				sourceInfo: createSourceInfo("/tmp/project/.pi/npm/node_modules/sibling-package/index.ts", {
+				path: "/tmp/project/.ice/npm/node_modules/sibling-package/index.ts",
+				sourceInfo: createSourceInfo("/tmp/project/.ice/npm/node_modules/sibling-package/index.ts", {
 					source: "npm:primary-package",
 					scope: "project",
 					origin: "package",
-					baseDir: "/tmp/project/.pi/npm/node_modules/primary-package",
+					baseDir: "/tmp/project/.ice/npm/node_modules/primary-package",
 				}),
 			},
 		];
@@ -1162,9 +1168,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 	});
 
 	test("labels Windows npm sibling extensions relative to the declaring package", () => {
-		const primaryPath = "C:\\Users\\me\\.pi\\agent\\npm\\node_modules\\primary-package\\index.ts";
-		const siblingPath = "C:\\Users\\me\\.pi\\agent\\npm\\node_modules\\sibling-package\\index.ts";
-		const baseDir = "C:\\Users\\me\\.pi\\agent\\npm\\node_modules\\primary-package";
+		const primaryPath = "C:\\Users\\me\\.ice\\agent\\npm\\node_modules\\primary-package\\index.ts";
+		const siblingPath = "C:\\Users\\me\\.ice\\agent\\npm\\node_modules\\sibling-package\\index.ts";
+		const baseDir = "C:\\Users\\me\\.ice\\agent\\npm\\node_modules\\primary-package";
 		const extensions: ExtensionFixture[] = [
 			{
 				path: primaryPath,
@@ -1216,14 +1222,14 @@ describe("InteractiveMode.showLoadedResources", () => {
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
   project
-    /tmp/project/.pi/extensions/answer.ts
-    /tmp/project/.pi/extensions/local-index
-    git:github.com/HazAT/pi-interactive-subagents
+    /tmp/project/.ice/extensions/answer.ts
+    /tmp/project/.ice/extensions/local-index
+    git:github.com/HazAT/ice-interactive-subagents
       extensions
       extensions/subagents
-    npm:@scope/pi-scoped
+    npm:@scope/ice-scoped
       extensions
-    npm:pi-markdown-preview
+    npm:ice-markdown-preview
       extensions
   user
     /tmp/agent/extensions/user-index
@@ -1233,11 +1239,11 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 	test("shows context paths relative to cwd while preserving full external paths", () => {
 		const home = homedir();
-		const cwd = path.join(home, "Development", "pi-mono");
+		const cwd = path.join(home, "Development", "ice-mono");
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			cwd,
-			contextFiles: [{ path: path.join(home, ".pi", "agent", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
+			contextFiles: [{ path: path.join(home, ".ice", "agent", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
 		});
 
 		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
@@ -1246,7 +1252,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 		const output = renderAll(fakeThis.loadedResourcesContainer).replace(/\\/g, "/");
 		expect(output).toContain("[Context]");
-		expect(output).toContain("~/.pi/agent/AGENTS.md, AGENTS.md");
+		expect(output).toContain("~/.ice/agent/AGENTS.md, AGENTS.md");
 		expect(output).not.toContain(`${cwd.replace(/\\/g, "/")}/AGENTS.md`);
 	});
 
@@ -1255,8 +1261,8 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			cwd,
-			systemPromptSource: { path: path.join(cwd, ".pi", "SYSTEM.md") },
-			appendSystemPromptSources: [{ path: path.join(cwd, ".pi", "APPEND_SYSTEM.md") }],
+			systemPromptSource: { path: path.join(cwd, ".ice", "SYSTEM.md") },
+			appendSystemPromptSources: [{ path: path.join(cwd, ".ice", "APPEND_SYSTEM.md") }],
 			contextFiles: [{ path: path.join(cwd, "AGENTS.md") }],
 		});
 
@@ -1266,17 +1272,17 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 		const output = renderAll(fakeThis.loadedResourcesContainer).replace(/\\/g, "/");
 		expect(output).toContain("[Context]");
-		expect(output).toContain(".pi/SYSTEM.md, .pi/APPEND_SYSTEM.md, AGENTS.md");
+		expect(output).toContain(".ice/SYSTEM.md, .ice/APPEND_SYSTEM.md, AGENTS.md");
 	});
 
 	test("shows full context paths when expanded", () => {
 		const home = homedir();
-		const cwd = path.join(home, "Development", "pi-mono");
+		const cwd = path.join(home, "Development", "ice-mono");
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			toolOutputExpanded: true,
 			cwd,
-			contextFiles: [{ path: path.join(home, ".pi", "agent", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
+			contextFiles: [{ path: path.join(home, ".ice", "agent", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
 		});
 
 		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
@@ -1285,9 +1291,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 
 		const output = renderAll(fakeThis.loadedResourcesContainer).replace(/\\/g, "/");
 		expect(output).toContain("[Context]");
-		expect(output).toContain("~/.pi/agent/AGENTS.md");
-		expect(output).toContain("~/Development/pi-mono/AGENTS.md");
-		expect(output).not.toContain("~/.pi/agent/AGENTS.md, AGENTS.md");
+		expect(output).toContain("~/.ice/agent/AGENTS.md");
+		expect(output).toContain("~/Development/ice-mono/AGENTS.md");
+		expect(output).not.toContain("~/.ice/agent/AGENTS.md, AGENTS.md");
 	});
 
 	test("does not show verbose listing on quiet startup during reload", () => {
