@@ -51,7 +51,7 @@ import {
 } from "./constrained-sampling.ts";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
-import { buildBaseOptions } from "./simple-options.ts";
+import { buildBaseOptions, clampMaxTokensToHardLimit, enforceHardMaxTokensInRecord } from "./simple-options.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 /**
@@ -234,6 +234,13 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
 				params = nextParams as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
+			}
+			if (options?.hardMaxOutputTokens !== undefined) {
+				enforceHardMaxTokensInRecord(
+					params as unknown as Record<string, unknown>,
+					compat.maxTokensField === "max_tokens" ? "max_tokens" : "max_completion_tokens",
+					options.hardMaxOutputTokens,
+				);
 			}
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
@@ -708,11 +715,12 @@ function buildParams(
 		params.store = false;
 	}
 
-	if (options?.maxTokens) {
+	if (options?.maxTokens || options?.hardMaxOutputTokens !== undefined) {
+		const maxTokens = clampMaxTokensToHardLimit(options.maxTokens, options.hardMaxOutputTokens)!;
 		if (compat.maxTokensField === "max_tokens") {
-			(params as any).max_tokens = options.maxTokens;
+			(params as any).max_tokens = maxTokens;
 		} else {
-			params.max_completion_tokens = options.maxTokens;
+			params.max_completion_tokens = maxTokens;
 		}
 	}
 
@@ -862,6 +870,16 @@ function buildParams(
 	// Last so custom keys override the named request fields.
 	if (options?.samplingParams) {
 		Object.assign(params, options.samplingParams);
+	}
+	if (options?.hardMaxOutputTokens !== undefined) {
+		const maxTokens = clampMaxTokensToHardLimit(
+			compat.maxTokensField === "max_tokens"
+				? ((params as unknown as Record<string, unknown>).max_tokens as number | undefined)
+				: params.max_completion_tokens,
+			options.hardMaxOutputTokens,
+		)!;
+		if (compat.maxTokensField === "max_tokens") (params as unknown as Record<string, unknown>).max_tokens = maxTokens;
+		else params.max_completion_tokens = maxTokens;
 	}
 
 	return params;

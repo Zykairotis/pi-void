@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { type IceMessagesOptions, stream, streamSimple } from "../src/api/ice-messages.ts";
-import type { Api, AssistantMessageEvent, Context, Model, StopReason } from "../src/types.ts";
+import type { Api, AssistantMessageEvent, Context, Model, SimpleStreamOptions, StopReason } from "../src/types.ts";
 
 type RecordedRequest = {
 	url: string;
@@ -157,6 +157,32 @@ describe("ice-messages", () => {
 		});
 	});
 
+	it("enforces the hard output authority and forwards tool-free finalization", async () => {
+		const { baseUrl, requests } = await startServer({ events: [{ type: "done", reason: "stop", usage }] });
+		const model = createModel(baseUrl);
+
+		await streamSimple(model, context, {
+			apiKey: "test-key",
+			maxTokens: 1_000,
+			hardMaxOutputTokens: 128,
+			toolChoice: "none",
+			onPayload: (payload) => {
+				const body = payload as { options: Record<string, unknown> };
+				return { ...body, options: { ...body.options, maxTokens: 50_000 } };
+			},
+		}).result();
+
+		expect(requests[0].body).toEqual({
+			model: "auto",
+			context,
+			options: {
+				maxTokens: 128,
+				hardMaxOutputTokens: 128,
+				toolChoice: "none",
+			},
+		});
+	});
+
 	it("appends debug=1 and reports response headers via onResponse", async () => {
 		const { baseUrl, requests } = await startServer({
 			headers: { "x-ice-gateway-upstream-provider": "anthropic" },
@@ -172,7 +198,7 @@ describe("ice-messages", () => {
 				observedHeaders = response.headers;
 			},
 		};
-		const message = await streamSimple(model, context, options).result();
+		const message = await streamSimple(model, context, options as SimpleStreamOptions).result();
 
 		expect(message.stopReason).toBe("stop");
 		expect(requests[0].url).toBe("/v1/messages?debug=1");

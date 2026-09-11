@@ -60,7 +60,9 @@ import {
 	adjustMaxTokensForThinking,
 	buildBaseOptions,
 	clampMaxTokensToContext,
+	clampMaxTokensToHardLimit,
 	clampReasoning,
+	enforceHardMaxTokensInRecord,
 } from "./simple-options.ts";
 import { transformMessages } from "./transform-messages.ts";
 
@@ -231,7 +233,12 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 				addCustomHeadersMiddleware(client, customHeaders);
 			}
 			const cacheRetention = resolveCacheRetention(options.cacheRetention, options.env);
-			const inferenceMaxTokens = options.maxTokens ?? (isAnthropicClaudeModel(model) ? model.maxTokens : undefined);
+			const inferenceMaxTokens =
+				options.maxTokens !== undefined
+					? clampMaxTokensToHardLimit(options.maxTokens, options.hardMaxOutputTokens)
+					: isAnthropicClaudeModel(model)
+						? clampMaxTokensToHardLimit(model.maxTokens, options.hardMaxOutputTokens)
+						: options.hardMaxOutputTokens;
 			let commandInput = {
 				modelId: model.id,
 				messages: convertMessages(context, model, cacheRetention, options.env),
@@ -247,6 +254,13 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 			const nextCommandInput = await options?.onPayload?.(commandInput, model);
 			if (nextCommandInput !== undefined) {
 				commandInput = nextCommandInput as typeof commandInput;
+			}
+			if (options.hardMaxOutputTokens !== undefined) {
+				enforceHardMaxTokensInRecord(
+					commandInput.inferenceConfig as unknown as Record<string, unknown>,
+					"maxTokens",
+					options.hardMaxOutputTokens,
+				);
 			}
 			const command = new ConverseStreamCommand(commandInput);
 
@@ -483,9 +497,13 @@ export const streamSimple: StreamFunction<"bedrock-converse-stream", SimpleStrea
 			model.maxTokens,
 			options.reasoning,
 			options.thinkingBudgets,
+			options.hardMaxOutputTokens,
 		);
 
-		const maxTokens = clampMaxTokensToContext(model, context, adjusted.maxTokens);
+		const maxTokens = clampMaxTokensToHardLimit(
+			clampMaxTokensToContext(model, context, adjusted.maxTokens),
+			options.hardMaxOutputTokens,
+		)!;
 
 		return stream(model, context, {
 			...base,

@@ -35,7 +35,7 @@ import {
 	retryGoogleRequest,
 	supportsGoogleStrictToolSampling,
 } from "./google-shared.ts";
-import { buildBaseOptions } from "./simple-options.ts";
+import { buildBaseOptions, clampMaxTokensToHardLimit, enforceHardMaxTokensInRecord } from "./simple-options.ts";
 
 export interface GoogleOptions extends StreamOptions {
 	toolChoice?: "auto" | "none" | "any";
@@ -88,6 +88,13 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
 				params = nextParams as GenerateContentParameters;
+			}
+			if (options?.hardMaxOutputTokens !== undefined) {
+				enforceHardMaxTokensInRecord(
+					params.config as unknown as Record<string, unknown>,
+					"maxOutputTokens",
+					options.hardMaxOutputTokens,
+				);
 			}
 			const googleStream = await retryGoogleRequest(() => client.models.generateContentStream(params), options);
 
@@ -326,7 +333,10 @@ export const streamSimple: StreamFunction<"google-generative-ai", SimpleStreamOp
 		...base,
 		thinking: {
 			enabled: true,
-			budgetTokens: getGoogleBudget(googleModel, effort, options.thinkingBudgets),
+			budgetTokens: clampThinkingBudget(
+				getGoogleBudget(googleModel, effort, options.thinkingBudgets),
+				options.hardMaxOutputTokens,
+			),
 		},
 	} satisfies GoogleOptions);
 };
@@ -363,8 +373,8 @@ function buildParams(
 	if (options.temperature !== undefined) {
 		generationConfig.temperature = options.temperature;
 	}
-	if (options.maxTokens !== undefined) {
-		generationConfig.maxOutputTokens = options.maxTokens;
+	if (options.maxTokens !== undefined || options.hardMaxOutputTokens !== undefined) {
+		generationConfig.maxOutputTokens = clampMaxTokensToHardLimit(options.maxTokens, options.hardMaxOutputTokens)!;
 	}
 
 	const functionCallingMode = context.tools?.length
@@ -385,7 +395,10 @@ function buildParams(
 			// Cast to any since our GoogleThinkingLevel mirrors Google's ThinkingLevel enum values
 			thinkingConfig.thinkingLevel = options.thinking.level as any;
 		} else if (options.thinking.budgetTokens !== undefined) {
-			thinkingConfig.thinkingBudget = options.thinking.budgetTokens;
+			thinkingConfig.thinkingBudget = clampThinkingBudget(
+				options.thinking.budgetTokens,
+				options.hardMaxOutputTokens,
+			);
 		}
 		config.thinkingConfig = thinkingConfig;
 	} else if (model.reasoning && options.thinking && !options.thinking.enabled) {
@@ -472,6 +485,11 @@ function getThinkingLevel(effort: ClampedThinkingLevel, model: Model<"google-gen
 		case "high":
 			return "HIGH";
 	}
+}
+
+function clampThinkingBudget(budget: number, hardMaxOutputTokens: number | undefined): number {
+	if (budget < 0 || hardMaxOutputTokens === undefined) return budget;
+	return Math.min(budget, hardMaxOutputTokens);
 }
 
 function getGoogleBudget(

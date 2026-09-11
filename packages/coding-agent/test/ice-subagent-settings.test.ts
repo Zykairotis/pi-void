@@ -45,6 +45,10 @@ describe("ICE subagent control settings", () => {
 	it("rejects unknown settings keys and out-of-range budgets", () => {
 		expect(() => parseIceSubagentSettings({ unknownKey: true })).toThrowError(/unknown/i);
 		expect(() => parseIceSubagentSettings({ defaults: { maxTurns: 999999 } })).toThrowError(/maxTurns/i);
+		expect(() => parseIceSubagentSettings({ defaults: { maxTotalTokens: 1_023 } })).toThrowError(/maxTotalTokens/i);
+		expect(() => parseIceSubagentSettings({ restrictions: { maxTotalTokens: 1_000_001 } })).toThrowError(
+			/maxTotalTokens/i,
+		);
 		expect(() => parseIceSubagentSettings({ restrictions: { denyTools: ["invalid tool identifier"] } })).toThrowError(
 			/denyTools|unknown/i,
 		);
@@ -53,14 +57,15 @@ describe("ICE subagent control settings", () => {
 	it("parses bounded preferences and role overrides", () => {
 		const parsed = parseIceSubagentSettings({
 			enabled: true,
-			defaults: { thinking: "medium", timeoutMs: 60_000, maxTurns: 12 },
+			defaults: { thinking: "medium", timeoutMs: 60_000, maxTurns: 12, maxTotalTokens: 65_536 },
 			allowedRoles: ["explore"],
 			roleDefaults: { explore: { thinking: "low", maxTurns: 8 } },
-			restrictions: { maxTurns: 16, denyRoles: ["bulk"] },
+			restrictions: { maxTurns: 16, maxTotalTokens: 32_768, denyRoles: ["bulk"] },
 		});
 		expect(parsed.defaults.thinking).toBe("medium");
 		expect(parsed.roleDefaults.explore?.maxTurns).toBe(8);
 		expect(parsed.restrictions.maxTurns).toBe(16);
+		expect(parsed.restrictions.maxTotalTokens).toBe(32_768);
 		expect(parsed.restrictions.denyRoles).toEqual(["bulk"]);
 	});
 
@@ -80,12 +85,16 @@ describe("ICE subagent control settings", () => {
 		// Explicit call value wins within the deny-first ceiling of 16.
 		expect(contract.maxTurns.value).toBe(14);
 		expect(contract.maxTurns.source).toBe("call");
+		expect(contract.values.maxTotalTokens).toBeUndefined();
 		const capped = resolveIceSubagentContract({
 			role: "explore",
-			global: parseIceSubagentSettings({ restrictions: { maxTurns: 6 } }),
-			call: { maxTurns: 14 },
+			global: parseIceSubagentSettings({ restrictions: { maxTurns: 6, maxTotalTokens: 32_768 } }),
+			call: { maxTurns: 14, maxTotalTokens: 65_536 },
 		});
 		expect(capped.maxTurns.value).toBe(6);
+		expect(capped.maxTotalTokens.value).toBe(32_768);
+		expect(capped.values.maxTotalTokens).toBe(32_768);
+		expect(capped.restrictionsApplied).toContain("maxTotalTokens");
 		expect(capped.diagnostics.join(" ")).toMatch(/clamped to enforced cap/);
 		const deniedRole = resolveIceSubagentContract({
 			role: "bulk",

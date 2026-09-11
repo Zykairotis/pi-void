@@ -225,6 +225,110 @@ describe("durable subagent jobs", () => {
 		expect(snapshots.at(-1)?.job.contract?.sourceHash).toBe("a".repeat(64));
 	});
 
+	it("persists a bounded token budget only under its immutable contract", async () => {
+		const snapshots: PersistedSubagentJobSnapshot[] = [];
+		const registry = createRegistry((snapshot) => snapshots.push(snapshot));
+		const contract: SubagentJobContract = {
+			thinking: "medium",
+			timeoutMs: 120_000,
+			maxTurns: 12,
+			maxToolCalls: 40,
+			maxOutputBytes: 24 * 1024,
+			maxTotalTokens: 20_000,
+			tools: [],
+		};
+		const run = completedRun();
+		run.result.budget = {
+			maxTotalTokens: 20_000,
+			workPhaseLimit: 18_000,
+			reportReserveTokens: 2_000,
+			chargedTokens: 12,
+			remainingTokens: 19_988,
+			inputTokens: 5,
+			outputTokens: 6,
+			cacheReadTokens: 9,
+			cacheWriteTokens: 1,
+			overshootTokens: 0,
+			accounting: "estimated",
+			exhausted: false,
+			hardCap: "aggregate-soft",
+		};
+		const accepted = launch(registry, async () => run, 24 * 1024, contract);
+		await flush();
+		expect(registry.inspect(accepted.jobId).result?.budget).toMatchObject({
+			maxTotalTokens: 20_000,
+			chargedTokens: 12,
+			remainingTokens: 19_988,
+		});
+		expect(snapshots.at(-1)?.result?.budget?.maxTotalTokens).toBe(20_000);
+	});
+
+	it("refuses newer persisted snapshots that widen token authority or rewind charged usage", async () => {
+		const snapshots: PersistedSubagentJobSnapshot[] = [];
+		const source = createRegistry((snapshot) => snapshots.push(snapshot));
+		const contract: SubagentJobContract = {
+			thinking: "medium",
+			timeoutMs: 120_000,
+			maxTurns: 12,
+			maxToolCalls: 40,
+			maxOutputBytes: 24 * 1024,
+			maxTotalTokens: 20_000,
+			tools: [],
+		};
+		const run = completedRun();
+		run.result.budget = {
+			maxTotalTokens: 20_000,
+			workPhaseLimit: 18_000,
+			reportReserveTokens: 2_000,
+			chargedTokens: 12,
+			remainingTokens: 19_988,
+			inputTokens: 5,
+			outputTokens: 6,
+			cacheReadTokens: 9,
+			cacheWriteTokens: 1,
+			overshootTokens: 0,
+			accounting: "estimated",
+			exhausted: false,
+			hardCap: "aggregate-soft",
+		};
+		const accepted = launch(source, async () => run, 24 * 1024, contract);
+		await flush();
+		const trusted = structuredClone(snapshots.at(-1)!);
+
+		const widened = structuredClone(trusted);
+		widened.sequence += 1;
+		widened.job.contract!.maxTotalTokens = 30_000;
+		widened.result!.budget = {
+			...widened.result!.budget!,
+			maxTotalTokens: 30_000,
+			workPhaseLimit: 27_000,
+			reportReserveTokens: 3_000,
+			remainingTokens: 29_988,
+		};
+		const widenedRegistry = createRegistry();
+		widenedRegistry.restore(
+			[trusted, widened].map((snapshot) => ({ type: "custom", customType: JOB_ENTRY_TYPE, data: snapshot })),
+		);
+		expect(widenedRegistry.inspect(accepted.jobId).job.contract?.maxTotalTokens).toBe(20_000);
+		expect(widenedRegistry.inspect(accepted.jobId).result?.budget?.maxTotalTokens).toBe(20_000);
+
+		const rewound = structuredClone(trusted);
+		rewound.sequence += 1;
+		rewound.result!.budget = {
+			...rewound.result!.budget!,
+			chargedTokens: 2,
+			remainingTokens: 19_998,
+			inputTokens: 1,
+			outputTokens: 1,
+			cacheWriteTokens: 0,
+		};
+		const rewoundRegistry = createRegistry();
+		rewoundRegistry.restore(
+			[trusted, rewound].map((snapshot) => ({ type: "custom", customType: JOB_ENTRY_TYPE, data: snapshot })),
+		);
+		expect(rewoundRegistry.inspect(accepted.jobId).result?.budget?.chargedTokens).toBe(12);
+	});
+
 	it("queues a second owner job when the active limit is reached", async () => {
 		const run = vi.fn(
 			(signal: AbortSignal) =>
