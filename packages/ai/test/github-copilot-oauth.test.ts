@@ -62,6 +62,9 @@ describe("GitHub Copilot OAuth device flow", () => {
 	});
 
 	it("filters models to the authenticated account picker catalog", async () => {
+		const [availableModel, disabledModel, hiddenModel] = githubCopilotProvider().getModels();
+		if (!availableModel || !disabledModel || !hiddenModel) throw new Error("Expected three Copilot fixture models");
+		const availableModelId = availableModel.id;
 		const fetchMock = vi.fn(async (input: unknown, init?: RequestInit): Promise<Response> => {
 			const url = getUrl(input);
 
@@ -79,18 +82,18 @@ describe("GitHub Copilot OAuth device flow", () => {
 				return jsonResponse({
 					data: [
 						{
-							id: "gpt-4.1",
+							id: availableModelId,
 							model_picker_enabled: true,
 							capabilities: { supports: { tool_calls: true } },
 						},
 						{
-							id: "claude-opus-4.7",
+							id: disabledModel.id,
 							model_picker_enabled: true,
 							policy: { state: "disabled" },
 							capabilities: { supports: { tool_calls: true } },
 						},
 						{
-							id: "gpt-5.4-nano",
+							id: hiddenModel.id,
 							model_picker_enabled: false,
 							capabilities: { supports: { tool_calls: true } },
 						},
@@ -112,13 +115,13 @@ describe("GitHub Copilot OAuth device flow", () => {
 			},
 			neverAbortedSignal,
 		);
-		expect(credentials.availableModelIds).toEqual(["gpt-4.1"]);
+		expect(credentials.availableModelIds).toEqual([availableModelId]);
 
 		const store = new InMemoryCredentialStore();
 		await store.modify("github-copilot", async () => ({ ...credentials, type: "oauth" }));
 		const models = createModels({ credentials: store });
 		models.setProvider(githubCopilotProvider());
-		expect((await models.getAvailable("github-copilot")).map((model) => model.id)).toEqual(["gpt-4.1"]);
+		expect((await models.getAvailable("github-copilot")).map((model) => model.id)).toEqual([availableModelId]);
 	});
 
 	it("reports device-code details through onDeviceCode", async () => {

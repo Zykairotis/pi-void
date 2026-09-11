@@ -1,0 +1,14 @@
+flowchart TD
+    A["You give the main agent a task"] --> B["It picks a specialist<br/>and a permission check runs"]
+    B --> C["Helper starts working<br/>with its own fresh memory"]
+    C --> D{"You open the live view?"}
+    D -->|"yes, mirror mode"| E["Watch read-only<br/>or take the wheel"]
+    D -->|"no"| F["Keep working elsewhere"]
+    E --> C
+    F --> G{"Time budget runs out?"}
+    C --> G
+    G -->|"yes"| H["Paused and kept<br/>you grant more time or stop it"]
+    G -->|"no"| I["Helper returns a bounded report<br/>with evidence"]
+    H --> C
+    I --> J["Main agent verifies the result<br/>before using it"]
+    J --> K["You get the answer<br/>and a retained read-only history"]

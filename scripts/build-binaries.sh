@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Build pi binaries for all platforms locally.
+# Build ice binaries for all platforms locally.
 # Mirrors .github/workflows/build-binaries.yml
 #
 # Usage:
@@ -16,12 +16,12 @@
 #
 # Output:
 #   packages/coding-agent/binaries/
-#     pi-darwin-arm64.tar.gz
-#     pi-darwin-x64.tar.gz
-#     pi-linux-x64.tar.gz
-#     pi-linux-arm64.tar.gz
-#     pi-windows-x64.zip
-#     pi-windows-arm64.zip
+#     ice-darwin-arm64.tar.gz
+#     ice-darwin-x64.tar.gz
+#     ice-linux-x64.tar.gz
+#     ice-linux-arm64.tar.gz
+#     ice-windows-x64.zip
+#     ice-windows-arm64.zip
 
 set -euo pipefail
 
@@ -96,19 +96,19 @@ fi
 
 if [[ "$SKIP_DEPS" == "false" ]]; then
     echo "==> Installing cross-platform native bindings..."
-    CLIPBOARD_VERSION=$(node -p "require('./packages/coding-agent/package.json').optionalDependencies['@mariozechner/clipboard']")
+    CLIPBOARD_VERSION=$(node -p "require('./packages/coding-agent/package.json').optionalDependencies['@zykairotis/ice-clipboard']")
     # npm ci only installs optional deps for the current platform
     # We need the base clipboard package and all platform bindings for bun cross-compilation
     # Use --force to bypass platform checks (os/cpu restrictions in package.json)
     # Install all in one command to avoid npm removing packages from previous installs
     npm install --include=optional --no-save --package-lock=false --force --ignore-scripts \
-        @mariozechner/clipboard@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-darwin-arm64@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-darwin-x64@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-linux-x64-gnu@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-linux-arm64-gnu@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-win32-x64-msvc@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-win32-arm64-msvc@"$CLIPBOARD_VERSION"
+        @zykairotis/ice-clipboard@"$CLIPBOARD_VERSION" \
+        @zykairotis/ice-clipboard-darwin-arm64@"$CLIPBOARD_VERSION" \
+        @zykairotis/ice-clipboard-darwin-x64@"$CLIPBOARD_VERSION" \
+        @zykairotis/ice-clipboard-linux-x64-gnu@"$CLIPBOARD_VERSION" \
+        @zykairotis/ice-clipboard-linux-arm64-gnu@"$CLIPBOARD_VERSION" \
+        @zykairotis/ice-clipboard-win32-x64-msvc@"$CLIPBOARD_VERSION" \
+        @zykairotis/ice-clipboard-win32-arm64-msvc@"$CLIPBOARD_VERSION"
 else
     echo "==> Skipping cross-platform native bindings (--skip-deps)"
 fi
@@ -150,9 +150,9 @@ for platform in "${PLATFORMS[@]}"; do
     # explicit build entrypoints. The runtime can still use new URL(...), but the
     # worker must be present in the compiled executable.
     if [[ "$platform" == windows-* ]]; then
-        bun build --compile --target="$bun_target" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts --outfile "$OUTPUT_DIR/$platform/pi.exe"
+        bun build --compile --target="$bun_target" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts --outfile "$OUTPUT_DIR/$platform/ice.exe"
     else
-        bun build --compile --target="$bun_target" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts --outfile "$OUTPUT_DIR/$platform/pi"
+        bun build --compile --target="$bun_target" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts --outfile "$OUTPUT_DIR/$platform/ice"
     fi
 done
 
@@ -167,7 +167,6 @@ for platform in "${PLATFORMS[@]}"; do
     mkdir -p "$OUTPUT_DIR/$platform/theme"
     cp dist/modes/interactive/theme/*.json "$OUTPUT_DIR/$platform/theme/"
     mkdir -p "$OUTPUT_DIR/$platform/assets"
-    cp dist/modes/interactive/assets/* "$OUTPUT_DIR/$platform/assets/"
     cp -r dist/core/export-html "$OUTPUT_DIR/$platform/"
     cp -r docs "$OUTPUT_DIR/$platform/"
     cp -r examples "$OUTPUT_DIR/$platform/"
@@ -198,11 +197,11 @@ for platform in "${PLATFORMS[@]}"; do
             clipboard_native_file="clipboard.win32-arm64-msvc.node"
             ;;
     esac
-    mkdir -p "$OUTPUT_DIR/$platform/node_modules/@mariozechner"
-    cp -r ../../node_modules/@mariozechner/clipboard "$OUTPUT_DIR/$platform/node_modules/@mariozechner/"
-    cp -r ../../node_modules/@mariozechner/$clipboard_native_package "$OUTPUT_DIR/$platform/node_modules/@mariozechner/"
-    cp "../../node_modules/@mariozechner/$clipboard_native_package/$clipboard_native_file" \
-        "$OUTPUT_DIR/$platform/node_modules/@mariozechner/clipboard/"
+    mkdir -p "$OUTPUT_DIR/$platform/node_modules/@zykairotis"
+    cp -r ../../node_modules/@zykairotis/ice-clipboard "$OUTPUT_DIR/$platform/node_modules/@zykairotis/"
+    cp -r ../../node_modules/@zykairotis/ice-$clipboard_native_package "$OUTPUT_DIR/$platform/node_modules/@zykairotis/"
+    cp "../../node_modules/@zykairotis/ice-$clipboard_native_package/$clipboard_native_file" \
+        "$OUTPUT_DIR/$platform/node_modules/@zykairotis/ice-clipboard/"
 
     # Copy terminal input native helpers next to compiled binaries.
     if [[ "$platform" == darwin-* ]]; then
@@ -226,12 +225,12 @@ cd "$OUTPUT_DIR"
 for platform in "${PLATFORMS[@]}"; do
     if [[ "$platform" == windows-* ]]; then
         # Windows (zip)
-        echo "Creating pi-$platform.zip..."
-        (cd "$platform" && zip -r ../pi-$platform.zip .)
+        echo "Creating ice-$platform.zip..."
+        (cd "$platform" && zip -r ../ice-$platform.zip .)
     else
         # Unix platforms (tar.gz) - use wrapper directory for mise compatibility
-        echo "Creating pi-$platform.tar.gz..."
-        mv "$platform" pi && tar -czf pi-$platform.tar.gz pi && mv pi "$platform"
+        echo "Creating ice-$platform.tar.gz..."
+        mv "$platform" ice && tar -czf ice-$platform.tar.gz ice && mv ice "$platform"
     fi
 done
 
@@ -240,9 +239,9 @@ echo "==> Extracting archives for testing..."
 for platform in "${PLATFORMS[@]}"; do
     rm -rf "$platform"
     if [[ "$platform" == windows-* ]]; then
-        mkdir -p "$platform" && (cd "$platform" && unzip -q ../pi-$platform.zip)
+        mkdir -p "$platform" && (cd "$platform" && unzip -q ../ice-$platform.zip)
     else
-        tar -xzf pi-$platform.tar.gz && mv pi "$platform"
+        tar -xzf ice-$platform.tar.gz && mv ice "$platform"
     fi
 done
 
@@ -254,8 +253,8 @@ echo ""
 echo "Extracted directories for testing:"
 for platform in "${PLATFORMS[@]}"; do
     if [[ "$platform" == windows-* ]]; then
-        echo "  $OUTPUT_DIR/$platform/pi.exe"
+        echo "  $OUTPUT_DIR/$platform/ice.exe"
     else
-        echo "  $OUTPUT_DIR/$platform/pi"
+        echo "  $OUTPUT_DIR/$platform/ice"
     fi
 done

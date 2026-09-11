@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SettingItem } from "@earendil-works/pi-tui";
+import type { SettingItem } from "@zykairotis/ice-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RegisteredSettings } from "../src/core/extensions/types.ts";
 import { SettingsManager, type SettingsStorage } from "../src/core/settings-manager.ts";
@@ -16,7 +16,7 @@ import {
 const tempDirectories: string[] = [];
 
 function createTempDirectory(): string {
-	const directory = mkdtempSync(join(tmpdir(), "pi-rpc-settings-"));
+	const directory = mkdtempSync(join(tmpdir(), "ice-rpc-settings-"));
 	tempDirectories.push(directory);
 	return directory;
 }
@@ -118,6 +118,80 @@ describe("RPC settings bridge", () => {
 		expect(fresh.getGlobalSettings().quietStartup).toBe(false);
 		expect(fresh.getProjectSettings().quietStartup).toBe(true);
 		expect(fresh.getQuietStartup()).toBe(true);
+	});
+
+	it("projects deny-first ICE settings instead of displaying a permissive value", async () => {
+		const manager = SettingsManager.inMemory({
+			ice: {
+				subagents: { enabled: false, allowedRoles: ["explore"], restrictions: { denyRoles: ["explore"] } },
+			},
+		});
+		manager.setIceSettingsValue("project", {
+			subagents: { enabled: true, allowedRoles: [], restrictions: { denyRoles: [] } },
+		} as never);
+		await manager.flush();
+		const snapshot = createRpcSettingsSnapshot(createContext(manager));
+		expect(field(snapshot, "ice.subagents.enabled").effectiveValue).toBe(false);
+		expect(field(snapshot, "ice.subagents.allowedRoles").effectiveValue).toEqual(["explore"]);
+	});
+
+	it("attributes malformed global and project ICE policies to their actual source", async () => {
+		const invalidIce = { subagents: { defaults: { maxTurns: "not-a-number" } } } as never;
+		const globalInvalid = SettingsManager.inMemory({ ice: invalidIce });
+		const globalSnapshot = createRpcSettingsSnapshot(createContext(globalInvalid));
+		expect(globalSnapshot.diagnostics).toContainEqual({
+			code: "ice_policy_error",
+			scope: "global",
+			message: "ICE security-sensitive settings are invalid; delegation is blocked",
+		});
+
+		const projectInvalid = SettingsManager.inMemory();
+		projectInvalid.setIceSettingsValue("project", invalidIce);
+		await projectInvalid.flush();
+		const projectSnapshot = createRpcSettingsSnapshot(createContext(projectInvalid));
+		expect(projectSnapshot.diagnostics).toContainEqual({
+			code: "ice_policy_error",
+			scope: "project",
+			message: "ICE security-sensitive settings are invalid; delegation is blocked",
+		});
+
+		const bothInvalid = SettingsManager.inMemory({ ice: invalidIce });
+		bothInvalid.setIceSettingsValue("project", invalidIce);
+		await bothInvalid.flush();
+		const bothDiagnostics = createRpcSettingsSnapshot(createContext(bothInvalid)).diagnostics;
+		expect(bothDiagnostics.filter((diagnostic) => diagnostic.code === "ice_policy_error")).toEqual([
+			expect.objectContaining({ scope: "global" }),
+			expect.objectContaining({ scope: "project" }),
+		]);
+	});
+
+	it("does not treat an untrusted project policy as effective authority", () => {
+		const manager = SettingsManager.inMemory({}, { projectTrusted: false });
+		const snapshot = createRpcSettingsSnapshot(createContext(manager));
+		expect(snapshot.projectTrusted).toBe(false);
+		expect(snapshot.diagnostics.some((diagnostic) => diagnostic.scope === "project")).toBe(false);
+	});
+
+	it("reports a failed settings write without presenting it as persisted", async () => {
+		let globalContent: string | undefined;
+		let globalReads = 0;
+		const storage: SettingsStorage = {
+			withLock(scope, callback) {
+				if (scope === "global" && globalReads++ > 0) throw new Error("locked");
+				const next = callback(globalContent);
+				if (scope === "global" && next !== undefined) globalContent = next;
+			},
+		};
+		const manager = SettingsManager.fromStorage(storage);
+		manager.setSettingValue("global", "quietStartup", true);
+		await manager.flush();
+		const snapshot = createRpcSettingsSnapshot(createContext(manager));
+		expect(snapshot.diagnostics).toContainEqual({
+			code: "settings_io_error",
+			scope: "global",
+			message: "Unable to read or persist global settings",
+		});
+		expect(globalContent).toBeUndefined();
 	});
 
 	it("updates boolean, select, number, text, list, and package-source values", async () => {

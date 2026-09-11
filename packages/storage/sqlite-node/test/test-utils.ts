@@ -8,8 +8,8 @@ import type {
 	Session as CoreSession,
 	Entry,
 	MessageEntry,
-} from "@earendil-works/pi-agent-core";
-import type { Usage } from "@earendil-works/pi-ai";
+} from "@zykairotis/ice-agent-core";
+import type { Usage } from "@zykairotis/ice-ai";
 import { afterEach, vi } from "vitest";
 import type { SqliteDatabaseFactory, SqliteSessionMetadata } from "../src/index.ts";
 
@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 export function createTempDir(): string {
-	const dir = mkdtempSync(join(tmpdir(), "pi-storage-sqlite-node-"));
+	const dir = mkdtempSync(join(tmpdir(), "ice-storage-sqlite-node-"));
 	tempDirs.push(dir);
 	return dir;
 }

@@ -97,5 +97,5 @@
 		"cardBg": "poimandresBluishGrayBrighter",
 		"infoBg": "poimandresFocus"
 	},
-	"$schema": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json"
+	"$schema": "https://raw.githubusercontent.com/Zykairotis/ice/void/packages/coding-agent/src/modes/interactive/theme/theme-schema.json"
 }

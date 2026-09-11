@@ -1,5 +1,5 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Transport } from "@earendil-works/pi-ai";
+import type { ThinkingLevel } from "@zykairotis/ice-agent-core";
+import type { Transport } from "@zykairotis/ice-ai";
 import {
 	type Component,
 	Container,
@@ -12,7 +12,7 @@ import {
 	SettingsList,
 	Spacer,
 	Text,
-} from "@earendil-works/pi-tui";
+} from "@zykairotis/ice-tui";
 import type { MidRunCompaction } from "../../../core/compaction/compaction.ts";
 import type { RegisteredSettings } from "../../../core/extensions/types.ts";
 import { formatHttpIdleTimeoutMs, HTTP_IDLE_TIMEOUT_CHOICES } from "../../../core/http-dispatcher.ts";

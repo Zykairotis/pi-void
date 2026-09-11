@@ -7,9 +7,9 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
-import type { AssistantMessage, ImageContent, Message, Model } from "@earendil-works/pi-ai/compat";
+import type { AgentMessage } from "@zykairotis/ice-agent-core";
+import type { AuthEvent, AuthPrompt } from "@zykairotis/ice-ai";
+import type { AssistantMessage, ImageContent, Message, Model } from "@zykairotis/ice-ai/compat";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -22,8 +22,8 @@ import type {
 	SlashCommand,
 	Terminal,
 	TuiMainScreenRenderState,
-} from "@earendil-works/pi-tui";
-import * as TuiLayouts from "@earendil-works/pi-tui";
+} from "@zykairotis/ice-tui";
+import * as TuiLayouts from "@zykairotis/ice-tui";
 import {
 	CombinedAutocompleteProvider,
 	type Component,
@@ -42,7 +42,7 @@ import {
 	TuiAltScreen,
 	TuiMainScreen,
 	visibleWidth,
-} from "@earendil-works/pi-tui";
+} from "@zykairotis/ice-tui";
 import chalk from "chalk";
 import { spawn, spawnSync } from "child_process";
 import {
@@ -99,16 +99,21 @@ import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
 import { getUsageCostBreakdown } from "../../core/usage-totals.ts";
+import type {
+	IceAgentViewBridge,
+	IceAgentViewDescriptor,
+	IceAgentViewPresentation,
+} from "../../ice-agent-view-bridge.ts";
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard, readClipboardText } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
 import { parseGitUrl } from "../../utils/git.ts";
+import { getIceUserAgent } from "../../utils/ice-user-agent.ts";
 import { openBrowser } from "../../utils/open-browser.ts";
 import { getCwdRelativePath } from "../../utils/paths.ts";
-import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
-import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
+import { checkForNewIceVersion, type LatestIceRelease } from "../../utils/version-check.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -120,7 +125,6 @@ import { CustomEntryComponent } from "./components/custom-entry.ts";
 import { CustomMessageComponent } from "./components/custom-message.ts";
 import { DaxnutsComponent } from "./components/daxnuts.ts";
 import { DynamicBorder } from "./components/dynamic-border.ts";
-import { EarendilAnnouncementComponent } from "./components/earendil-announcement.ts";
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
@@ -145,6 +149,7 @@ import {
 	type StatusIndicator,
 	WorkingStatusIndicator,
 } from "./components/status-indicator.ts";
+import { SubagentFooterSwitcher } from "./components/subagent-view-switcher.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { TreeSelectorComponent } from "./components/tree-selector.ts";
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
@@ -316,7 +321,7 @@ export interface InteractiveModeOptions {
 	migratedProviders?: string[];
 	/** Warning message if session model couldn't be restored */
 	modelFallbackMessage?: string;
-	/** Cwd to trust after reload if it gained a .pi directory during this implicitly trusted session. */
+	/** Cwd to trust after reload if it gained a .ice directory during this implicitly trusted session. */
 	autoTrustOnReloadCwd?: string;
 	/** Initial message to send on startup (can include @file content) */
 	initialMessage?: string;
@@ -328,6 +333,8 @@ export interface InteractiveModeOptions {
 	verbose?: boolean;
 	/** UI layout mode. */
 	uiMode?: UiMode;
+	/** Optional ICE-only bridge for viewing live and historical subagents. */
+	agentViewBridge?: IceAgentViewBridge;
 }
 
 interface InteractiveTuiOptions {
@@ -392,6 +399,9 @@ export class InteractiveMode {
 	private activeSelectorDispose?: () => void;
 	private footer: FooterComponent;
 	private footerContainer: Container;
+	private agentSwitcherContainer: Container;
+	private agentSwitcher?: SubagentFooterSwitcher;
+	private agentSwitcherRequestUnsubscribe?: () => void;
 	private footerDataProvider: FooterDataProvider;
 	// Stored so the same manager can be injected into custom editors, selectors, and extension UI.
 	private keybindings: KeybindingsManager;
@@ -421,6 +431,8 @@ export class InteractiveMode {
 	// Streaming message tracking
 	private streamingComponent: AssistantMessageComponent | undefined = undefined;
 	private streamingMessage: AssistantMessage | undefined = undefined;
+	// Failed attempt stashed while a retry may supersede its error line
+	private pendingRetryErrorComponent: AssistantMessageComponent | undefined = undefined;
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
@@ -490,23 +502,63 @@ export class InteractiveMode {
 	private options: InteractiveModeOptions;
 	private autoTrustOnReloadCwd: string | undefined;
 	private themeController: InteractiveThemeController;
+	private readonly agentViewBridge?: IceAgentViewBridge;
+	private agentViewUnsubscribe?: () => void;
+	private displayedSessionUnsubscribe?: () => void;
+	private displayedViewId = "parent";
+	private displayedViewKind: IceAgentViewDescriptor["kind"] = "parent";
+	private displayedInteractionMode: IceAgentViewDescriptor["interactionMode"];
+	private displayedControlState: IceAgentViewDescriptor["controlState"];
+	private displayedViewPresentation?: IceAgentViewPresentation;
+	private displayedSessionForRender?: AgentSession;
+	private displayedViewBound = false;
+	private displayFooterDataProvider: FooterDataProvider;
+	private readonly footerDataProviders = new Map<string, FooterDataProvider>();
+	private agentViewIdentity: Text;
 
-	// Convenience accessors
-	private get session(): AgentSession {
+	// Convenience accessors. The runtime session is always the authoritative parent;
+	// displaySession is only used by rendering and explicit view inspection.
+	private get runtimeSession(): AgentSession {
 		return this.runtimeHost.session;
 	}
+	private get displayView(): IceAgentViewDescriptor | undefined {
+		return this.agentViewBridge?.getDisplayedView();
+	}
+	private get displaySession(): AgentSession {
+		return this.displayView?.session ?? this.runtimeSession;
+	}
+	private get renderSession(): AgentSession {
+		return this.displayedSessionForRender ?? this.displaySession;
+	}
+	private get isViewingSubagent(): boolean {
+		return this.displayedViewId !== "parent" && this.displayedViewKind !== "parent";
+	}
+	private get session(): AgentSession {
+		return this.runtimeSession;
+	}
 	private get agent() {
-		return this.session.agent;
+		return this.runtimeSession.agent;
 	}
 	private get sessionManager() {
-		return this.session.sessionManager;
+		return this.runtimeSession.sessionManager;
 	}
 	private get settingsManager() {
-		return this.session.settingsManager;
+		return this.runtimeSession.settingsManager;
 	}
 
 	constructor(runtimeHost: AgentSessionRuntime, options: InteractiveModeOptions = {}) {
 		this.runtimeHost = runtimeHost;
+		this.agentViewBridge = options.agentViewBridge;
+		this.displayedViewId = this.agentViewBridge?.getDisplayedId() ?? "parent";
+		const initialDisplayedView = this.agentViewBridge?.getDisplayedView();
+		this.displayedViewKind = initialDisplayedView?.kind ?? "parent";
+		this.displayedInteractionMode = initialDisplayedView?.interactionMode;
+		this.displayedControlState = initialDisplayedView?.controlState;
+		this.displayedViewPresentation = initialDisplayedView?.presentation;
+		this.agentViewBridge?.setParentSession(this.runtimeSession);
+		this.agentViewUnsubscribe = this.agentViewBridge?.subscribe(() => {
+			void this.handleAgentViewChange();
+		});
 		const uiMode = options.uiMode ?? this.settingsManager.getUiMode();
 		this.options = { ...options, uiMode };
 		this.autoTrustOnReloadCwd = options.autoTrustOnReloadCwd;
@@ -528,13 +580,19 @@ export class InteractiveMode {
 		this.loadedResourcesContainer = new Container();
 		this.chatContainer = new Container();
 		this.documentContainer = new Container();
+		this.agentViewIdentity = new Text("", 0, 0);
 		this.documentContainer.addChild(this.headerContainer);
+		this.documentContainer.addChild(this.agentViewIdentity);
 		this.documentContainer.addChild(this.loadedResourcesContainer);
 		this.documentContainer.addChild(this.chatContainer);
 		this.pendingMessagesContainer = new Container();
 		this.statusContainer = new Container();
 		this.widgetContainerAbove = new Container();
 		this.widgetContainerBelow = new Container();
+		this.agentSwitcherContainer = new Container();
+		this.agentSwitcherRequestUnsubscribe = this.agentViewBridge?.subscribeAgentSwitcherRequests(() => {
+			this.openAgentSwitcherDock();
+		});
 		this.keybindings = KeybindingsManager.create();
 		setKeybindings(this.keybindings);
 		const editorPaddingX = this.settingsManager.getEditorPaddingX();
@@ -547,7 +605,9 @@ export class InteractiveMode {
 		this.editorContainer = new TuiLayouts.VStack();
 		this.editorContainer.addChild(this.editor as Component);
 		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
-		this.footer = new FooterComponent(this.session, this.footerDataProvider);
+		this.displayFooterDataProvider = this.footerDataProvider;
+		this.footerDataProviders.set("parent", this.footerDataProvider);
+		this.footer = new FooterComponent(this.session, this.displayFooterDataProvider);
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 		this.footerContainer = new Container();
 		this.footerContainer.addChild(this.footer);
@@ -853,12 +913,24 @@ export class InteractiveMode {
 			scrollbar: this.settingsManager.getFullscreenScrollbar(),
 			scrollbarStyle: (text) => theme.bg("scrollbarThumb", text),
 		});
+		if (this.agentViewBridge && !this.agentSwitcher) {
+			this.agentSwitcher = new SubagentFooterSwitcher(
+				this.ui,
+				theme,
+				this.keybindings,
+				this.agentViewBridge,
+				() => this.closeAgentSwitcherDock(),
+				false,
+			);
+			this.agentSwitcherContainer.addChild(this.agentSwitcher);
+		}
 		const dock = new TuiLayouts.VStack([
 			{ component: this.pendingMessagesContainer, shrink: 1, minSize: 0 },
 			{ component: this.statusContainer, shrink: 1, minSize: 0 },
 			{ component: this.widgetContainerAbove, shrink: 1, minSize: 0 },
 			{ component: this.editorContainer, shrink: 1, minSize: 3 },
 			{ component: this.widgetContainerBelow, shrink: 1, minSize: 0 },
+			{ component: this.agentSwitcherContainer, shrink: 1, minSize: 0 },
 			{ component: this.footerContainer, shrink: 1, minSize: 1 },
 		]);
 		this.fullscreenLayoutRoot = new TuiLayouts.VStack([
@@ -872,6 +944,7 @@ export class InteractiveMode {
 			this.widgetContainerAbove,
 			this.editorContainer,
 			this.widgetContainerBelow,
+			this.agentSwitcherContainer,
 			this.footerContainer,
 		]);
 		this.ui.setFocus(this.editor);
@@ -926,7 +999,7 @@ export class InteractiveMode {
 			);
 			const onboarding = theme.fg(
 				"dim",
-				`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
+				`Ice can explain its own features and look up its docs. Ask it how to use or extend Ice.`,
 			);
 			this.builtInHeader = new ExpandableText(
 				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
@@ -952,6 +1025,7 @@ export class InteractiveMode {
 
 		// Render initial messages AFTER showing loaded resources
 		this.renderInitialMessages();
+		await this.handleAgentViewChange();
 
 		// Set up theme file watcher
 		onThemeChange(() => {
@@ -989,7 +1063,7 @@ export class InteractiveMode {
 	async run(): Promise<void> {
 		await this.init();
 
-		if (!process.env.PI_OFFLINE) {
+		if (!process.env.ICE_OFFLINE) {
 			const controller = new AbortController();
 			const timeout = setTimeout(() => controller.abort(), 15_000);
 			void this.session.modelRuntime
@@ -1000,7 +1074,7 @@ export class InteractiveMode {
 		}
 
 		// Start version check asynchronously
-		checkForNewPiVersion(this.version).then((newRelease) => {
+		checkForNewIceVersion(this.version).then((newRelease) => {
 			if (newRelease) {
 				this.showNewVersionNotification(newRelease);
 			}
@@ -1015,7 +1089,7 @@ export class InteractiveMode {
 			})
 			.finally(() => {
 				// On Windows, npm can overwrite the shared console title while checking
-				// extension package versions. Restore Pi's title after the startup check.
+				// extension package versions. Restore Ice's title after the startup check.
 				if (process.platform === "win32" && this.isInitialized) {
 					this.updateTerminalTitle();
 				}
@@ -1080,7 +1154,7 @@ export class InteractiveMode {
 	}
 
 	private async checkForPackageUpdates(): Promise<string[]> {
-		if (process.env.PI_OFFLINE) {
+		if (process.env.ICE_OFFLINE) {
 			return [];
 		}
 
@@ -1138,7 +1212,7 @@ export class InteractiveMode {
 		}
 
 		if (extendedKeysFormat === "xterm") {
-			return "tmux extended-keys-format is xterm. Pi works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
+			return "tmux extended-keys-format is xterm. Ice works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
 		}
 
 		return undefined;
@@ -1176,7 +1250,7 @@ export class InteractiveMode {
 	}
 
 	private reportInstallTelemetry(version: string): void {
-		if (process.env.PI_OFFLINE) {
+		if (process.env.ICE_OFFLINE) {
 			return;
 		}
 
@@ -1184,9 +1258,9 @@ export class InteractiveMode {
 			return;
 		}
 
-		void fetch(`https://pi.dev/api/report-install?version=${encodeURIComponent(version)}`, {
+		void fetch(`https://ice.dev/api/report-install?version=${encodeURIComponent(version)}`, {
 			headers: {
-				"User-Agent": getPiUserAgent(version),
+				"User-Agent": getIceUserAgent(version),
 			},
 			signal: AbortSignal.timeout(5000),
 		})
@@ -1878,9 +1952,10 @@ export class InteractiveMode {
 	private applyRuntimeSettings(): void {
 		configureHttpDispatcher(this.settingsManager.getHttpIdleTimeoutMs());
 		this.applyFullscreenScrollbarSetting();
-		this.footer.setSession(this.session);
-		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
-		this.footerDataProvider.setCwd(this.sessionManager.getCwd());
+		this.footer.setSession(this.displaySession);
+		this.footer.setDataProvider(this.displayFooterDataProvider);
+		this.footer.setAutoCompactEnabled(this.displaySession.autoCompactionEnabled);
+		this.footerDataProvider.setCwd(this.runtimeSession.sessionManager.getCwd());
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
 		this.outputPad = this.settingsManager.getOutputPad();
 		this.ui.setShowHardwareCursor(this.settingsManager.getShowHardwareCursor());
@@ -1900,7 +1975,8 @@ export class InteractiveMode {
 	}
 
 	private async rebindCurrentSession(options: { renderBeforeBind?: boolean } = {}): Promise<void> {
-		const session = this.session;
+		const session = this.runtimeSession;
+		this.agentViewBridge?.setParentSession(session);
 
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
@@ -1926,6 +2002,381 @@ export class InteractiveMode {
 		this.updateTerminalTitle();
 	}
 
+	private formatAgentViewIdentity(view: IceAgentViewDescriptor | undefined): string {
+		if (!this.agentViewBridge || !view || view.kind === "parent") return "";
+		const runId = view.runId ? view.runId.slice(0, 6) : undefined;
+		return [
+			"SUBAGENT",
+			view.role ?? view.label,
+			view.taskId,
+			runId,
+			view.authority === "yolo" ? "YOLO" : "SAFE",
+			view.live ? "LIVE" : "HISTORY",
+			view.readOnly ? "READ-ONLY" : undefined,
+		]
+			.filter((part): part is string => Boolean(part))
+			.join(" • ");
+	}
+
+	private updateAgentViewIdentity(view = this.displayView): void {
+		this.agentViewIdentity.setText(this.formatAgentViewIdentity(view));
+	}
+
+	private saveDisplayedViewState(): void {
+		if (!this.agentViewBridge) return;
+		this.agentViewBridge.setUiState(this.displayedViewId, {
+			editorDraft: this.editor.getExpandedText?.() ?? this.editor.getText(),
+			scrollOffset: this.transcriptScrollView?.scrollTop,
+			followTranscript: this.transcriptScrollView?.isFollowingEnd ?? true,
+			fullscreen: this.options.uiMode === "fullscreen",
+		});
+	}
+
+	private restoreDisplayedViewState(view: IceAgentViewDescriptor): void {
+		const state = this.agentViewBridge?.getUiState(view.id);
+		if (state) this.editor.setText(state.editorDraft);
+		else if (view.kind !== "parent") this.editor.setText("");
+
+		const scrollView = this.transcriptScrollView;
+		if (!scrollView || !state) return;
+		queueMicrotask(() => {
+			if (this.displayedViewId !== view.id) return;
+			if (state.followTranscript) scrollView.scrollToEnd();
+			else if (state.scrollOffset !== undefined) scrollView.scrollTo(state.scrollOffset);
+			this.ui.requestRender();
+		});
+	}
+
+	private getFooterDataProviderForView(view: IceAgentViewDescriptor): FooterDataProvider {
+		if (view.kind === "parent") return this.footerDataProvider;
+		const existing = this.footerDataProviders.get(view.id);
+		if (existing) {
+			existing.setCwd(view.cwd ?? this.runtimeSession.sessionManager.getCwd());
+			return existing;
+		}
+		const provider = new FooterDataProvider(view.cwd ?? this.runtimeSession.sessionManager.getCwd());
+		provider.setAvailableProviderCount(this.footerDataProvider.getAvailableProviderCount());
+		provider.onBranchChange(() => {
+			if (this.displayedViewId === view.id) this.ui.requestRender();
+		});
+		this.footerDataProviders.set(view.id, provider);
+		return provider;
+	}
+
+	private clearDisplayedSessionUi(): void {
+		this.chatContainer.clear();
+		this.pendingMessagesContainer.clear();
+		this.statusContainer.clear();
+		this.compactionQueuedMessages = [];
+		this.streamingComponent = undefined;
+		this.streamingMessage = undefined;
+		this.pendingTools.clear();
+		this.lastStatusSpacer = undefined;
+		this.lastStatusText = undefined;
+	}
+
+	private getPresentationMessageText(message: AgentMessage): string {
+		const content = (message as AgentMessage & { content?: unknown }).content;
+		if (typeof content === "string") return content;
+		if (!Array.isArray(content)) return "";
+		return content
+			.map((part) => {
+				if (typeof part !== "object" || part === null || !("type" in part)) return "";
+				const record = part as { type?: unknown; text?: unknown };
+				return record.type === "text" && typeof record.text === "string" ? record.text : "";
+			})
+			.filter(Boolean)
+			.join("\n");
+	}
+
+	private hasAssistantToolCall(message: AgentMessage): boolean {
+		if (message.role !== "assistant") return false;
+		const content = (message as AgentMessage & { content?: unknown }).content;
+		return (
+			Array.isArray(content) &&
+			content.some(
+				(part) =>
+					typeof part === "object" &&
+					part !== null &&
+					"type" in part &&
+					(part as { type?: unknown }).type === "toolCall",
+			)
+		);
+	}
+
+	private isIceInternalChildMessage(
+		message: AgentMessage,
+		view: IceAgentViewDescriptor | undefined,
+		sourceSession?: AgentSession,
+		sourceIndex?: number,
+	): boolean {
+		const presentation = view?.presentation;
+		if (!presentation || !view || view.kind === "parent") return false;
+		const sourceMessages = sourceSession?.messages ?? view.messages;
+		const index = sourceIndex ?? (sourceMessages ? sourceMessages.indexOf(message) : -1);
+		if (
+			index >= 0 &&
+			[
+				presentation.handoffMessageIndex,
+				presentation.finalizationMessageIndex,
+				presentation.finalReportMessageIndex,
+			].includes(index)
+		) {
+			return true;
+		}
+		if (message.role === "user") {
+			const text = this.getPresentationMessageText(message);
+			if (
+				(presentation.handoffMessageMarker && text.includes(presentation.handoffMessageMarker)) ||
+				(presentation.finalizationMessageMarker && text.includes(presentation.finalizationMessageMarker)) ||
+				(presentation.timeoutContinuationMessageMarker &&
+					text.includes(presentation.timeoutContinuationMessageMarker))
+			) {
+				return true;
+			}
+		}
+		// While a ICE turn is report-bound, text-only assistant output is the
+		// internal machine report. Tool-call messages remain visible so the child
+		// still looks like a normal agent session while it works.
+		return (
+			presentation.protocolReportPending === true &&
+			message.role === "assistant" &&
+			!this.hasAssistantToolCall(message)
+		);
+	}
+
+	private addSubagentDelegationCard(view: IceAgentViewDescriptor): void {
+		const presentation = view.presentation;
+		const task = presentation?.delegatedTask?.trim();
+		if (!presentation || !task) return;
+		const authority =
+			presentation.authority === "yolo"
+				? "YOLO (profile-aware)"
+				: presentation.authority === "safe"
+					? "SAFE (profile-clamped)"
+					: "ICE policy";
+		const scope = presentation.scopeLabels?.length ? presentation.scopeLabels.join(", ") : ".";
+		const lines = [
+			"Delegated task",
+			`  role: ${view.role ?? view.label}`,
+			`  authority: ${authority}`,
+			`  scope: ${scope}`,
+			`  task: ${task}`,
+		];
+		this.chatContainer.addChild(new Text(theme.fg("accent", lines.join("\n")), 1, 0));
+	}
+
+	private addSubagentFinalResult(view: IceAgentViewDescriptor): void {
+		const result = view.presentation?.finalResult;
+		if (!result) return;
+		const statusLabel =
+			result.status === "completed" && result.verified === true
+				? "Completed · verified"
+				: result.status === "completed"
+					? "Completed · verification pending"
+					: `${result.status.replaceAll("_", " ").replace(/^(.)/, (character) => character.toUpperCase())}`;
+		const color =
+			result.status === "completed" && result.verified === true
+				? "success"
+				: result.status === "failed" || result.status === "verification_failed"
+					? "error"
+					: "warning";
+		const lines = [statusLabel];
+		if (result.summary?.trim()) lines.push(result.summary.trim());
+		if (result.evidencePaths?.length) {
+			lines.push(`Evidence: ${result.evidencePaths.length} path${result.evidencePaths.length === 1 ? "" : "s"}`);
+		}
+		if (result.diagnostic?.trim() && result.diagnostic.trim() !== result.summary?.trim()) {
+			lines.push(`Diagnostic: ${result.diagnostic.trim()}`);
+		}
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(theme.fg(color, lines.join("\n")), 1, 0));
+	}
+
+	private renderProjectedChildView(view: IceAgentViewDescriptor): void {
+		if (view.session) {
+			const items = view.session.sessionManager.buildContextEntries().flatMap((entry): RenderSessionItem[] => {
+				if (entry.type === "custom") return [entry];
+				return sessionEntryToContextMessages(entry);
+			});
+			this.renderSessionItems(
+				items.filter(
+					(item) => isCustomSessionEntry(item) || !this.isIceInternalChildMessage(item, view, view.session),
+				),
+				{ updateFooter: true, populateHistory: false },
+			);
+			return;
+		}
+		if (view.messages) {
+			this.renderSessionItems(
+				view.messages.filter((message, index) => !this.isIceInternalChildMessage(message, view, undefined, index)),
+				{ updateFooter: true },
+			);
+		}
+	}
+
+	private renderDisplayedView(view: IceAgentViewDescriptor): void {
+		this.clearDisplayedSessionUi();
+		if (view.kind === "parent") {
+			this.showLoadedResources({ force: false, showDiagnosticsWhenQuiet: true });
+		} else {
+			// Child extensions are not rebound into the parent shell. The view uses
+			// core Ice renderers and the child session's immutable/current messages.
+			this.loadedResourcesContainer.clear();
+			const takeControlKeys = this.keybindings.getKeys("app.subagents.takeControl");
+			const takeControlHint = takeControlKeys.length > 0 ? ` (${formatKeyText(takeControlKeys.join("/"))})` : "";
+			const notice = view.live
+				? view.controlState && view.controlState !== "working"
+					? "Finalizing bounded report • child input disabled"
+					: view.interactionMode === "controlled"
+						? "Controlling live subagent • input goes to child • parent remains running"
+						: `Viewing live subagent • read-only mirror • Take Control to steer${takeControlHint}`
+				: "Viewing historical subagent • read-only";
+			this.chatContainer.addChild(new Text(theme.fg("warning", notice), 1, 0));
+			this.addSubagentDelegationCard(view);
+		}
+
+		this.displayedSessionForRender = view.kind === "parent" ? undefined : view.session;
+		try {
+			if (view.kind !== "parent" && view.presentation) {
+				this.renderProjectedChildView(view);
+			} else if (view.session) {
+				this.renderSessionEntries(view.session.sessionManager.buildContextEntries(), {
+					updateFooter: true,
+					populateHistory: false,
+				});
+			} else if (view.messages) {
+				this.renderSessionItems(view.messages as readonly RenderSessionItem[], { updateFooter: true });
+			}
+		} finally {
+			this.displayedSessionForRender = undefined;
+		}
+		if (view.kind !== "parent") this.addSubagentFinalResult(view);
+		this.updatePendingMessagesDisplayForDisplayedView(view);
+		this.updateAgentViewIdentity(view);
+		this.updateTerminalTitleForSession(view.session, view);
+	}
+
+	private updatePendingMessagesDisplayForDisplayedView(view: IceAgentViewDescriptor): void {
+		if (view.kind === "parent") this.updatePendingMessagesDisplay();
+		else this.pendingMessagesContainer.clear();
+	}
+
+	private updateTerminalTitleForSession(session: AgentSession | undefined, view?: IceAgentViewDescriptor): void {
+		const cwd = session?.sessionManager.getCwd() ?? view?.cwd ?? this.runtimeSession.sessionManager.getCwd();
+		const sessionName = session?.sessionManager.getSessionName();
+		const suffix = view && view.kind !== "parent" ? ` - subagent ${view.role ?? view.label}` : "";
+		this.ui.terminal.setTitle(
+			`${APP_TITLE}${suffix} - ${sessionName ? `${sessionName} - ` : ""}${path.basename(cwd)}`,
+		);
+	}
+
+	private openSubagentChooser(): void {
+		this.openAgentSwitcherDock();
+	}
+
+	private openAgentSwitcherDock(): void {
+		if (!this.agentViewBridge || !this.isInitialized) return;
+		if (this.agentSwitcher) {
+			this.saveDisplayedViewState();
+			this.agentSwitcher.setExpanded(true);
+			this.ui.setFocus(this.agentSwitcher);
+			return;
+		}
+		this.saveDisplayedViewState();
+		const switcher = new SubagentFooterSwitcher(
+			this.ui,
+			theme,
+			this.keybindings,
+			this.agentViewBridge,
+			() => this.closeAgentSwitcherDock(),
+			true,
+		);
+		this.agentSwitcher = switcher;
+		this.agentSwitcherContainer.addChild(switcher);
+		this.ui.setFocus(switcher);
+		this.ui.requestRender();
+	}
+
+	private closeAgentSwitcherDock(): void {
+		const switcher = this.agentSwitcher;
+		if (!switcher) return;
+		switcher.setExpanded(false);
+		if (this.isInitialized) this.ui.setFocus(this.editor);
+		this.ui.requestRender();
+	}
+
+	private cycleSubagentView(delta: -1 | 1): void {
+		if (!this.agentViewBridge?.cycleDisplayed(delta)) return;
+	}
+
+	private toggleSubagentControl(): void {
+		const bridge = this.agentViewBridge;
+		if (!bridge) return;
+		const result = bridge.requestTakeControl();
+		if (!result.accepted) {
+			this.showWarning(result.reason);
+			return;
+		}
+		this.showStatus(result.mode === "controlled" ? "Controlling live subagent." : "Returned to mirror mode.");
+	}
+
+	private async handleAgentViewChange(): Promise<void> {
+		const bridge = this.agentViewBridge;
+		if (!bridge) return;
+		const view = bridge.getDisplayedView();
+		if (!view) {
+			if (bridge.getDisplayedId() !== "parent") bridge.returnToParent();
+			return;
+		}
+		if (!this.isInitialized) {
+			this.displayedViewId = view.id;
+			this.displayedViewKind = view.kind;
+			this.displayedInteractionMode = view.interactionMode;
+			this.displayedControlState = view.controlState;
+			this.displayedViewPresentation = view.presentation;
+			return;
+		}
+		const currentView = bridge.getView(this.displayedViewId);
+		const currentSession = currentView?.session ?? this.runtimeSession;
+		const nextSession = view.session ?? this.runtimeSession;
+		if (
+			this.displayedViewBound &&
+			this.displayedViewId === view.id &&
+			this.displayedViewKind === view.kind &&
+			this.displayedInteractionMode === view.interactionMode &&
+			this.displayedControlState === view.controlState &&
+			this.displayedViewPresentation === view.presentation &&
+			currentSession === nextSession
+		) {
+			this.updateAgentViewIdentity(view);
+			return;
+		}
+
+		this.saveDisplayedViewState();
+		this.displayedSessionUnsubscribe?.();
+		this.displayedSessionUnsubscribe = undefined;
+		this.displayedViewId = view.id;
+		this.displayedViewKind = view.kind;
+		this.displayedInteractionMode = view.interactionMode;
+		this.displayedControlState = view.controlState;
+		this.displayedViewPresentation = view.presentation;
+		this.displayFooterDataProvider = this.getFooterDataProviderForView(view);
+		this.footer.setDataProvider(this.displayFooterDataProvider);
+		this.footer.setSession(view.session ?? this.runtimeSession);
+		this.footer.setAutoCompactEnabled((view.session ?? this.runtimeSession).autoCompactionEnabled);
+		if (view.session && view.kind !== "parent") {
+			const session = view.session;
+			this.displayedSessionUnsubscribe = session.subscribe((event) => {
+				void this.handleEvent(event, session);
+			});
+		}
+		this.renderDisplayedView(view);
+		this.restoreDisplayedViewState(view);
+		this.displayedViewBound = true;
+		this.ui.requestRender();
+	}
+
 	private async handleFatalRuntimeError(prefix: string, error: unknown): Promise<never> {
 		const message = error instanceof Error ? error.message : String(error);
 		this.showError(`${prefix}: ${message}`);
@@ -1949,11 +2400,11 @@ export class InteractiveMode {
 	 * Get a registered tool definition by name (for custom rendering).
 	 */
 	private getRegisteredToolDefinition(toolName: string) {
-		return this.session.getToolDefinition(toolName);
+		return this.renderSession.getToolDefinition(toolName);
 	}
 
 	private getMarkdownTransformers(): MarkdownTransformer[] {
-		return this.session.extensionRunner.getMarkdownTransformers();
+		return this.renderSession.extensionRunner.getMarkdownTransformers();
 	}
 
 	/**
@@ -2144,6 +2595,7 @@ export class InteractiveMode {
 	}
 
 	private resetExtensionUI(): void {
+		this.closeAgentSwitcherDock();
 		if (this.extensionSelector) {
 			this.hideExtensionSelector();
 		}
@@ -2752,6 +3204,10 @@ export class InteractiveMode {
 		// Set up handlers on defaultEditor - they use this.editor for text access
 		// so they work correctly regardless of which editor is active
 		this.defaultEditor.onEscape = () => {
+			if (this.isViewingSubagent) {
+				this.agentViewBridge?.returnToParent();
+				return;
+			}
 			if (this.session.isStreaming) {
 				this.restoreQueuedMessagesToEditor({ abort: true });
 			} else if (this.session.isBashRunning) {
@@ -2791,6 +3247,11 @@ export class InteractiveMode {
 		this.ui.onDebug = () => this.handleDebugCommand();
 		this.defaultEditor.onAction("app.model.select", () => this.showModelSelector());
 		this.defaultEditor.onAction("app.tools.expand", () => this.toggleToolOutputExpansion());
+		this.defaultEditor.onAction("app.subagents.open", () => this.openSubagentChooser());
+		this.defaultEditor.onAction("app.subagents.parent", () => this.agentViewBridge?.returnToParent());
+		this.defaultEditor.onAction("app.subagents.next", () => this.cycleSubagentView(1));
+		this.defaultEditor.onAction("app.subagents.previous", () => this.cycleSubagentView(-1));
+		this.defaultEditor.onAction("app.subagents.takeControl", () => this.toggleSubagentControl());
 		this.defaultEditor.onAction("app.thinking.toggle", () => this.toggleThinkingBlockVisibility());
 		this.defaultEditor.onAction("app.editor.external", () => void this.handleOpenExternalEditor());
 		this.defaultEditor.onAction("app.message.copy", () => void this.handleCopyCommand({ flashConfirmation: true }));
@@ -2822,7 +3283,7 @@ export class InteractiveMode {
 			if (image) {
 				const tmpDir = os.tmpdir();
 				const ext = extensionForImageMimeType(image.mimeType) ?? "png";
-				const fileName = `pi-clipboard-${crypto.randomUUID()}.${ext}`;
+				const fileName = `ice-clipboard-${crypto.randomUUID()}.${ext}`;
 				const filePath = path.join(tmpDir, fileName);
 				fs.writeFileSync(filePath, Buffer.from(image.bytes));
 
@@ -2908,6 +3369,27 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
+			if (
+				text === "/agents" ||
+				text.startsWith("/agents ") ||
+				text === "/subagents" ||
+				text.startsWith("/subagents ")
+			) {
+				this.editor.setText("");
+				const commandArgs = text.trim().split(/\s+/).slice(1);
+				if (commandArgs[0] === "split" || !this.agentViewBridge) {
+					try {
+						await this.session.prompt(text);
+					} catch (error: unknown) {
+						this.showWarning(
+							`Unable to open subagent observatory: ${error instanceof Error ? error.message : String(error)}`,
+						);
+					}
+				} else if (!this.agentViewBridge.requestAgentSwitcher()) {
+					this.showWarning("Agent switcher is unavailable in this interactive host");
+				}
+				return;
+			}
 			if (text === "/fork") {
 				this.showUserMessageSelector();
 				this.editor.setText("");
@@ -2965,11 +3447,6 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
-			if (text === "/dementedelves") {
-				this.handleDementedDelves();
-				this.editor.setText("");
-				return;
-			}
 			if (text === "/resume") {
 				this.showSessionSelector();
 				this.editor.setText("");
@@ -2978,6 +3455,29 @@ export class InteractiveMode {
 			if (text === "/quit") {
 				this.editor.setText("");
 				await this.shutdown();
+				return;
+			}
+
+			if (this.isViewingSubagent && !text.startsWith("/")) {
+				const view = this.displayView;
+				if (view?.kind === "subagent" && view.interactionMode === "controlled" && this.agentViewBridge) {
+					this.editor.addToHistory?.(text);
+					this.editor.setText("");
+					try {
+						await this.agentViewBridge.sendInput(view.id, text);
+					} catch (error: unknown) {
+						this.showWarning(
+							`Subagent input was rejected: ${error instanceof Error ? error.message : String(error)}`,
+						);
+					}
+				} else {
+					this.showWarning(
+						view?.kind === "historical-subagent"
+							? "Historical subagent views are read-only. Press Esc or use /agents to return to the parent."
+							: "Live subagent views are read-only mirrors. Use Take Control before sending input.",
+					);
+					this.editor.setText("");
+				}
 				return;
 			}
 
@@ -3041,7 +3541,13 @@ export class InteractiveMode {
 		});
 	}
 
-	private async handleEvent(event: AgentSessionEvent): Promise<void> {
+	private async handleEvent(event: AgentSessionEvent, sourceSession?: AgentSession): Promise<void> {
+		const eventSession = sourceSession ?? this.runtimeSession;
+		const displayedView = this.displayView;
+		if (this.agentViewBridge) {
+			const displayedSession = displayedView?.kind === "parent" ? this.runtimeSession : displayedView?.session;
+			if (eventSession !== displayedSession) return;
+		}
 		if (!this.isInitialized) {
 			await this.init();
 		}
@@ -3075,7 +3581,8 @@ export class InteractiveMode {
 				break;
 
 			case "queue_update":
-				this.updatePendingMessagesDisplay();
+				if (!sourceSession || sourceSession === this.runtimeSession) this.updatePendingMessagesDisplay();
+				else this.pendingMessagesContainer.clear();
 				this.ui.requestRender();
 				break;
 
@@ -3087,7 +3594,8 @@ export class InteractiveMode {
 				break;
 
 			case "session_info_changed":
-				this.updateTerminalTitle();
+				if (eventSession === this.runtimeSession) this.updateTerminalTitle();
+				else this.updateTerminalTitleForSession(eventSession, this.displayView);
 				this.footer.invalidate();
 				this.ui.requestRender();
 				break;
@@ -3102,10 +3610,17 @@ export class InteractiveMode {
 					this.addMessageToChat(event.message);
 					this.ui.requestRender();
 				} else if (event.message.role === "user") {
+					if (this.isIceInternalChildMessage(event.message, displayedView, eventSession)) break;
 					this.addMessageToChat(event.message);
-					this.updatePendingMessagesDisplay();
+					if (!sourceSession || sourceSession === this.runtimeSession) this.updatePendingMessagesDisplay();
 					this.ui.requestRender();
 				} else if (event.message.role === "assistant") {
+					if (
+						this.isIceInternalChildMessage(event.message, displayedView, eventSession) &&
+						!this.hasAssistantToolCall(event.message)
+					) {
+						break;
+					}
 					this.streamingComponent = new AssistantMessageComponent(
 						undefined,
 						this.hideThinkingBlock,
@@ -3122,6 +3637,13 @@ export class InteractiveMode {
 				break;
 
 			case "message_update":
+				if (
+					event.message.role === "assistant" &&
+					this.isIceInternalChildMessage(event.message, displayedView, eventSession) &&
+					!this.hasAssistantToolCall(event.message)
+				) {
+					break;
+				}
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					this.streamingComponent.updateContent(this.streamingMessage, true);
@@ -3139,7 +3661,7 @@ export class InteractiveMode {
 									},
 									this.getRegisteredToolDefinition(content.name),
 									this.ui,
-									this.sessionManager.getCwd(),
+									eventSession.sessionManager.getCwd(),
 								);
 								component.setExpanded(this.toolOutputExpanded);
 								this.chatContainer.addChild(component);
@@ -3158,11 +3680,18 @@ export class InteractiveMode {
 
 			case "message_end":
 				if (event.message.role === "user") break;
+				if (
+					event.message.role === "assistant" &&
+					this.isIceInternalChildMessage(event.message, displayedView, eventSession) &&
+					!this.hasAssistantToolCall(event.message)
+				) {
+					break;
+				}
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					let errorMessage: string | undefined;
 					if (this.streamingMessage.stopReason === "aborted") {
-						const retryAttempt = this.session.retryAttempt;
+						const retryAttempt = eventSession.retryAttempt;
 						errorMessage =
 							retryAttempt > 0
 								? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
@@ -3182,6 +3711,9 @@ export class InteractiveMode {
 							});
 						}
 						this.pendingTools.clear();
+						if (this.streamingMessage.stopReason === "error") {
+							this.pendingRetryErrorComponent = this.streamingComponent;
+						}
 					} else {
 						// Args are now complete - trigger diff computation for edit tools
 						for (const [, component] of this.pendingTools.entries()) {
@@ -3213,7 +3745,7 @@ export class InteractiveMode {
 						},
 						this.getRegisteredToolDefinition(event.toolName),
 						this.ui,
-						this.sessionManager.getCwd(),
+						eventSession.sessionManager.getCwd(),
 					);
 					component.setExpanded(this.toolOutputExpanded);
 					this.chatContainer.addChild(component);
@@ -3259,7 +3791,7 @@ export class InteractiveMode {
 				break;
 
 			case "agent_settled":
-				await this.checkShutdownRequested();
+				if (!sourceSession || sourceSession === this.runtimeSession) await this.checkShutdownRequested();
 				break;
 
 			case "compaction_start": {
@@ -3269,7 +3801,7 @@ export class InteractiveMode {
 				// Keep editor active; submissions are queued during compaction.
 				this.autoCompactionEscapeHandler = this.defaultEditor.onEscape;
 				this.defaultEditor.onEscape = () => {
-					this.session.abortCompaction();
+					eventSession.abortCompaction();
 				};
 				this.showStatusIndicator(new CompactionStatusIndicator(this.ui, event.reason));
 				this.ui.requestRender();
@@ -3310,7 +3842,9 @@ export class InteractiveMode {
 						this.chatContainer.addChild(new Text(theme.fg("error", event.errorMessage), 1, 0));
 					}
 				}
-				void this.flushCompactionQueue({ willRetry: event.willRetry });
+				if (!sourceSession || sourceSession === this.runtimeSession) {
+					void this.flushCompactionQueue({ willRetry: event.willRetry });
+				}
 				this.ui.requestRender();
 				break;
 			}
@@ -3319,8 +3853,10 @@ export class InteractiveMode {
 				// Set up escape to abort retry
 				this.retryEscapeHandler = this.defaultEditor.onEscape;
 				this.defaultEditor.onEscape = () => {
-					this.session.abortRetry();
+					eventSession.abortRetry();
 				};
+				// The failed attempt's error line is transient while retrying.
+				this.discardPendingRetryError();
 				this.showStatusIndicator(
 					new RetryStatusIndicator(this.ui, event.attempt, event.maxAttempts, event.delayMs),
 				);
@@ -3335,6 +3871,9 @@ export class InteractiveMode {
 					this.retryEscapeHandler = undefined;
 				}
 				this.clearStatusIndicator("retry");
+				// Drop the last attempt's error line so only the terminal state shows:
+				// nothing on success, the summary on final failure.
+				this.discardPendingRetryError();
 				// Show error only on final failure (success shows normal response)
 				if (!event.success) {
 					this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);
@@ -3408,7 +3947,7 @@ export class InteractiveMode {
 	}
 
 	private addCustomEntryToChat(entry: Extract<SessionEntry, { type: "custom" }>): void {
-		const renderer = this.session.extensionRunner.getEntryRenderer(entry.customType);
+		const renderer = this.renderSession.extensionRunner.getEntryRenderer(entry.customType);
 		if (!renderer) {
 			return;
 		}
@@ -3447,7 +3986,7 @@ export class InteractiveMode {
 			}
 			case "custom": {
 				if (message.display) {
-					const renderer = this.session.extensionRunner.getMessageRenderer(message.customType);
+					const renderer = this.renderSession.extensionRunner.getMessageRenderer(message.customType);
 					const component = new CustomMessageComponent(
 						message,
 						renderer,
@@ -3544,8 +4083,9 @@ export class InteractiveMode {
 		const renderedPendingTools = new Map<string, ToolExecutionComponent>();
 		// Cache-miss notices are not persisted; re-derive them from the full entry
 		// list and re-inject them after the assistant messages that paid for them.
+		const renderSession = this.renderSession;
 		const cacheMisses = this.settingsManager.getShowCacheMissNotices()
-			? collectCacheMisses(this.sessionManager.getEntries(), this.session.modelRuntime)
+			? collectCacheMisses(renderSession.sessionManager.getEntries(), renderSession.modelRuntime)
 			: new Map<AssistantMessage, CacheMiss>();
 
 		if (options.updateFooter) {
@@ -3576,7 +4116,7 @@ export class InteractiveMode {
 							},
 							this.getRegisteredToolDefinition(content.name),
 							this.ui,
-							this.sessionManager.getCwd(),
+							renderSession.sessionManager.getCwd(),
 						);
 						component.setExpanded(this.toolOutputExpanded);
 						this.chatContainer.addChild(component);
@@ -3584,7 +4124,7 @@ export class InteractiveMode {
 						if (message.stopReason === "aborted" || message.stopReason === "error") {
 							let errorMessage: string;
 							if (message.stopReason === "aborted") {
-								const retryAttempt = this.session.retryAttempt;
+								const retryAttempt = renderSession.retryAttempt;
 								errorMessage =
 									retryAttempt > 0
 										? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
@@ -3649,7 +4189,11 @@ export class InteractiveMode {
 		if (!this.settingsManager.getShowCacheMissNotices()) return;
 
 		// Entries don't contain `message` yet: message_end fires before persistence.
-		const miss = detectCacheMiss(this.sessionManager.getEntries(), message, this.session.modelRuntime);
+		const miss = detectCacheMiss(
+			this.renderSession.sessionManager.getEntries(),
+			message,
+			this.renderSession.modelRuntime,
+		);
 		if (miss) this.addCacheMissNotice(miss);
 	}
 
@@ -3698,7 +4242,7 @@ export class InteractiveMode {
 			new Text(
 				theme.fg(
 					"warning",
-					`This project is not trusted. Project ${CONFIG_DIR_NAME} resources and packages are ignored. Use /trust to save a trust decision, then restart pi.`,
+					`This project is not trusted. Project ${CONFIG_DIR_NAME} resources and packages are ignored. Use /trust to save a trust decision, then restart ice.`,
 				),
 				1,
 				0,
@@ -3722,7 +4266,37 @@ export class InteractiveMode {
 
 	private rebuildChatFromMessages(): void {
 		this.chatContainer.clear();
-		this.renderSessionEntries(this.sessionManager.buildContextEntries());
+		const view = this.displayView;
+		if (this.agentViewBridge && view && view.kind !== "parent") {
+			const takeControlKeys = this.keybindings.getKeys("app.subagents.takeControl");
+			const takeControlHint = takeControlKeys.length > 0 ? ` (${formatKeyText(takeControlKeys.join("/"))})` : "";
+			const notice = view.live
+				? view.controlState && view.controlState !== "working"
+					? "Finalizing bounded report • child input disabled"
+					: view.interactionMode === "controlled"
+						? "Controlling live subagent • input goes to child • parent remains running"
+						: `Viewing live subagent • read-only mirror • Take Control to steer${takeControlHint}`
+				: "Viewing historical subagent • read-only";
+			this.chatContainer.addChild(new Text(theme.fg("warning", notice), 1, 0));
+			this.addSubagentDelegationCard(view);
+			this.displayedSessionForRender = view.session;
+			try {
+				if (view.presentation) this.renderProjectedChildView(view);
+				else if (view.session) {
+					this.renderSessionEntries(view.session.sessionManager.buildContextEntries(), {
+						updateFooter: true,
+						populateHistory: false,
+					});
+				} else if (view.messages) {
+					this.renderSessionItems(view.messages as readonly RenderSessionItem[], { updateFooter: true });
+				}
+			} finally {
+				this.displayedSessionForRender = undefined;
+			}
+			this.addSubagentFinalResult(view);
+			return;
+		}
+		this.renderSessionEntries(this.renderSession.sessionManager.buildContextEntries());
 	}
 
 	// =========================================================================
@@ -3826,7 +4400,7 @@ export class InteractiveMode {
 		try {
 			this.ui.stop();
 		} catch {}
-		console.error("pi exiting due to uncaughtException:");
+		console.error("ice exiting due to uncaughtException:");
 		console.error(error);
 		process.exit(1);
 	}
@@ -3873,7 +4447,7 @@ export class InteractiveMode {
 
 		// Restore the terminal before the process dies on any uncaught throw.
 		// Without this, an unhandled exception from extension code (or anywhere
-		// in pi) leaves the terminal in raw mode with no cursor.
+		// in ice) leaves the terminal in raw mode with no cursor.
 		const uncaughtExceptionHandler = (error: Error) => this.uncaughtCrash(error);
 		process.prependListener("uncaughtException", uncaughtExceptionHandler);
 		this.signalCleanupHandlers.push(() => process.off("uncaughtException", uncaughtExceptionHandler));
@@ -4078,16 +4652,27 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	// Drop a failed attempt's error line once superseded: by the retry
+	// indicator while retrying, or by the terminal summary on final failure.
+	private discardPendingRetryError(): void {
+		const component = this.pendingRetryErrorComponent;
+		this.pendingRetryErrorComponent = undefined;
+		if (component) {
+			this.chatContainer.removeChild(component);
+			this.ui.requestRender();
+		}
+	}
+
 	showWarning(warningMessage: string): void {
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(theme.fg("warning", `Warning: ${warningMessage}`), 1, 0));
 		this.ui.requestRender();
 	}
 
-	showNewVersionNotification(release: LatestPiRelease): void {
+	showNewVersionNotification(release: LatestIceRelease): void {
 		const action = theme.fg("accent", `${APP_NAME} update`);
 		const updateInstruction = theme.fg("muted", `New version ${release.version} is available. Run `) + action;
-		const changelogUrl = "https://pi.dev/changelog";
+		const changelogUrl = "https://ice.dev/changelog";
 		const changelogLink = getCapabilities().hyperlinks
 			? hyperlink(theme.fg("accent", changelogUrl), changelogUrl)
 			: theme.fg("accent", changelogUrl);
@@ -4708,7 +5293,7 @@ export class InteractiveMode {
 					trustStore.setMany(selection.updates);
 					done();
 					this.showStatus(
-						`Saved trust decision: ${selection.trusted ? "trusted" : "untrusted"}. Restart pi for this to take effect.`,
+						`Saved trust decision: ${selection.trusted ? "trusted" : "untrusted"}. Restart ice for this to take effect.`,
 					);
 				},
 				onCancel: () => {
@@ -5513,7 +6098,7 @@ export class InteractiveMode {
 			providerOption.name,
 			`${providerOption.name} setup`,
 		);
-		dialog.showInfo(`${providerOption.method?.name ?? "Authentication"} is configured outside pi.`, [], true);
+		dialog.showInfo(`${providerOption.method?.name ?? "Authentication"} is configured outside ice.`, [], true);
 
 		this.editorContainer.clear();
 		this.editorContainer.addChild(dialog);
@@ -6273,12 +6858,6 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
-	private handleDementedDelves(): void {
-		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new EarendilAnnouncementComponent());
-		this.ui.requestRender();
-	}
-
 	private handleDaxnuts(): void {
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new DaxnutsComponent(this.ui));
@@ -6389,6 +6968,10 @@ export class InteractiveMode {
 	}
 
 	stop(): void {
+		this.closeAgentSwitcherDock();
+		this.agentSwitcher?.dispose();
+		this.agentSwitcher = undefined;
+		this.agentSwitcherContainer.clear();
 		this.disposeActiveSelector();
 		if (this.settingsManager.getShowTerminalProgress()) {
 			this.ui.terminal.setProgress(false);
@@ -6397,10 +6980,19 @@ export class InteractiveMode {
 		this.themeController.disableAutoSync();
 		this.clearExtensionTerminalInputListeners();
 		this.footer.dispose();
-		this.footerDataProvider.dispose();
-		if (this.unsubscribe) {
-			this.unsubscribe();
+		for (const provider of this.footerDataProviders.values()) {
+			if (provider !== this.footerDataProvider) provider.dispose();
 		}
+		this.footerDataProviders.clear();
+		this.footerDataProvider.dispose();
+		this.unsubscribe?.();
+		this.unsubscribe = undefined;
+		this.displayedSessionUnsubscribe?.();
+		this.displayedSessionUnsubscribe = undefined;
+		this.agentViewUnsubscribe?.();
+		this.agentViewUnsubscribe = undefined;
+		this.agentSwitcherRequestUnsubscribe?.();
+		this.agentSwitcherRequestUnsubscribe = undefined;
 		if (this.isInitialized) {
 			this.stopInteractiveTui();
 			this.isInitialized = false;

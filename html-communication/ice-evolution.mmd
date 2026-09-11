@@ -1,0 +1,8 @@
+flowchart LR
+  V["void baseline\nb919dc81"] --> C["checkpoint\n7cbd8a676"]
+  C --> H["subagent snapshot\na0e530b8c"]
+  H --> W["dirty worktree\n38 tracked files"]
+  W --> A["land core slices"]
+  W --> B["separate RPC and settings"]
+  W --> D["separate compaction and provider"]
+  W --> N["exclude generated noise"]

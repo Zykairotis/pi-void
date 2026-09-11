@@ -1,7 +1,7 @@
 {
-	"name": "@earendil-works/pi-protocol",
+	"name": "@zykairotis/ice-protocol",
 	"version": "0.83.0",
-	"description": "Transport-neutral CBOR protocol for remote pi sessions",
+	"description": "Transport-neutral CBOR protocol for remote ice sessions",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -18,12 +18,12 @@
 		"test": "vitest --run",
 		"prepublishOnly": "npm run clean && npm run build"
 	},
-	"keywords": ["pi", "protocol", "cbor", "binary", "framing"],
-	"author": "Earendil Works",
+	"keywords": ["ice", "protocol", "cbor", "binary", "framing"],
+	"author": "Zykairotis/ICE",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/Zykairotis/ice.git",
 		"directory": "packages/protocol"
 	},
 	"engines": { "node": ">=22.19.0" },

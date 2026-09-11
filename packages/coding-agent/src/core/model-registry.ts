@@ -9,7 +9,7 @@ import type {
 	ModelsRefreshResult,
 	Provider,
 	ProviderHeaders,
-} from "@earendil-works/pi-ai";
+} from "@zykairotis/ice-ai";
 import type { ModelRuntime } from "./model-runtime.ts";
 import type { AuthStatus, ProviderConfigInput } from "./provider-composer.ts";
 
@@ -43,6 +43,11 @@ export class ModelRegistry {
 
 	getError(): string | undefined {
 		return this.runtime.getError();
+	}
+
+	/** Return the canonical runtime so ICE adapters can reuse model/auth state. */
+	getRuntime(): ModelRuntime {
+		return this.runtime;
 	}
 
 	getAll(): Model<Api>[] {

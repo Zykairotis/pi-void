@@ -1,0 +1,22 @@
+sequenceDiagram
+  participant P as Parent Ice Session
+  participant G as ice-safe-verify
+  participant R as Subagent Runner
+  participant C as Child Session
+  participant O as Observatory
+  participant S as Session Log
+
+  P->>G: delegate(role, task, scope, context, resources)
+  G->>G: Validate schema, trust, mode, active tools
+  G->>R: Launch narrowed profile + cancellation signal
+  R->>O: subagent_created / subagent_started
+  R->>C: Fresh prompt, scoped tools, inherited model
+  loop Bounded execution
+    C->>R: Tool call / progress
+    R->>O: Tool activity snapshot
+  end
+  C-->>R: Assistant result or failure
+  R->>R: Redact, cap, normalize evidence, verify result
+  R->>O: Terminal snapshot
+  R-->>P: result + verification + launch provenance
+  R->>S: Durable entry only for async jobs

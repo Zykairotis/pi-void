@@ -47,6 +47,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
+          package-manager-cache: false
           registry-url: 'https://registry.npmjs.org'
 
       - name: Setup npm
@@ -67,7 +68,7 @@ jobs:
           ./scripts/create-source-archive.sh \
             --version "${VERSION}" \
             --ref HEAD \
-            --out "release-assets/pi-${VERSION}-source.tar.gz"
+            --out "release-assets/ice-${VERSION}-source.tar.gz"
 
       - name: Build binaries from source archive
         run: |
@@ -76,8 +77,8 @@ jobs:
           VERSION="${RELEASE_TAG#v}"
           build_root="$(mktemp -d)"
           trap 'rm -rf "${build_root}"' EXIT
-          tar -xzf "release-assets/pi-${VERSION}-source.tar.gz" -C "${build_root}"
-          "${build_root}/pi-${VERSION}/scripts/build-binaries.sh" \
+          tar -xzf "release-assets/ice-${VERSION}-source.tar.gz" -C "${build_root}"
+          "${build_root}/ice-${VERSION}/scripts/build-binaries.sh" \
             --offline-model-data \
             --out "${GITHUB_WORKSPACE}/packages/coding-agent/binaries"
 
@@ -91,18 +92,18 @@ jobs:
           VERSION="${VERSION#v}"  # Remove 'v' prefix
           node scripts/release-notes.mjs extract --version "${VERSION}" --tag "${RELEASE_TAG}" --out release-assets/RELEASE_NOTES.md
           node scripts/generate-coding-agent-install-lock.mjs --check
-          cp packages/coding-agent/install-lock/package.json release-assets/pi-coding-agent-install-package.json
-          cp packages/coding-agent/install-lock/package-lock.json release-assets/pi-coding-agent-install-package-lock.json
+          cp packages/coding-agent/install-lock/package.json release-assets/ice-coding-agent-install-package.json
+          cp packages/coding-agent/install-lock/package-lock.json release-assets/ice-coding-agent-install-package-lock.json
 
           cd packages/coding-agent/binaries
 
           binary_assets=(
-            pi-darwin-arm64.tar.gz
-            pi-darwin-x64.tar.gz
-            pi-linux-x64.tar.gz
-            pi-linux-arm64.tar.gz
-            pi-windows-x64.zip
-            pi-windows-arm64.zip
+            ice-darwin-arm64.tar.gz
+            ice-darwin-x64.tar.gz
+            ice-linux-x64.tar.gz
+            ice-linux-arm64.tar.gz
+            ice-windows-x64.zip
+            ice-windows-arm64.zip
           )
 
           for asset in "${binary_assets[@]}"; do
@@ -112,17 +113,17 @@ jobs:
           cp "${binary_assets[@]}" "${GITHUB_WORKSPACE}/release-assets/"
 
           cd "${GITHUB_WORKSPACE}/release-assets"
-          source_asset="pi-${VERSION}-source.tar.gz"
+          source_asset="ice-${VERSION}-source.tar.gz"
           release_assets=(
             "${source_asset}"
-            pi-darwin-arm64.tar.gz
-            pi-darwin-x64.tar.gz
-            pi-linux-x64.tar.gz
-            pi-linux-arm64.tar.gz
-            pi-windows-x64.zip
-            pi-windows-arm64.zip
-            pi-coding-agent-install-package.json
-            pi-coding-agent-install-package-lock.json
+            ice-darwin-arm64.tar.gz
+            ice-darwin-x64.tar.gz
+            ice-linux-x64.tar.gz
+            ice-linux-arm64.tar.gz
+            ice-windows-x64.zip
+            ice-windows-arm64.zip
+            ice-coding-agent-install-package.json
+            ice-coding-agent-install-package-lock.json
           )
           sha256sum "${release_assets[@]}" > SHA256SUMS
 
@@ -157,17 +158,17 @@ jobs:
           cd release-assets
 
           VERSION="${RELEASE_TAG#v}"
-          source_asset="pi-${VERSION}-source.tar.gz"
+          source_asset="ice-${VERSION}-source.tar.gz"
           expected_assets=(
             "${source_asset}"
-            pi-darwin-arm64.tar.gz
-            pi-darwin-x64.tar.gz
-            pi-linux-x64.tar.gz
-            pi-linux-arm64.tar.gz
-            pi-windows-x64.zip
-            pi-windows-arm64.zip
-            pi-coding-agent-install-package.json
-            pi-coding-agent-install-package-lock.json
+            ice-darwin-arm64.tar.gz
+            ice-darwin-x64.tar.gz
+            ice-linux-x64.tar.gz
+            ice-linux-arm64.tar.gz
+            ice-windows-x64.zip
+            ice-windows-arm64.zip
+            ice-coding-agent-install-package.json
+            ice-coding-agent-install-package-lock.json
             SHA256SUMS
             RELEASE_NOTES.md
           )
@@ -187,17 +188,17 @@ jobs:
           cd release-assets
 
           VERSION="${RELEASE_TAG#v}"
-          source_asset="pi-${VERSION}-source.tar.gz"
+          source_asset="ice-${VERSION}-source.tar.gz"
           release_assets=(
             "${source_asset}"
-            pi-darwin-arm64.tar.gz
-            pi-darwin-x64.tar.gz
-            pi-linux-x64.tar.gz
-            pi-linux-arm64.tar.gz
-            pi-windows-x64.zip
-            pi-windows-arm64.zip
-            pi-coding-agent-install-package.json
-            pi-coding-agent-install-package-lock.json
+            ice-darwin-arm64.tar.gz
+            ice-darwin-x64.tar.gz
+            ice-linux-x64.tar.gz
+            ice-linux-arm64.tar.gz
+            ice-windows-x64.zip
+            ice-windows-arm64.zip
+            ice-coding-agent-install-package.json
+            ice-coding-agent-install-package-lock.json
             SHA256SUMS
           )
 
@@ -247,6 +248,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
+          package-manager-cache: false
           registry-url: 'https://registry.npmjs.org'
 
       - name: Setup npm

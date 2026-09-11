@@ -1,0 +1,28 @@
+sequenceDiagram
+    autonumber
+    actor User
+    participant Parent as Parent AgentSessionRuntime
+    participant Bridge as IceAgentViewBridge
+    participant Shell as InteractiveMode shell
+    participant Child as Live child AgentSession
+    participant Runner as NativeSubagentRunner
+
+    User->>Parent: /agents
+    User->>Bridge: select live child
+    Bridge->>Shell: requestDisplay(child runId)
+    Note over Parent,Shell: Parent runtime remains authoritative
+    Shell->>Child: bind display, footer, transcript, events
+    Child-->>Shell: thinking, messages, tool events
+    User->>Bridge: Take Control
+    Bridge->>Child: setControlled(true)
+    User->>Shell: steering message
+    Shell->>Bridge: sendInput(child, text)
+    Bridge->>Child: AgentSession.prompt(... steer when streaming)
+    User->>Bridge: release control / return parent
+    Bridge->>Child: setControlled(false)
+    Runner->>Child: explicit final bounded report request
+    Child-->>Runner: strict final JSON
+    Runner->>Runner: parse, cap, evidence verification
+    Runner-->>Parent: bounded verified result only
+    Runner->>Bridge: bounded redacted historical snapshot
+    Bridge->>Shell: LIVE becomes HISTORY

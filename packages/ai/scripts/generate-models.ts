@@ -253,6 +253,10 @@ const OPENCODE_GO_GLM52_THINKING_LEVEL_MAP = {
 	high: "high",
 	max: "max",
 } as const;
+const OPENCODE_GO_MUSE_SPARK_THINKING_LEVEL_MAP = {
+	// Go /responses rejects effort xhigh for Muse Spark with rate_limit/500; high works.
+	xhigh: null,
+} as const;
 const EAGER_TOOL_INPUT_STREAMING_UNSUPPORTED_ANTHROPIC_MODELS = new Set([
 	"github-copilot:claude-haiku-4.5",
 	"github-copilot:claude-sonnet-4",
@@ -866,7 +870,7 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 		// Mercury 2 in instant mode (reasoning_effort: "none") disables tool calling.
 		// Mark "off" unsupported so the openai-completions provider omits the reasoning param
 		// instead of defaulting to {reasoning:{effort:"none"}} (see openai-completions.ts:575).
-		// Pi's low/medium/high pass through verbatim; OpenRouter normalizes to Mercury's vocabulary.
+		// Ice's low/medium/high pass through verbatim; OpenRouter normalizes to Mercury's vocabulary.
 		mergeThinkingLevelMap(model, { off: null });
 	}
 	if (model.provider === "openrouter" && model.id === "z-ai/glm-5.2") {
@@ -877,6 +881,12 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	}
 	if (model.provider === "opencode-go" && model.id === "glm-5.2") {
 		mergeThinkingLevelMap(model, OPENCODE_GO_GLM52_THINKING_LEVEL_MAP);
+	}
+	if (
+		model.provider === "opencode-go" &&
+		(model.id === "muse-spark-1.3-contributor" || model.id === "muse-spark-1.2-contributor")
+	) {
+		mergeThinkingLevelMap(model, OPENCODE_GO_MUSE_SPARK_THINKING_LEVEL_MAP);
 	}
 	if (model.provider === "opencode-go" && model.id === "kimi-k2.6") {
 		// OpenCode Go exposes Kimi K2.6 thinking as on/off, not distinct effort tiers.
@@ -1315,7 +1325,7 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 				}
 
 				// models.dev reports Vertex cache_read/cache_write values for Gemini 2.5 Flash that
-				// do not match the official Gemini API standard pricing table. pi only accounts
+				// do not match the official Gemini API standard pricing table. ice only accounts
 				// cachedContentTokenCount as cacheRead.
 				const cacheRead = modelId === "gemini-2.5-flash" ? 0.03 : source.cost?.cache_read || 0;
 				models.push({
@@ -1502,6 +1512,38 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 					contextWindow: m.limit?.context || 4096,
 					maxTokens: m.limit?.output || 4096,
 					...(compat ? { compat } : {}),
+				});
+				recordModelsDevReasoningOptions("cloudflare-ai-gateway", id, m);
+			}
+		}
+
+		// models.dev dropped Workers AI entries under cloudflare-ai-gateway, but the
+		// gateway /compat endpoint still routes them and tests rely on workers-ai/* IDs.
+		if (data["cloudflare-workers-ai"]?.models) {
+			for (const [modelId, model] of Object.entries(data["cloudflare-workers-ai"].models)) {
+				const m = model as ModelsDevModel;
+				if (m.tool_call !== true) continue;
+				const id = `workers-ai/${modelId}`;
+				if (models.some((existing) => existing.provider === "cloudflare-ai-gateway" && existing.id === id)) {
+					continue;
+				}
+				models.push({
+					id,
+					name: m.name || id,
+					api: "openai-completions",
+					provider: "cloudflare-ai-gateway",
+					baseUrl: CLOUDFLARE_AI_GATEWAY_COMPAT_BASE_URL,
+					reasoning: m.reasoning === true,
+					input: m.modalities?.input?.includes("image") ? ["text", "image"] : ["text"],
+					cost: {
+						input: m.cost?.input || 0,
+						output: m.cost?.output || 0,
+						cacheRead: m.cost?.cache_read || 0,
+						cacheWrite: m.cost?.cache_write || 0,
+					},
+					contextWindow: m.limit?.context || 4096,
+					maxTokens: m.limit?.output || 4096,
+					compat: { sendSessionAffinityHeaders: true },
 				});
 				recordModelsDevReasoningOptions("cloudflare-ai-gateway", id, m);
 			}
@@ -2105,7 +2147,7 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 		// Process Alibaba Cloud Model Studio Token Plan models
 		// Two regions (international / cn) with identical catalogs, separate
 		// endpoints and API keys (sk-sp- prefix). models.dev keys are
-		// "alibaba-token-plan[-cn]"; pi exposes them as "qwen-token-plan[-cn]".
+		// "alibaba-token-plan[-cn]"; ice exposes them as "qwen-token-plan[-cn]".
 		const qwenTokenPlanCompat: OpenAICompletionsCompat = {
 			thinkingFormat: "qwen",
 			supportsDeveloperRole: false,

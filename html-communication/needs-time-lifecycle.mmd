@@ -1,0 +1,10 @@
+stateDiagram-v2
+    [*] --> Working
+    Working --> Paused: time is up, work is kept
+    Paused --> Working: you grant more time
+    Paused --> WrappedUp: no more time given
+    Paused --> Stopped: you cancel it
+    Working --> Done: finished in time
+    Done --> [*]
+    WrappedUp --> [*]
+    Stopped --> [*]

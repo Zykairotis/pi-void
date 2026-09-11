@@ -1,0 +1,10 @@
+flowchart LR
+  HEAD[HEAD snapshot] --> WT[uncommitted worktree]
+  WT --> A[A compact contract]
+  WT --> B[B RPC and settings]
+  WT --> C[C subagent platform]
+  WT --> D[D leave out]
+  A --> LandA[land]
+  B --> LandB[land]
+  C --> ReviewC[trust review]
+  D --> Drop[generated catalog and notes]

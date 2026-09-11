@@ -1,0 +1,7 @@
+flowchart TD
+  Flags["sub-yolo + build + bash + approve"] --> Transport{transport}
+  Transport -->|interactive TUI| Confirm[per-launch confirm]
+  Transport -->|explicit RPC| Session[session-wide auth]
+  Transport -->|print or JSON| Fail[fail closed]
+  Confirm --> Tools[full scoped child tools]
+  Session --> Tools

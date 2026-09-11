@@ -1,7 +1,6 @@
 // Core session management
 
 export { type Args, parseArgs } from "./cli/args.ts";
-
 // Config paths
 export {
 	CONFIG_DIR_NAME,
@@ -328,10 +327,24 @@ export {
 	type ProjectTrustStoreEntry,
 	type ProjectTrustUpdate,
 } from "./core/trust-manager.ts";
+// Explicit parent-owned ICE adapter APIs. Importing these grants no child authority.
+export {
+	type IceCapabilitySnapshot,
+	type IceChildDispatchContext,
+	type IceDelegableTool,
+	registerIceDelegableTool,
+} from "./ice-subagent-capabilities.ts";
+export { type IceHookHandler, registerIceSubagentHook } from "./ice-subagent-settings.ts";
+export {
+	type IceSubagentMcpAdapter,
+	type IceSubagentMcpToolAuthorization,
+	registerIceSubagentMcpAdapter,
+} from "./ice-subagents.ts";
 // Main entry point
 export { type MainOptions, main } from "./main.ts";
 // Run modes for programmatic SDK usage
 export {
+	clearCustomStructuredCommands,
 	InteractiveMode,
 	type InteractiveModeOptions,
 	type JsonAgentSessionEvent,
@@ -340,6 +353,15 @@ export {
 	RpcClient,
 	type RpcClientOptions,
 	type RpcCommand,
+	type RpcCommandErrorDetails,
+	RpcCommandExecutionError,
+	type RpcCommandField,
+	type RpcCommandGroup,
+	type RpcCommandInvocationResult,
+	type RpcCommandOption,
+	type RpcCommandSchema,
+	type RpcCommandSchemaResult,
+	type RpcCommandSource,
 	type RpcEventListener,
 	type RpcExtensionUIRequest,
 	type RpcExtensionUIResponse,
@@ -354,6 +376,7 @@ export {
 	type RpcSettingsSnapshot,
 	type RpcSettingsValue,
 	type RpcSettingUpdate,
+	registerCustomStructuredCommand,
 	runPrintMode,
 	runRpcMode,
 } from "./modes/index.ts";

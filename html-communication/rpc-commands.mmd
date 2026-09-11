@@ -1,0 +1,11 @@
+sequenceDiagram
+  participant Client
+  participant RpcMode
+  participant Schema
+  Client->>RpcMode: get_commands
+  RpcMode-->>Client: slash inventory plus settings form
+  Client->>RpcMode: get_command_schema settings
+  RpcMode->>Schema: buildIceSettingsCommandSchema
+  Schema-->>Client: form schema
+  Client->>RpcMode: invoke_command
+  RpcMode-->>Client: invocation result or errorCode

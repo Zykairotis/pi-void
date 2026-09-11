@@ -40,13 +40,12 @@ function getBunSandboxEnvValue(name: string): string | undefined {
 
 /**
  * Resolve a provider env value from scoped overrides, normal process.env, then
- * the duplicated Bun sandbox fallback for direct pi-ai consumers.
+ * the duplicated Bun sandbox fallback for direct ice-ai consumers.
  */
 export function getProviderEnvValue(name: string, env?: ProviderEnv): string | undefined {
-	return (
-		env?.[name] ||
-		(typeof process !== "undefined" ? process.env[name] : undefined) ||
-		getBunSandboxEnvValue(name) ||
-		undefined
-	);
+	if (env && Object.hasOwn(env, name) && env[name] !== undefined) return env[name];
+	if (typeof process !== "undefined" && Object.hasOwn(process.env, name) && process.env[name] !== undefined) {
+		return process.env[name];
+	}
+	return getBunSandboxEnvValue(name);
 }

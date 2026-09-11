@@ -1,6 +1,6 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, ToolResultMessage, Usage } from "@earendil-works/pi-ai";
-import { Container, Text, type TUI } from "@earendil-works/pi-tui";
+import type { AgentMessage } from "@zykairotis/ice-agent-core";
+import type { AssistantMessage, ToolResultMessage, Usage } from "@zykairotis/ice-ai";
+import { Container, Text, type TUI } from "@zykairotis/ice-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import type { SessionEntry } from "../../../src/core/session-manager.ts";
@@ -43,6 +43,7 @@ type RenderSessionContextThis = {
 		getImageWidthCells(): number;
 		getShowCacheMissNotices(): boolean;
 	};
+	readonly renderSession: { sessionManager: { getCwd(): string; getEntries(): SessionEntry[] } };
 	sessionManager: { getCwd(): string; getEntries(): SessionEntry[] };
 	session: { retryAttempt: number; modelRegistry: { find(provider: string, modelId: string): undefined } };
 	toolOutputExpanded: boolean;
@@ -65,6 +66,9 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 	const chatContainer = new Container();
 	return {
 		pendingTools: new Map<string, ToolExecutionComponent>(),
+		get renderSession() {
+			return { ...this.session, sessionManager: this.sessionManager };
+		},
 		chatContainer,
 		footer: { invalidate: vi.fn() },
 		ui: { requestRender: vi.fn() } as unknown as TUI,

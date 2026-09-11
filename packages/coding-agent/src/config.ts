@@ -2,6 +2,8 @@ import { accessSync, constants, existsSync, readFileSync, realpathSync } from "f
 import { homedir } from "os";
 import { basename, dirname, join, resolve, sep, win32 } from "path";
 import { fileURLToPath } from "url";
+import { getIceEnv } from "./core/legacy-compat/env.ts";
+import { compatibleConfigRoot } from "./core/legacy-compat/paths.ts";
 import { spawnProcessSync } from "./utils/child-process.ts";
 import { normalizePath } from "./utils/paths.ts";
 
@@ -333,7 +335,7 @@ export function getSelfUpdateUnavailableInstruction(
 	const method = detectInstallMethod();
 	const target = normalizeSelfUpdatePackageTarget(updatePackageTarget);
 	if (method === "bun-binary") {
-		return `Download from: https://github.com/earendil-works/pi-mono/releases/latest`;
+		return "Replace this standalone ICE binary using the verified release source that supplied it.";
 	}
 	const command = getSelfUpdateCommandForMethod(method, packageName, target, npmCommand);
 	if (command) {
@@ -366,7 +368,7 @@ export function getUpdateInstruction(packageName: string): string {
  */
 export function getPackageDir(): string {
 	// Allow override via environment variable (useful for Nix/Guix where store paths tokenize poorly)
-	const envDir = process.env.PI_PACKAGE_DIR;
+	const envDir = getIceEnv("ICE_PACKAGE_DIR");
 	if (envDir) {
 		return normalizePath(envDir);
 	}
@@ -464,13 +466,13 @@ export function getBundledInteractiveAssetPath(name: string): string {
 }
 
 // =============================================================================
-// App Config (from package.json piConfig)
+// App Config (from package.json iceConfig)
 // =============================================================================
 
 interface PackageJson {
 	name?: string;
 	version?: string;
-	piConfig?: {
+	iceConfig?: {
 		name?: string;
 		configDir?: string;
 	};
@@ -484,14 +486,14 @@ try {
 	if (err.code !== "ENOENT") throw e;
 }
 
-const piConfigName: string | undefined = pkg.piConfig?.name;
-export const PACKAGE_NAME: string = pkg.name || "@earendil-works/pi-coding-agent";
-export const APP_NAME: string = piConfigName || "pi";
-export const APP_TITLE: string = piConfigName ? APP_NAME : "π";
-export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".pi";
+const iceConfigName: string | undefined = pkg.iceConfig?.name;
+export const PACKAGE_NAME: string = pkg.name || "@zykairotis/ice-coding-agent";
+export const APP_NAME: string = iceConfigName || "ice";
+export const APP_TITLE: string = iceConfigName ? APP_NAME : "ICE";
+export const CONFIG_DIR_NAME: string = pkg.iceConfig?.configDir || ".ice";
 export const VERSION: string = pkg.version || "0.0.0";
 
-// e.g., PI_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
+// e.g., ICE_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
 export const ENV_AGENT_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;
 export const ENV_SESSION_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_SESSION_DIR`;
 
@@ -499,25 +501,31 @@ export function expandTildePath(path: string): string {
 	return normalizePath(path);
 }
 
+// This is an existing external viewer, not an ICE-owned deployment.
 const DEFAULT_SHARE_VIEWER_URL = "https://pi.dev/session/";
 
 /** Get the share viewer URL for a gist ID */
 export function getShareViewerUrl(gistId: string): string {
-	const baseUrl = process.env.PI_SHARE_VIEWER_URL || DEFAULT_SHARE_VIEWER_URL;
+	const baseUrl = getIceEnv("ICE_SHARE_VIEWER_URL") || DEFAULT_SHARE_VIEWER_URL;
 	return `${baseUrl}#${gistId}`;
 }
 
 // =============================================================================
-// User Config Paths (~/.pi/agent/*)
+// User Config Paths (~/.ice/agent/*)
 // =============================================================================
 
-/** Get the agent config directory (e.g., ~/.pi/agent/) */
+/** Get the agent config directory (e.g., ~/.ice/agent/) */
 export function getAgentDir(): string {
-	const envDir = process.env[ENV_AGENT_DIR];
+	const envDir = getIceEnv(ENV_AGENT_DIR);
 	if (envDir) {
 		return expandTildePath(envDir);
 	}
-	return join(homedir(), CONFIG_DIR_NAME, "agent");
+	return join(compatibleConfigRoot(homedir(), CONFIG_DIR_NAME), "agent");
+}
+
+/** One project resource tree, with explicit canonical state taking precedence. */
+export function getProjectConfigDir(cwd: string): string {
+	return compatibleConfigRoot(cwd, CONFIG_DIR_NAME);
 }
 
 /** Get path to user's custom themes directory */

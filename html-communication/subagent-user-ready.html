@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ICE — File and Self Delegation</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#101114;color:#e8e9ed}body{max-width:1000px;margin:auto;padding:3rem 1.4rem;line-height:1.65}h1{font-size:2.5rem;line-height:1.16;letter-spacing:-.04em}h2{margin-top:2.4rem;font-size:1.4rem}p{max-width:85ch;color:#c4c7ce}code,pre{font-family:ui-monospace,monospace}code{color:#a8d6cb}pre{background:#1b1d23;border:1px solid #30343d;border-radius:10px;padding:1rem;overflow:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem}.card{background:#17191e;padding:1.2rem;border:1px solid #30343d;border-radius:10px}.card h2{margin:0 0 .6rem}table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:.7rem;border-bottom:1px solid #30343d}.note{border-left:3px solid #a8d6cb;padding-left:1rem}footer{margin-top:3rem;color:#969ba7;font-size:.9rem}a{color:#a8d6cb}
+</style>
+</head>
+<body>
+<header><p>ICE VOID / OPERATOR GUIDE / 10 SEPTEMBER 2026</p><h1>One Ice loop.<br>Bounded delegated work.</h1><p>Choose a parent-derived child or a Markdown specialist. Both use Ice's model runtime and the same scope, budget, policy-hook, cancellation, and evidence boundaries.</p></header>
+<section class="grid">
+<article class="card"><h2>Self</h2><p><code>role: "self"</code> snapshots the current parent instructions. Optional child guidance is additive. Fresh history is the default; privileged management tools are never inherited.</p></article>
+<article class="card"><h2>File agent</h2><p>A complete global <code>~/.ice/agents/name.md</code> wins over the same-name trusted project file. There is no hidden specialist catalog or alias fallback.</p></article>
+<article class="card"><h2>Tools</h2><p>Scoped built-ins plus explicitly registered child-safe parent adapters. Selected MCP tools require actual schemas and host-owned access classifications.</p></article>
+</section>
+<h2>Start without an agent file</h2>
+<pre>{
+  "role": "self",
+  "task": "Inspect the implementation and report verified evidence.",
+  "scope": { "roots": ["src"] },
+  "execution": { "maxTurns": 8, "maxToolCalls": 20 },
+  "contextMode": "fresh"
+}</pre>
+<p>Use existing directory roots. Individual files belong in <code>scope.targets</code>, not roots. <code>self.inheritSkills: true</code> explicitly inherits loaded parent skills; <code>self.mcp: ["docs/search"]</code> selects an authorized MCP operation.</p>
+<h2>Model selection is not replay</h2>
+<pre>Explicit call model OR file primary
+                 ↓ unavailable
+            File fallback
+                 ↓ unavailable
+       Parent model captured at launch</pre>
+<p>Alternative routes require global <code>ice.subagents.modelSelection.mode: "configured"</code>. Availability failures have bounded skip reasons. Policy denials fail closed. Only a proven pre-effect startup failure may consume the second attempt; both attempts share time and output budgets.</p>
+<p class="note">A queued job keeps its accepted route and fingerprints. Changed capabilities or unavailable authentication fail explicitly. Restart interrupts live work rather than relaunching it. Edits and external calls with uncertain outcomes are never automatically replayed.</p>
+<h2>Effective settings, not optimistic requests</h2>
+<table><thead><tr><th>Layer</th><th>Rule</th></tr></thead><tbody>
+<tr><td>Ordinary preferences</td><td>Explicit global values beat trusted project values. Missing is different from false, zero, or an empty array. Scoped writes do not overwrite the other file.</td></tr>
+<tr><td>Permissions</td><td>Denies, trust, execution modes, and hard caps restrict all preference layers.</td></tr>
+<tr><td>Resources</td><td>Global-first names; selected/inherited resources are revalidated. Child sessions never install ambient packages or load ambient extensions.</td></tr>
+<tr><td>Stock Ice</td><td>Project-first behavior is unchanged unless a host explicitly opts into the distribution policy.</td></tr>
+</tbody></table>
+<h2>Observe and stop</h2><p><code>/agents</code> and <code>/subagents</code> expose existing child views. <code>list_subagent_profiles</code> reports sources, effective tools, models, and skip reasons. Inspect and extend an existing <code>needs_time</code> child rather than launching a duplicate. Set <code>ice.subagents.enabled: false</code> to block new work while preserving owned job inspection and cancellation.</p>
+<h2>Migration and boundaries</h2><p>Legacy <code>~/.ice/agent/agents</code> files are reported in a collision-aware manifest; nothing is moved or deleted. An explicit custom agent directory retains <code>&lt;agentDir&gt;/agents</code>. Settings and credentials remain in their existing locations.</p><p>Host Bash, command hooks, and external MCP services are not a sandbox. An adapter must use existing authorized connections and enforce its own external-resource policy. Provider-free tests do not certify every real model provider or independently installed MCP extension.</p>
+<footer>Detailed examples and troubleshooting: <a href="../packages/coding-agent/docs/subagent-user-guide.md">subagent user guide</a>. Implementation evidence: <code>.artifacts/ice-self-user-ready-20260910/</code>.</footer>
+</body></html>

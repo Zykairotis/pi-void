@@ -1,0 +1,19 @@
+flowchart TB
+  User["user or RPC client"] --> Parent["Ice parent loop"]
+  subgraph Before["Before: void baseline"]
+    Parent --> Legacy["ICE hidden extensions"]
+    Legacy --> Refresh["startup model refresh"]
+    Legacy --> Memory["Cognee hooks"]
+  end
+  subgraph After["After: feat/subagents"]
+    Parent --> Policy["ICE policy and verification"]
+    Policy --> Child["native child executor"]
+    Child --> Read["bounded read-only workers"]
+    Policy --> Jobs["durable read-only jobs"]
+    Policy --> Writer["isolated writer worktree"]
+    Writer --> Artifact["bounded patch artifact"]
+    Parent --> Rpc["typed RPC commands"]
+    Parent --> Observe["observatory and TUI views"]
+  end
+  Artifact --> Parent
+  Read --> Parent

@@ -1,5 +1,5 @@
 {
-	"name": "@earendil-works/pi-ai",
+	"name": "@zykairotis/ice-ai",
 	"version": "0.83.0",
 	"description": "Unified LLM API with automatic model discovery and provider configuration",
 	"type": "module",
@@ -41,7 +41,7 @@
 		}
 	},
 	"bin": {
-		"pi-ai": "dist/cli.js"
+		"ice-ai": "dist/cli.js"
 	},
 	"files": [
 		"dist",
@@ -82,11 +82,11 @@
 		"unified",
 		"api"
 	],
-	"author": "Mario Zechner",
+	"author": "Zykairotis/ICE",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/Zykairotis/ice.git",
 		"directory": "packages/ai"
 	},
 	"engines": {

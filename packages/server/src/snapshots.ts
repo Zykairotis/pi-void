@@ -4,13 +4,13 @@ import {
 	PROTOCOL_VERSION,
 	type ServerSnapshot,
 	type SessionSummary,
-} from "@earendil-works/pi-protocol";
+} from "@zykairotis/ice-protocol";
 import type { ConnectionState } from "./connection.ts";
-import type { PiSessionBackend } from "./types.ts";
+import type { IceSessionBackend } from "./types.ts";
 
 interface ServerSnapshotPublisherOptions {
 	serverId: string;
-	backend: PiSessionBackend;
+	backend: IceSessionBackend;
 	connections: Set<ConnectionState>;
 	isClosing: () => boolean;
 	listSessions: (connection?: ConnectionState) => Promise<SessionSummary[]>;

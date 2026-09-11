@@ -1,10 +1,10 @@
 import { join } from "node:path";
-import type { SessionMetadata, SessionRepo } from "@earendil-works/pi-agent-core";
-import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import type { SessionMetadata, SessionRepo } from "@zykairotis/ice-agent-core";
+import { NodeExecutionEnv } from "@zykairotis/ice-agent-core/node";
 import {
 	createSessionBackendConformance,
 	type SessionBackendFixture,
-} from "@earendil-works/pi-agent-core/session/testing";
+} from "@zykairotis/ice-agent-core/session/testing";
 import { describe, it } from "vitest";
 import { createNodeSqliteFactory, type SqliteSessionMetadata, SqliteSessionRepository } from "../src/index.ts";
 import { createTempDir } from "./test-utils.ts";

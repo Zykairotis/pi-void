@@ -1,16 +1,16 @@
 import { lstat, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ServerMessageDecoder } from "@earendil-works/pi-protocol";
+import { ServerMessageDecoder } from "@zykairotis/ice-protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ByteConnection } from "../src/connection.ts";
-import { PiServer } from "../src/index.ts";
+import { IceServer } from "../src/index.ts";
 import { TestSessionBackend } from "../src/testing/index.ts";
 import { createUnixServer } from "../src/transports/unix/index.ts";
 
 const backend = new TestSessionBackend();
 
-let server: PiServer | undefined;
+let server: IceServer | undefined;
 let tempDirectory: string | undefined;
 
 async function makeSocketPath(): Promise<string> {
@@ -26,7 +26,7 @@ afterEach(async () => {
 });
 
 test("requires explicit listeners", () => {
-	expect(() => Reflect.construct(PiServer, [backend, {}])).toThrow(/listeners/);
+	expect(() => Reflect.construct(IceServer, [backend, {}])).toThrow(/listeners/);
 });
 
 test("rejects Unix socket paths that cannot fit in sockaddr_un", () => {
@@ -67,7 +67,7 @@ test("handshake timeout cleanup does not wait for a blocked output queue", async
 			this.closed = true;
 		}
 	}
-	const core = new PiServer(backend, {
+	const core = new IceServer(backend, {
 		listeners: [],
 		maxFrameLength: 1024,
 		handshakeTimeoutMs: 10,
@@ -83,7 +83,7 @@ test("handshake timeout cleanup does not wait for a blocked output queue", async
 });
 
 test("rejects timeout values above Node's maximum timer delay", () => {
-	const unix = { path: "/tmp/pi-server-timeout-test.sock" };
+	const unix = { path: "/tmp/ice-server-timeout-test.sock" };
 	expect(() => createUnixServer(backend, { path: unix.path, handshakeTimeoutMs: 2_147_483_648 })).toThrow(
 		/handshakeTimeoutMs/,
 	);

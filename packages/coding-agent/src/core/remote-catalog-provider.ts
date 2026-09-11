@@ -1,7 +1,8 @@
-import type { Api, Model, ModelsStoreEntry, Provider } from "@earendil-works/pi-ai";
+import type { Api, Model, ModelsStoreEntry, Provider } from "@zykairotis/ice-ai";
 import { VERSION } from "../config.ts";
-import { getPiUserAgent } from "../utils/pi-user-agent.ts";
+import { getIceUserAgent } from "../utils/ice-user-agent.ts";
 
+// Provider catalogs remain hosted by the existing upstream service.
 const DEFAULT_CATALOG_BASE_URL = "https://pi.dev";
 export const REMOTE_CATALOG_REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
@@ -40,7 +41,7 @@ function remoteModels(
 	return entry.models;
 }
 
-/** Add a persisted pi.dev catalog overlay to a static built-in provider. */
+/** Add the persisted upstream catalog overlay to a static built-in provider. */
 export function withRemoteCatalog(
 	provider: Provider,
 	catalogBaseUrl: string = DEFAULT_CATALOG_BASE_URL,
@@ -80,7 +81,7 @@ export function withRemoteCatalog(
 			const response = await fetch(url, {
 				headers: {
 					accept: "application/json",
-					"User-Agent": getPiUserAgent(VERSION),
+					"User-Agent": getIceUserAgent(VERSION),
 					...(validator ? { "if-none-match": validator } : {}),
 				},
 				signal: context.signal,

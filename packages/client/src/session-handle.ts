@@ -5,7 +5,7 @@ import type {
 	ServerEvent,
 	SessionSnapshot,
 	ThinkingLevel,
-} from "@earendil-works/pi-protocol";
+} from "@zykairotis/ice-protocol";
 import type { Unsubscribe } from "./types.ts";
 
 type SessionCommand = Extract<Command, { sessionId: string }>;
@@ -32,7 +32,7 @@ export interface SessionLease extends AsyncDisposable {
 	setThinking(thinkingLevel: ThinkingLevel): Promise<SessionSnapshot>;
 }
 
-export type PiSessionHandle = SessionLease;
+export type IceSessionHandle = SessionLease;
 
 export interface SessionHandleCallbacks {
 	isAttached(): boolean;

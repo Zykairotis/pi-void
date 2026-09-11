@@ -25,7 +25,7 @@ The harness executes runs against one session. The session holds four kinds of s
 ## 1. Goals
 
 - **Durable runs.** An accepted prompt is a durable operation. After a crash, a new process restores the session. It resumes the run from the last safe boundary. Every state that a crash can produce is recoverable.
-- **Lanes.** A session hosts one or more lanes. A lane is a named position in the conversation tree. Each lane runs at most one operation at a time. Lanes run in parallel. A run and its queued messages belong to the lane that accepted them. Example: a Slack channel is a session; each thread is a lane. Interactive pi uses one lane and does not show the concept in its UI. Extensions get the full harness API, including lanes. Example: a subagent tool runs on a second lane of its parent's session.
+- **Lanes.** A session hosts one or more lanes. A lane is a named position in the conversation tree. Each lane runs at most one operation at a time. Lanes run in parallel. A run and its queued messages belong to the lane that accepted them. Example: a Slack channel is a session; each thread is a lane. Interactive ice uses one lane and does not show the concept in its UI. Extensions get the full harness API, including lanes. Example: a subagent tool runs on a second lane of its parent's session.
 - **No partial outcomes.** A crash inside any operation — run, compaction, navigation — leaves one of two states: the operation has not happened, or recovery can complete it. Nothing in between is observable.
 - **Harness API.** Events observe execution and cannot change it. Hooks intercept execution and can change it: context, requests, tools, run boundaries. Extensions build on events and hooks.
 - **Deterministic stepping.** Every effect — durable write, provider request, tool execution, hook, timer — crosses one injected boundary. In `drive: "manual"` the harness parks before each effect and a test drives it call by call: stop at any boundary, inject input, or close and reopen to simulate a crash. Production and tests run the same procedures; the drive mode only controls the boundary (section 15).
@@ -37,7 +37,7 @@ The harness executes runs against one session. The session holds four kinds of s
 ## Non-goals
 
 - **Exactly-once hook side effects.** A hook result becomes durable when the record or entry that consumes it commits. A crash before that commit can run the hook again (section 11 replay table). Side effects a hook makes on its own are invisible to the harness: HTTP calls, file writes. A hook that needs crash-safe external effects must be idempotent, for example keyed by operation id.
-- **Provider stream resumption.** Partial streams are never persisted. An interrupted streaming request is retried or abandoned. Deferred requests are different and in scope: the provider returns a handle at once and serves the result later (e.g. `background: true` on a Responses API, batch APIs). pi-ai returns an assistant message with stop reason `deferred` that carries the handle; it is persisted like any assistant message. Redeeming the handle appends a normal assistant message. Recovery sees the unredeemed handle and fetches instead of paying for a new request.
+- **Provider stream resumption.** Partial streams are never persisted. An interrupted streaming request is retried or abandoned. Deferred requests are different and in scope: the provider returns a handle at once and serves the result later (e.g. `background: true` on a Responses API, batch APIs). ice-ai returns an assistant message with stop reason `deferred` that carries the handle; it is persisted like any assistant message. Redeeming the handle appends a normal assistant message. Recovery sees the unredeemed handle and fetches instead of paying for a new request.
 - **Multiple writers.** Two processes on one session are out of scope. The serving layer routes all traffic for a session to the process that holds its harness. Lanes cover the workloads that look like multi-writer: parallel threads over shared history.
 - **Replication.** A session lives in one place. Coordination-free sync of diverging copies is a different design. Nothing forecloses it later; section 19 records why.
 - **Coding-agent migration.** `packages/coding-agent` remains on its current runtime and is not modified by this implementation plan. Compatibility means the new JSONL repository can read supported coding-agent v3 files; it does not mean coding-agent is switched to `AgentHarness` here.
@@ -458,7 +458,7 @@ function isRecoverableLength(message: AssistantMessage, desiredMaxOutput: number
 }
 ```
 
-`desiredMaxOutput` is the caller-supplied `maxTokens` when set, else `model.maxTokens` — the intended limit **before** any context clamping. The value actually sent can never be the reference: some providers reject an explicit output cap outright (the OpenAI Codex backend returns HTTP 400 for `max_output_tokens`), and Pi clamps others to the remaining context. This covers a context-clamped request that returns 16 reasoning tokens against a 128k intent (recover), a Xiaomi/Qwen-style `length` with zero output (recover), and an explicit 1,024 cap fully used (genuine stop) — with no context-percentage heuristics. Overflow-form errors — a provider rejection matching the overflow patterns, or a silent success whose prompt exceeds the window — classify the same way and take the same path.
+`desiredMaxOutput` is the caller-supplied `maxTokens` when set, else `model.maxTokens` — the intended limit **before** any context clamping. The value actually sent can never be the reference: some providers reject an explicit output cap outright (the OpenAI Codex backend returns HTTP 400 for `max_output_tokens`), and Ice clamps others to the remaining context. This covers a context-clamped request that returns 16 reasoning tokens against a 128k intent (recover), a Xiaomi/Qwen-style `length` with zero output (recover), and an explicit 1,024 cap fully used (genuine stop) — with no context-percentage heuristics. Overflow-form errors — a provider rejection matching the overflow patterns, or a silent success whose prompt exceeds the window — classify the same way and take the same path.
 
 A recoverable response is **discarded**: like a retryable error, it never becomes an entry, so nothing has to be scrubbed from context on retry, live or after a crash. Its provisioned result id stays unfulfilled; its cost is already durable in the `usage` record written when the request settled (section 5).
 
@@ -1065,7 +1065,7 @@ interface SuspendedOperation {
 ### Examples
 
 ```ts
-// Interactive pi. suspended has 0 or 1 entries, always "main".
+// Interactive ice. suspended has 0 or 1 entries, always "main".
 const { harness, suspended } = await AgentHarness.create({ session, models, model });
 for (const s of suspended) await (await harness.lane(s.lane))!.resume();
 await harness.prompt("fix the bug");
@@ -2567,7 +2567,7 @@ Notes:
 - A crash between the navigation move and its summary entry loses the in-memory summary text; recovery regenerates it under the same attempt cap. A hook-supplied summary lost in that window is regenerated rather than re-asked: the hook's decline authority ended at the move.
 - One policy knob deferred to implementation: whether `resume()` waits inside `fetchDeferred` when the provider is not ready (`wait` option) or re-parks immediately.
 
-## 16. pi-ai: deferred requests
+## 16. ice-ai: deferred requests
 
 The provider-level interface the harness builds on. Everything is per-request; batch APIs can implement the same shape through a custom provider.
 
@@ -2686,7 +2686,7 @@ repo.create({ id?, parentSessionId? }): Promise<Session>;
 - Entries only. JSONL copies them without `lane`, then writes the final lane pointers. No records, no queues: a fork starts idle, every lane question answers "no open operation". No records also means no ledger: a fork's `getStats()` starts at zero — cost belongs to the session that incurred it; entry usage snapshots still display.
 - Lanes: `scope: "branch"` → the fork has only `main`, at the fork point. `scope: "tree"` → every lane name and leaf pointer is copied. No operation logs or queues are copied either way, so every forked lane is idle.
 - Facts: `scope: "tree"` copies all; `scope: "branch"` copies the name always, labels only when their target entry was copied.
-- The fork point may be any message entry. A copy whose tip sits mid-tool-batch is still promptable: pi-ai's transformMessages inserts synthetic empty results for orphaned tool calls at request build time.
+- The fork point may be any message entry. A copy whose tip sits mid-tool-batch is still promptable: ice-ai's transformMessages inserts synthetic empty results for orphaned tool calls at request build time.
 - The source is untouched; copying while it runs reads the committed prefix.
 - Linkage is `parentSessionId`, set by `fork()` and settable on `create()` — the basis for subagent parent/child tracking and export bundles.
 - A subagent tool derives its child session id deterministically from its invocation (`f(parentSessionId, toolCallId)`): a safe replay reattaches to the same child instead of spawning a twin, and the child stays discoverable from the parent even when a crash swallowed the tool result.
@@ -2694,9 +2694,9 @@ repo.create({ id?, parentSessionId? }): Promise<Session>;
 
 ## 18. Telemetry
 
-Telemetry uses explicit context propagation. Core code does not use `AsyncLocalStorage`, global current-span state, or runtime-specific context APIs: pi runs in Node, Bun, browsers, and workers, so no runtime's ambient-context mechanism can be the core abstraction, and explicit arguments are the only portable one. This section is the complete telemetry design; no other document defines any of it.
+Telemetry uses explicit context propagation. Core code does not use `AsyncLocalStorage`, global current-span state, or runtime-specific context APIs: ice runs in Node, Bun, browsers, and workers, so no runtime's ambient-context mechanism can be the core abstraction, and explicit arguments are the only portable one. This section is the complete telemetry design; no other document defines any of it.
 
-Pi ships no exporter and depends on no telemetry vendor. The application supplies the `ExecutionContext` below; an **adapter** is such an implementation that bridges spans into OTel, Sentry, logs, or metrics. The contract passes live span objects, not span/trace ids — an adapter that needs ids (every OTel-shaped backend does) allocates and correlates them internally, so core never carries id plumbing. An adapter may use `AsyncLocalStorage` inside its own implementation on runtimes that have it; core will never require it.
+Ice ships no exporter and depends on no telemetry vendor. The application supplies the `ExecutionContext` below; an **adapter** is such an implementation that bridges spans into OTel, Sentry, logs, or metrics. The contract passes live span objects, not span/trace ids — an adapter that needs ids (every OTel-shaped backend does) allocates and correlates them internally, so core never carries id plumbing. An adapter may use `AsyncLocalStorage` inside its own implementation on runtimes that have it; core will never require it.
 
 ### Context contract
 
@@ -2740,11 +2740,11 @@ Procedures do not create spans and do not emit telemetry. The harness holds the 
 ```ts
 // fx implementation
 async streamAssistant(request: AssistantRequest): Promise<AssistantMessage> {
-  const span = this.operationContext.startSpan("pi.harness.step",
+  const span = this.operationContext.startSpan("ice.harness.step",
     { step: request.step, attempt: request.attempt, lane: this.lane });
   try {
     const message = await streamAssistant(request.messages,
-      { ...request.config, context: span }, this.emit);   // children: pi.ai.request
+      { ...request.config, context: span }, this.emit);   // children: ice.ai.request
     span.end({ status: "ok", attributes: { stopReason: message.stopReason } });
     return message;
   } catch (error) {
@@ -2771,18 +2771,18 @@ Trace context is not durable. Persisting a provider-specific trace token would c
 The span tree follows execution scopes:
 
 ```text
-pi.harness.run                 runId, lane, recovery
-├─ pi.harness.checkpoint
-│  └─ pi.harness.step          compaction, attempt
-├─ pi.harness.turn             turnId
-│  ├─ pi.harness.step          assistant, attempt
-│  │  └─ pi.ai.request         provider, model, stop reason
-│  └─ pi.harness.tool          toolName, toolCallId, replay
-├─ pi.harness.hook             hook
-└─ pi.session.append           entry/record type, seq
+ice.harness.run                 runId, lane, recovery
+├─ ice.harness.checkpoint
+│  └─ ice.harness.step          compaction, attempt
+├─ ice.harness.turn             turnId
+│  ├─ ice.harness.step          assistant, attempt
+│  │  └─ ice.ai.request         provider, model, stop reason
+│  └─ ice.harness.tool          toolName, toolCallId, replay
+├─ ice.harness.hook             hook
+└─ ice.session.append           entry/record type, seq
 
-pi.harness.compaction          manual operation
-pi.harness.navigation
+ice.harness.compaction          manual operation
+ice.harness.navigation
 ```
 
 The harness owns the operation and turn spans. The `fx` implementation owns checkpoint, step, request, tool, hook, and append spans: `fx.streamAssistant` creates the retryable step span and its request children, and each tool step gets its own tool span. This split follows ownership of the corresponding work.
@@ -2887,7 +2887,7 @@ Implementation lives directly in `packages/agent/src/harness/`, with v4 session 
 - `AgentHarness` is type-complete but not behavior-complete. Execution-bearing methods reject with `HarnessNotImplemented`; some read/configuration/watch/manual-drive methods still expose local scaffold behavior. F0 owns the audit and hardening of every public method before runtime work begins.
 - Compaction preparation, context projection, and branch summarization use v4 `Entry` queries and no longer depend on the legacy `SessionTreeEntry` model. Reusable compaction tests and dedicated context tests cover this interim behavior.
 - `Session.getBranch()` is not part of v4 and must not be reintroduced. Branch callers use `findEntriesOnBranch()` with an explicit start and deliberate ordering semantics; callers may use the documented `newestFirst` default.
-- The pi-ai deferred request types, `Models.fetchDeferred()` / `cancelDeferred()` dispatch, and faux-provider pending/ready/terminal/cancellation support are already implemented and tested. Only harness integration remains.
+- The ice-ai deferred request types, `Models.fetchDeferred()` / `cancelDeferred()` dispatch, and faux-provider pending/ready/terminal/cancellation support are already implemented and tested. Only harness integration remains.
 
 ### Scope boundary
 
@@ -3094,7 +3094,7 @@ H0 converges restore and primitives into `agent-harness.ts`. H0–H8 then merge 
   - Consume R2's X1–X5 reduced state and reconcile it; replay only when persisted and current declarations are safe, preserve ordinals, and handle truncated batches without execution. Do not duplicate reducer logic.
   - Acceptance: complete tool crash matrix, changed replay declarations, parallel-prefix crashes, and idempotent second recovery.
 - [ ] **H8 — deferred provider redemption.** Dependencies: H7.
-  - Integrate the already-landed pi-ai deferred APIs: suspend, pending re-park, ready continuation, terminal/rejected fetch failure, handle mismatch, and best-effort cancellation.
+  - Integrate the already-landed ice-ai deferred APIs: suspend, pending re-park, ready continuation, terminal/rejected fetch failure, handle mismatch, and best-effort cancellation.
   - Acceptance: one fetch per resume; pending writes nothing except reported usage; terminal errors never start replacement requests.
 
 ### Track C/N — structural operations

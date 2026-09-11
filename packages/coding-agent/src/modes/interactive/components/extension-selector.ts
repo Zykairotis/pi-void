@@ -3,16 +3,7 @@
  * Displays a list of string options with keyboard navigation.
  */
 
-import {
-	Container,
-	getKeybindings,
-	Markdown,
-	ScrollView,
-	Spacer,
-	Text,
-	type TUI,
-	VStack,
-} from "@earendil-works/pi-tui";
+import { Container, getKeybindings, Markdown, ScrollView, Spacer, Text, type TUI, VStack } from "@zykairotis/ice-tui";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 import { CountdownTimer } from "./countdown-timer.ts";
 import { DynamicBorder } from "./dynamic-border.ts";

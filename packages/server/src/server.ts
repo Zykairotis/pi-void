@@ -14,27 +14,27 @@ import {
 	type ServerHello,
 	type ServerHelloError,
 	type ServerMessage,
-} from "@earendil-works/pi-protocol";
+} from "@zykairotis/ice-protocol";
 import {
 	type ByteConnection,
 	type ByteConnectionHandler,
 	type ConnectionState,
 	isTerminalConnection,
 } from "./connection.ts";
-import { PiServerError } from "./errors.ts";
-import type { PiServerListener } from "./listener.ts";
+import { IceServerError } from "./errors.ts";
+import type { IceServerListener } from "./listener.ts";
 import { LiveSessionManager } from "./sessions.ts";
 import { ServerSnapshotPublisher } from "./snapshots.ts";
-import type { PiServerOptions, PiSessionBackend } from "./types.ts";
+import type { IceServerOptions, IceSessionBackend } from "./types.ts";
 
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 5_000;
 const MAX_UINT32 = 0xffff_ffff;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
-export class PiServer {
+export class IceServer {
 	readonly id: string;
 
-	private readonly listeners: readonly PiServerListener[];
+	private readonly listeners: readonly IceServerListener[];
 	private readonly maxFrameLength: number;
 	private readonly handshakeTimeoutMs: number;
 	private readonly onError: ((error: Error) => void) | undefined;
@@ -46,7 +46,7 @@ export class PiServer {
 	private startPromise?: Promise<this>;
 	private started = false;
 
-	constructor(backend: PiSessionBackend, options: PiServerOptions) {
+	constructor(backend: IceSessionBackend, options: IceServerOptions) {
 		const resolved = resolveOptions(options);
 		this.listeners = options.listeners;
 		this.id = options.serverId ?? randomUUID();
@@ -78,15 +78,15 @@ export class PiServer {
 	}
 
 	start(): Promise<this> {
-		if (this.started) return Promise.reject(new Error("PiServer is already started"));
-		if (this.startPromise) return Promise.reject(new Error("PiServer is already starting"));
-		if (this.closing) return Promise.reject(new Error("PiServer is closing or closed"));
+		if (this.started) return Promise.reject(new Error("IceServer is already started"));
+		if (this.startPromise) return Promise.reject(new Error("IceServer is already starting"));
+		if (this.closing) return Promise.reject(new Error("IceServer is closing or closed"));
 		this.startPromise = this.startInternal();
 		return this.startPromise;
 	}
 
 	private async startInternal(): Promise<this> {
-		const started: PiServerListener[] = [];
+		const started: IceServerListener[] = [];
 		try {
 			for (const listener of this.listeners) {
 				await listener.start((connection) => this.accept(connection));
@@ -344,7 +344,7 @@ export class PiServer {
 	}
 
 	private toProtocolError(error: unknown): ProtocolError {
-		if (error instanceof PiServerError) {
+		if (error instanceof IceServerError) {
 			return error.details === undefined
 				? { code: error.code, message: error.message }
 				: { code: error.code, message: error.message, details: error.details };
@@ -365,12 +365,12 @@ export class PiServer {
 	}
 }
 
-function resolveOptions(options: PiServerOptions): { maxFrameLength: number; handshakeTimeoutMs: number } {
-	if (!Array.isArray(options.listeners)) throw new TypeError("PiServer listeners must be an array");
-	if (options.serverId === "") throw new TypeError("PiServer serverId must not be empty");
+function resolveOptions(options: IceServerOptions): { maxFrameLength: number; handshakeTimeoutMs: number } {
+	if (!Array.isArray(options.listeners)) throw new TypeError("IceServer listeners must be an array");
+	if (options.serverId === "") throw new TypeError("IceServer serverId must not be empty");
 	const maxFrameLength = options.maxFrameLength ?? DEFAULT_MAX_FRAME_LENGTH;
 	if (!Number.isSafeInteger(maxFrameLength) || maxFrameLength <= 0 || maxFrameLength > MAX_UINT32) {
-		throw new TypeError(`PiServer maxFrameLength must be an integer between 1 and ${MAX_UINT32}`);
+		throw new TypeError(`IceServer maxFrameLength must be an integer between 1 and ${MAX_UINT32}`);
 	}
 	const handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
 	if (
@@ -378,7 +378,7 @@ function resolveOptions(options: PiServerOptions): { maxFrameLength: number; han
 		handshakeTimeoutMs <= 0 ||
 		handshakeTimeoutMs > MAX_TIMER_DELAY_MS
 	) {
-		throw new TypeError(`PiServer handshakeTimeoutMs must be an integer between 1 and ${MAX_TIMER_DELAY_MS}`);
+		throw new TypeError(`IceServer handshakeTimeoutMs must be an integer between 1 and ${MAX_TIMER_DELAY_MS}`);
 	}
 	return { maxFrameLength, handshakeTimeoutMs };
 }

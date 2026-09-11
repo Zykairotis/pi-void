@@ -51,6 +51,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
+          package-manager-cache: false
 
       - name: Setup npm
         working-directory: ${{ runner.temp }}
@@ -79,14 +80,14 @@ jobs:
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
     needs: generate
     runs-on: ubuntu-latest
-    environment: pi-model-upload
+    environment: ice-model-upload
     concurrency:
       group: publish-model-catalog-r2
       cancel-in-progress: true
     env:
       SOURCE_REF: ${{ github.event.workflow_run.head_sha || inputs.source_ref || github.sha }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.PI_ARTIFACTS_R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.PI_ARTIFACTS_R2_SECRET_ACCESS_KEY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.ICE_ARTIFACTS_R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.ICE_ARTIFACTS_R2_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: auto
       AWS_EC2_METADATA_DISABLED: 'true'
       R2_ENDPOINT: https://67c0d357268b0fca6e0b465bb9d01b84.r2.cloudflarestorage.com
@@ -101,6 +102,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
+          package-manager-cache: false
 
       - name: Download model catalog JSON
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -146,6 +148,6 @@ jobs:
         run: |
           node scripts/publish-model-catalog.mjs \
             --input .artifacts/model-catalog \
-            --bucket pi-artifacts \
+            --bucket ice-artifacts \
             --endpoint "$R2_ENDPOINT" \
             --source-commit "$(git rev-parse HEAD)"

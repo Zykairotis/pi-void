@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import chalk from "chalk";
-import { CONFIG_DIR_NAME } from "../config.ts";
+import { getProjectConfigDir } from "../config.ts";
 import { loadThemeFromPath, type Theme } from "../modes/interactive/theme/theme.ts";
 import type { ResourceDiagnostic } from "./diagnostics.ts";
 
@@ -170,6 +170,8 @@ export interface DefaultResourceLoaderOptions {
 	noPromptTemplates?: boolean;
 	noThemes?: boolean;
 	noContextFiles?: boolean;
+	/** Trusted embedded children can skip ambient packages entirely (including install hooks). */
+	noPackages?: boolean;
 	systemPrompt?: string;
 	appendSystemPrompt?: string[];
 	extensionsOverride?: (base: LoadExtensionsResult) => LoadExtensionsResult;
@@ -208,6 +210,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private noPromptTemplates: boolean;
 	private noThemes: boolean;
 	private noContextFiles: boolean;
+	private noPackages: boolean;
 	private systemPromptSource?: string;
 	private appendSystemPromptSource?: string[];
 	private extensionsOverride?: (base: LoadExtensionsResult) => LoadExtensionsResult;
@@ -270,6 +273,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.noPromptTemplates = options.noPromptTemplates ?? false;
 		this.noThemes = options.noThemes ?? false;
 		this.noContextFiles = options.noContextFiles ?? false;
+		this.noPackages = options.noPackages ?? false;
 		this.systemPromptSource = options.systemPrompt;
 		this.appendSystemPromptSource = options.appendSystemPrompt;
 		this.extensionsOverride = options.extensionsOverride;
@@ -400,10 +404,14 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 		// reload() preserves SettingsManager.projectTrusted and reloads settings for that trust state.
 		await this.settingsManager.reload();
-		const resolvedPaths = await this.packageManager.resolve();
-		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
-			temporary: true,
-		});
+		const resolvedPaths = this.noPackages
+			? { extensions: [], skills: [], prompts: [], themes: [] }
+			: await this.packageManager.resolve();
+		const cliExtensionPaths = this.noPackages
+			? { extensions: [], skills: [], prompts: [], themes: [] }
+			: await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
+					temporary: true,
+				});
 		// Kept on the instance so post-reload passes (extendResources) can still resolve package metadata.
 		this.resourceMetadataByPath = new Map();
 		const metadataByPath = this.resourceMetadataByPath;
@@ -419,7 +427,13 @@ export class DefaultResourceLoader implements ResourceLoader {
 					metadataByPath.set(r.path, r.metadata);
 				}
 			}
-			return resources.filter((r) => r.enabled);
+			const enabled = resources.filter((r) => r.enabled);
+			if (this.settingsManager.isGlobalFirst()) {
+				const rank = (resource: ResolvedResource) =>
+					resource.metadata.scope === "temporary" ? 0 : resource.metadata.scope === "user" ? 1 : 2;
+				enabled.sort((a, b) => rank(a) - rank(b));
+			}
+			return enabled;
 		};
 
 		const getEnabledPaths = (resources: ResolvedResource[]): string[] =>
@@ -546,10 +560,14 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	private async loadCurrentExtensionSet(options: { includeInlineFactories: boolean }): Promise<LoadExtensionsResult> {
-		const resolvedPaths = await this.packageManager.resolve();
-		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
-			temporary: true,
-		});
+		const resolvedPaths = this.noPackages
+			? { extensions: [], skills: [], prompts: [], themes: [] }
+			: await this.packageManager.resolve();
+		const cliExtensionPaths = this.noPackages
+			? { extensions: [], skills: [], prompts: [], themes: [] }
+			: await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
+					temporary: true,
+				});
 		const enabledExtensions = resolvedPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
 		const cliEnabledExtensions = cliExtensionPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
 		const extensionPaths = this.noExtensions
@@ -827,10 +845,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 			join(this.agentDir, "extensions"),
 		];
 		const projectRoots = [
-			join(this.cwd, CONFIG_DIR_NAME, "skills"),
-			join(this.cwd, CONFIG_DIR_NAME, "prompts"),
-			join(this.cwd, CONFIG_DIR_NAME, "themes"),
-			join(this.cwd, CONFIG_DIR_NAME, "extensions"),
+			join(getProjectConfigDir(this.cwd), "skills"),
+			join(getProjectConfigDir(this.cwd), "prompts"),
+			join(getProjectConfigDir(this.cwd), "themes"),
+			join(getProjectConfigDir(this.cwd), "extensions"),
 		];
 
 		for (const root of agentRoots) {
@@ -883,7 +901,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const themes: Theme[] = [];
 		const diagnostics: ResourceDiagnostic[] = [];
 		if (includeDefaults) {
-			const defaultDirs = [join(this.agentDir, "themes"), join(this.cwd, CONFIG_DIR_NAME, "themes")];
+			const defaultDirs = [join(this.agentDir, "themes"), join(getProjectConfigDir(this.cwd), "themes")];
 
 			for (const dir of defaultDirs) {
 				this.loadThemesFromDir(dir, themes, diagnostics);
@@ -1033,7 +1051,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	private discoverSystemPromptFile(): string | undefined {
-		const projectPath = join(this.cwd, CONFIG_DIR_NAME, "SYSTEM.md");
+		const projectPath = join(getProjectConfigDir(this.cwd), "SYSTEM.md");
+		if (this.settingsManager.isGlobalFirst() && existsSync(join(this.agentDir, "SYSTEM.md")))
+			return join(this.agentDir, "SYSTEM.md");
 		if (this.settingsManager.isProjectTrusted() && existsSync(projectPath)) {
 			return projectPath;
 		}
@@ -1047,7 +1067,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	private discoverAppendSystemPromptFile(): string | undefined {
-		const projectPath = join(this.cwd, CONFIG_DIR_NAME, "APPEND_SYSTEM.md");
+		const projectPath = join(getProjectConfigDir(this.cwd), "APPEND_SYSTEM.md");
+		if (this.settingsManager.isGlobalFirst() && existsSync(join(this.agentDir, "APPEND_SYSTEM.md")))
+			return join(this.agentDir, "APPEND_SYSTEM.md");
 		if (this.settingsManager.isProjectTrusted() && existsSync(projectPath)) {
 			return projectPath;
 		}

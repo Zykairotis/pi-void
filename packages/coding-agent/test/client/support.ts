@@ -1,4 +1,4 @@
-import { type ByteTransport, type ByteTransportHandlers, PiClient } from "@earendil-works/pi-client";
+import { type ByteTransport, type ByteTransportHandlers, IceClient } from "@zykairotis/ice-client";
 import {
 	type ClientMessage,
 	ClientMessageDecoder,
@@ -8,7 +8,7 @@ import {
 	type ServerMessage,
 	type ServerSnapshot,
 	type SessionSnapshot,
-} from "@earendil-works/pi-protocol";
+} from "@zykairotis/ice-protocol";
 import { RemoteSession, type RemoteSessionOptions } from "../../src/client/remote-session.ts";
 
 export class MemoryServer {
@@ -73,8 +73,8 @@ export function sessionSnapshot(id: string, overrides: Partial<SessionSnapshot> 
 	};
 }
 
-export async function connectClient(server: MemoryServer): Promise<PiClient> {
-	const client = new PiClient({ transportFactory: (handlers) => server.connect(handlers) });
+export async function connectClient(server: MemoryServer): Promise<IceClient> {
+	const client = new IceClient({ transportFactory: (handlers) => server.connect(handlers) });
 	server.onMessage((message) => {
 		if (message.type !== "hello") return;
 		server.send({
@@ -97,7 +97,7 @@ export function collectRequests(server: MemoryServer): RequestEnvelope[] {
 }
 
 export async function openRemoteSession(
-	client: PiClient,
+	client: IceClient,
 	server: MemoryServer,
 	snapshot: SessionSnapshot,
 	options?: RemoteSessionOptions,

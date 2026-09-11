@@ -1,4 +1,4 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool } from "@zykairotis/ice-agent-core";
 import {
 	type AssistantMessage,
 	type Context,
@@ -6,7 +6,7 @@ import {
 	fauxAssistantMessage,
 	fauxToolCall,
 	type Model,
-} from "@earendil-works/pi-ai";
+} from "@zykairotis/ice-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens, modelAwareReserveTokens } from "../../src/core/compaction/index.ts";
@@ -112,8 +112,8 @@ describe("AgentSession compaction characterization", () => {
 		const harness = await createHarness({
 			settings: { compaction: { keepRecentTokens: 1 } },
 			extensionFactories: [
-				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+				(ice) => {
+					ice.on("session_before_compact", async (event) => ({
 						compaction: {
 							summary: "summary from extension",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -252,7 +252,7 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.faux.state.callCount).toBe(1);
 	});
 
-	it("persists usage from pi-generated manual compaction", async () => {
+	it("persists usage from ice-generated manual compaction", async () => {
 		const harness = await createHarness({ withConfiguredAuth: false });
 		harnesses.push(harness);
 		seedCompactableSession(harness);
@@ -308,8 +308,8 @@ describe("AgentSession compaction characterization", () => {
 			},
 			tools: [bulkTool],
 			extensionFactories: [
-				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+				(ice) => {
+					ice.on("session_before_compact", async (event) => ({
 						compaction: {
 							summary: "mid-run summary",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -354,8 +354,8 @@ describe("AgentSession compaction characterization", () => {
 			models: [{ id: "faux-1", contextWindow: 1000, maxTokens: 100 }],
 			settings: { compaction: { keepRecentTokens: 1, reserveTokens: 0 } },
 			extensionFactories: [
-				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+				(ice) => {
+					ice.on("session_before_compact", async (event) => ({
 						compaction: {
 							summary: "overflow compacted",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -401,8 +401,8 @@ describe("AgentSession compaction characterization", () => {
 			models: [{ id: "faux-1", contextWindow: 1_000_000, maxTokens: 100 }],
 			settings: { compaction: { keepRecentTokens: 1, reserveTokens: 0 } },
 			extensionFactories: [
-				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+				(ice) => {
+					ice.on("session_before_compact", async (event) => ({
 						compaction: {
 							summary: "overflow compacted",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -432,8 +432,8 @@ describe("AgentSession compaction characterization", () => {
 		const harness = await createHarness({
 			settings: { compaction: { keepRecentTokens: 1 } },
 			extensionFactories: [
-				(pi) => {
-					pi.on("session_before_compact", async (event) => {
+				(ice) => {
+					ice.on("session_before_compact", async (event) => {
 						return await new Promise<{ cancel: true }>((resolve) => {
 							event.signal.addEventListener("abort", () => resolve({ cancel: true }), { once: true });
 						});
@@ -458,8 +458,8 @@ describe("AgentSession compaction characterization", () => {
 		const harness = await createHarness({
 			settings: { compaction: { keepRecentTokens: 1 } },
 			extensionFactories: [
-				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+				(ice) => {
+					ice.on("session_before_compact", async (event) => ({
 						compaction: {
 							summary: "auto compacted",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
@@ -519,8 +519,8 @@ describe("AgentSession compaction characterization", () => {
 			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 } },
 			models: [{ id: "faux-1", contextWindow: 1, maxTokens: 100 }],
 			extensionFactories: [
-				(pi) => {
-					pi.on("session_before_compact", async (event) => ({
+				(ice) => {
+					ice.on("session_before_compact", async (event) => ({
 						compaction: {
 							summary: "successful overflow compacted",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,

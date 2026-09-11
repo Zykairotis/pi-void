@@ -5,14 +5,15 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { ImageContent } from "@earendil-works/pi-ai";
+import type { AgentMessage, ThinkingLevel } from "@zykairotis/ice-agent-core";
+import type { ImageContent } from "@zykairotis/ice-ai";
 import type { SessionStats } from "../../core/agent-session.ts";
 import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
 import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
 import type { JsonAgentSessionEvent } from "../json-event.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
+import type { RpcCommandInvocationResult, RpcCommandSchemaResult, RpcCommandSource } from "./rpc-command-schema.ts";
 import type { RpcSettingsSnapshot, RpcSettingUpdate } from "./rpc-settings.ts";
 import type { RpcCommand, RpcResponse, RpcSessionState, RpcSlashCommand } from "./rpc-types.ts";
 
@@ -27,7 +28,7 @@ type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : n
 type RpcCommandBody = DistributiveOmit<RpcCommand, "id">;
 
 export interface RpcClientOptions {
-	/** Path to the CLI entry point (default: searches for dist/cli.js) */
+	/** Path to the ICE CLI entry point (default: searches for dist/ice.js) */
 	cliPath?: string;
 	/** Working directory for the agent */
 	cwd?: string;
@@ -54,6 +55,22 @@ export type RpcEventListener = (event: JsonAgentSessionEvent) => void;
 // RPC Client
 // ============================================================================
 
+import type { RpcCommandErrorDetails } from "./rpc-command-schema.ts";
+
+export class RpcRequestError extends Error {
+	readonly errorCode?: string;
+	readonly errorDetails?: RpcCommandErrorDetails;
+	readonly command?: string;
+
+	constructor(message: string, errorCode?: string, errorDetails?: RpcCommandErrorDetails, command?: string) {
+		super(message);
+		this.name = "RpcRequestError";
+		this.errorCode = errorCode;
+		this.errorDetails = errorDetails;
+		this.command = command;
+	}
+}
+
 export class RpcClient {
 	private process: ChildProcess | null = null;
 	private stopReadingStdout: (() => void) | null = null;
@@ -79,7 +96,7 @@ export class RpcClient {
 
 		this.exitError = null;
 
-		const cliPath = this.options.cliPath ?? "dist/cli.js";
+		const cliPath = this.options.cliPath ?? "dist/ice.js";
 		const args = ["--mode", "rpc"];
 
 		if (this.options.provider) {
@@ -474,6 +491,46 @@ export class RpcClient {
 		return this.getData<{ commands: RpcSlashCommand[] }>(response).commands;
 	}
 
+	/**
+	 * Get command schema for a structured slash command.
+	 */
+	async getCommandSchema(options: {
+		name: string;
+		schemaId?: string;
+		source?: RpcCommandSource;
+	}): Promise<RpcCommandSchemaResult> {
+		const response = await this.send({
+			type: "get_command_schema",
+			name: options.name,
+			schemaId: options.schemaId,
+			source: options.source,
+		});
+		return this.getData<RpcCommandSchemaResult>(response);
+	}
+
+	/**
+	 * Invoke a structured slash command with arguments.
+	 */
+	async invokeCommand(options: {
+		name: string;
+		schemaId?: string;
+		schemaRevision?: string;
+		source?: RpcCommandSource;
+		arguments: Record<string, unknown>;
+		options?: { scope?: "global" | "project" };
+	}): Promise<RpcCommandInvocationResult> {
+		const response = await this.send({
+			type: "invoke_command",
+			name: options.name,
+			schemaId: options.schemaId,
+			schemaRevision: options.schemaRevision,
+			source: options.source,
+			arguments: options.arguments,
+			options: options.options,
+		});
+		return this.getData<RpcCommandInvocationResult>(response);
+	}
+
 	// =========================================================================
 	// Helpers
 	// =========================================================================
@@ -620,7 +677,12 @@ export class RpcClient {
 	private getData<T>(response: RpcResponse): T {
 		if (!response.success) {
 			const errorResponse = response as Extract<RpcResponse, { success: false }>;
-			throw new Error(errorResponse.error);
+			throw new RpcRequestError(
+				errorResponse.error,
+				errorResponse.errorCode,
+				errorResponse.errorDetails as RpcCommandErrorDetails | undefined,
+				errorResponse.command,
+			);
 		}
 		// Type assertion: we trust response.data matches T based on the command sent.
 		// This is safe because each public method specifies the correct T for its command.

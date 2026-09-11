@@ -1,0 +1,9 @@
+{
+  "cli": "~/chatgpt-cli/.venv/bin/chatgpt-cli",
+  "helper": "~/.grok/skills/chatgpt-desktop/scripts/ask.sh",
+  "model": "gpt-5-6-thinking",
+  "thinking": "max",
+  "json": true,
+  "quiet": true,
+  "conversation_id": ""
+}

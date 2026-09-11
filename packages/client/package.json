@@ -1,7 +1,7 @@
 {
-	"name": "@earendil-works/pi-client",
+	"name": "@zykairotis/ice-client",
 	"version": "0.83.0",
-	"description": "Transport-neutral client for remote pi sessions over framed CBOR bytes",
+	"description": "Transport-neutral client for remote ice sessions over framed CBOR bytes",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -25,15 +25,15 @@
 		"typecheck": "tsgo -p tsconfig.test.json",
 		"prepublishOnly": "npm run clean && npm run build"
 	},
-	"keywords": ["pi", "client", "protocol", "cbor", "binary"],
-	"author": "Earendil Works",
+	"keywords": ["ice", "client", "protocol", "cbor", "binary"],
+	"author": "Zykairotis/ICE",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/Zykairotis/ice.git",
 		"directory": "packages/client"
 	},
 	"engines": { "node": ">=22.19.0" },
-	"dependencies": { "@earendil-works/pi-protocol": "^0.83.0" },
+	"dependencies": { "@zykairotis/ice-protocol": "^0.83.0" },
 	"devDependencies": { "shx": "0.4.0", "vitest": "4.1.9" }
 }

@@ -14,15 +14,15 @@ export const workspaceSourcePaths = {
 export default defineConfig({
 	resolve: {
 		alias: [
-			{ find: /^@earendil-works\/pi-ai$/, replacement: workspaceSourcePaths.aiIndex },
-			{ find: /^@earendil-works\/pi-ai\/compat$/, replacement: workspaceSourcePaths.aiCompat },
-			{ find: /^@earendil-works\/pi-ai\/oauth$/, replacement: workspaceSourcePaths.aiOAuth },
+			{ find: /^@zykairotis\/ice-ai$/, replacement: workspaceSourcePaths.aiIndex },
+			{ find: /^@zykairotis\/ice-ai\/compat$/, replacement: workspaceSourcePaths.aiCompat },
+			{ find: /^@zykairotis\/ice-ai\/oauth$/, replacement: workspaceSourcePaths.aiOAuth },
 			{
-				find: /^@earendil-works\/pi-ai\/providers\/(.+)$/,
+				find: /^@zykairotis\/ice-ai\/providers\/(.+)$/,
 				replacement: `${workspaceSourcePaths.aiProviders}/$1.ts`,
 			},
-			{ find: /^@earendil-works\/pi-agent-core$/, replacement: workspaceSourcePaths.agentIndex },
-			{ find: /^@earendil-works\/pi-tui$/, replacement: workspaceSourcePaths.tuiIndex },
+			{ find: /^@zykairotis\/ice-agent-core$/, replacement: workspaceSourcePaths.agentIndex },
+			{ find: /^@zykairotis\/ice-tui$/, replacement: workspaceSourcePaths.tuiIndex },
 		],
 	},
 });

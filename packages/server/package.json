@@ -1,7 +1,7 @@
 {
-	"name": "@earendil-works/pi-server",
+	"name": "@zykairotis/ice-server",
 	"version": "0.83.0",
-	"description": "experimental server package for pi",
+	"description": "experimental server package for ice",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -33,22 +33,22 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"keywords": [
-		"pi",
+		"ice",
 		"server"
 	],
-	"author": "Earendil Works",
+	"author": "Zykairotis/ICE",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/Zykairotis/ice.git",
 		"directory": "packages/server"
 	},
 	"engines": {
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@earendil-works/pi-ai": "^0.83.0",
-		"@earendil-works/pi-protocol": "^0.83.0"
+		"@zykairotis/ice-ai": "^0.83.0",
+		"@zykairotis/ice-protocol": "^0.83.0"
 	},
 	"devDependencies": {
 		"shx": "0.4.0",

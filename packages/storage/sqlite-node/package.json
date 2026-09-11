@@ -1,7 +1,7 @@
 {
-	"name": "@earendil-works/pi-storage-sqlite-node",
+	"name": "@zykairotis/ice-storage-sqlite-node",
 	"version": "0.83.0",
-	"description": "Node sqlite storage backend for @earendil-works/pi-agent-core sessions",
+	"description": "Node sqlite storage backend for @zykairotis/ice-agent-core sessions",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -23,19 +23,19 @@
 		"coverage": "vitest --run --coverage",
 		"prepublishOnly": "npm run clean && npm run build"
 	},
-	"author": "Earendil Works",
+	"author": "Zykairotis/ICE",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/Zykairotis/ice.git",
 		"directory": "packages/storage/sqlite-node"
 	},
 	"engines": {
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@earendil-works/pi-ai": "^0.83.0",
-		"@earendil-works/pi-agent-core": "^0.83.0"
+		"@zykairotis/ice-ai": "^0.83.0",
+		"@zykairotis/ice-agent-core": "^0.83.0"
 	},
 	"devDependencies": {
 		"@vitest/coverage-v8": "4.1.9",

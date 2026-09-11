@@ -1,0 +1,12 @@
+flowchart TB
+  subgraph before [Before]
+    A1[auto] -->|Blackhole off| S1[Cognee owns Ice summary]
+    A1 -->|Blackhole on| D1[defer]
+    R1[recall] --> M1[durable custom_message]
+  end
+  subgraph after [After]
+    A2[auto] --> D2[always defer]
+    O2[explicit own] --> L2[local messagesToSummarize]
+    R2[recall] --> P2[systemPrompt one turn]
+    D2 --> I2[inject last compact once]
+  end

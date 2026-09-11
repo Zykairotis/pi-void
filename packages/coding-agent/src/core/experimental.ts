@@ -1,3 +1,5 @@
+import { getIceEnv } from "./legacy-compat/env.ts";
+
 export function areExperimentalFeaturesEnabled(): boolean {
-	return process.env.PI_EXPERIMENTAL === "1";
+	return getIceEnv("ICE_EXPERIMENTAL") === "1";
 }

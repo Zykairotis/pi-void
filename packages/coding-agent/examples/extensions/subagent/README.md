@@ -4,7 +4,7 @@ Delegate tasks to specialized subagents with isolated context windows.
 
 ## Features
 
-- **Isolated context**: Each subagent runs in a separate `pi` process
+- **Isolated context**: Each subagent runs in a separate `ice` process
 - **Streaming output**: See tool calls and progress as they happen
 - **Parallel streaming**: All parallel tasks stream updates simultaneously
 - **Markdown rendering**: Final output rendered with proper formatting (expanded view)
@@ -19,14 +19,14 @@ subagent/
 ├── index.ts             # The extension (entry point)
 ├── agents.ts            # Agent discovery logic
 ├── agents/              # Sample agent definitions
-│   ├── scout.md         # Fast recon, returns compressed context
+│   ├── explore.md       # Repository exploration; returns verified context
 │   ├── planner.md       # Creates implementation plans
-│   ├── reviewer.md      # Code review
+│   ├── review.md        # Code review
 │   └── worker.md        # General-purpose (full capabilities)
 └── prompts/             # Workflow presets (prompt templates)
-    ├── implement.md     # scout -> planner -> worker
-    ├── scout-and-plan.md    # scout -> planner (no implementation)
-    └── implement-and-review.md  # worker -> reviewer -> worker
+    ├── implement.md     # explore -> planner -> worker
+    ├── scout-and-plan.md    # explore -> planner (no implementation)
+    └── implement-and-review.md  # worker -> review -> worker
 ```
 
 ## Installation
@@ -35,30 +35,30 @@ From the repository root, symlink the files:
 
 ```bash
 # Symlink the extension (must be in a subdirectory with index.ts)
-mkdir -p ~/.pi/agent/extensions/subagent
-ln -sf "$(pwd)/packages/coding-agent/examples/extensions/subagent/index.ts" ~/.pi/agent/extensions/subagent/index.ts
-ln -sf "$(pwd)/packages/coding-agent/examples/extensions/subagent/agents.ts" ~/.pi/agent/extensions/subagent/agents.ts
+mkdir -p ~/.ice/agent/extensions/subagent
+ln -sf "$(pwd)/packages/coding-agent/examples/extensions/subagent/index.ts" ~/.ice/agent/extensions/subagent/index.ts
+ln -sf "$(pwd)/packages/coding-agent/examples/extensions/subagent/agents.ts" ~/.ice/agent/extensions/subagent/agents.ts
 
 # Symlink agents
-mkdir -p ~/.pi/agent/agents
+mkdir -p ~/.ice/agent/agents
 for f in packages/coding-agent/examples/extensions/subagent/agents/*.md; do
-  ln -sf "$(pwd)/$f" ~/.pi/agent/agents/$(basename "$f")
+  ln -sf "$(pwd)/$f" ~/.ice/agent/agents/$(basename "$f")
 done
 
 # Symlink workflow prompts
-mkdir -p ~/.pi/agent/prompts
+mkdir -p ~/.ice/agent/prompts
 for f in packages/coding-agent/examples/extensions/subagent/prompts/*.md; do
-  ln -sf "$(pwd)/$f" ~/.pi/agent/prompts/$(basename "$f")
+  ln -sf "$(pwd)/$f" ~/.ice/agent/prompts/$(basename "$f")
 done
 ```
 
 ## Security Model
 
-This tool executes a separate `pi` subprocess with a delegated system prompt and tool/model configuration.
+This tool executes a separate `ice` subprocess with a delegated system prompt and tool/model configuration.
 
-**Project-local agents** (`.pi/agents/*.md`) are repo-controlled prompts that can instruct the model to read files, run bash commands, etc.
+**Project-local agents** (`.ice/agents/*.md`) are repo-controlled prompts that can instruct the model to read files, run bash commands, etc.
 
-**Default behavior:** Only loads **user-level agents** from `~/.pi/agent/agents`.
+**Default behavior:** Only loads **user-level agents** from `~/.ice/agent/agents`.
 
 To enable project-local agents, pass `agentScope: "both"` (or `"project"`). Only do this for repositories you trust.
 
@@ -68,17 +68,17 @@ When running interactively, the tool prompts for confirmation before running pro
 
 ### Single agent
 ```
-Use scout to find all authentication code
+Use explore to find all authentication code
 ```
 
 ### Parallel execution
 ```
-Run 2 scouts in parallel: one to find models, one to find providers
+Run 2 exploration agents in parallel: one to find models, one to find providers
 ```
 
 ### Chained workflow
 ```
-Use a chain: first have scout find the read tool, then have planner suggest improvements
+Use a chain: first have explore find the read tool, then have planner suggest improvements
 ```
 
 ### Workflow prompts
@@ -138,8 +138,8 @@ System prompt for the agent goes here.
 ```
 
 **Locations:**
-- `~/.pi/agent/agents/*.md` - User-level (always loaded)
-- `.pi/agents/*.md` - Project-level (only with `agentScope: "project"` or `"both"`)
+- `~/.ice/agent/agents/*.md` - User-level (always loaded)
+- `.ice/agents/*.md` - Project-level (only with `agentScope: "project"` or `"both"`)
 
 Project agents override user agents with the same name when `agentScope: "both"`.
 
@@ -147,18 +147,18 @@ Project agents override user agents with the same name when `agentScope: "both"`
 
 | Agent | Purpose | Model | Tools |
 |-------|---------|-------|-------|
-| `scout` | Fast codebase recon | Haiku | read, grep, find, ls, bash |
+| `explore` | Repository exploration | Haiku | read, grep, find, ls, bash |
 | `planner` | Implementation plans | Sonnet | read, grep, find, ls |
-| `reviewer` | Code review | Sonnet | read, grep, find, ls, bash |
+| `review` | Code review | Sonnet | read, grep, find, ls, bash |
 | `worker` | General-purpose | Sonnet | (all default) |
 
 ## Workflow Prompts
 
 | Prompt | Flow |
 |--------|------|
-| `/implement <query>` | scout → planner → worker |
-| `/scout-and-plan <query>` | scout → planner |
-| `/implement-and-review <query>` | worker → reviewer → worker |
+| `/implement <query>` | explore → planner → worker |
+| `/scout-and-plan <query>` | explore → planner |
+| `/implement-and-review <query>` | worker → review → worker |
 
 ## Error Handling
 
@@ -172,4 +172,5 @@ Project agents override user agents with the same name when `agentScope: "both"`
 - Output truncated to last 10 items in collapsed view (expand to see all)
 - Parallel model-visible output is capped at 50 KB per task; full results remain in tool details
 - Agents discovered fresh on each invocation (allows editing mid-session)
+- Legacy names remain accepted: `scout` aliases to `explore`, and `reviewer` aliases to `review`
 - Parallel mode limited to 8 tasks, 4 concurrent

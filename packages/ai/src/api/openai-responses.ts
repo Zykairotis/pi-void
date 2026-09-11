@@ -19,6 +19,21 @@ import { splitDeferredTools } from "../utils/deferred-tools.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
+import {
+	classifyRequestContextMode,
+	extractProviderErrorFields,
+	forgetSuccessfulResponseId,
+	hashOpaqueId,
+	inputItemCount,
+	isContinuationDiagEnabled,
+	isStalePreviousResponseError,
+	lastSuccessfulResponseIdHash,
+	logContinuationError,
+	logContinuationRequest,
+	logContinuationResponse,
+	nextContinuationRequestSequence,
+	rememberSuccessfulResponseId,
+} from "../utils/provider-continuation-diag.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { createGrammarToolInputProperties } from "./constrained-sampling.ts";
@@ -28,7 +43,7 @@ import { convertResponsesMessages, convertResponsesTools, processResponsesStream
 import { buildBaseOptions } from "./simple-options.ts";
 
 const OPENAI_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
-// OpenAI Responses rejects max_output_tokens below 16: https://github.com/earendil-works/pi/issues/6265
+// OpenAI Responses rejects max_output_tokens below 16: upstream issue #6265
 const OPENAI_RESPONSES_MIN_OUTPUT_TOKENS = 16;
 
 function hasHeader(headers: ProviderHeaders | undefined, name: string): boolean {
@@ -52,13 +67,13 @@ function detectSessionAffinityFormat(model: Pick<Model<"openai-responses">, "pro
 
 /**
  * Resolve cache retention preference.
- * Defaults to "short" and uses PI_CACHE_RETENTION for backward compatibility.
+ * Defaults to "short" and uses ICE_CACHE_RETENTION for backward compatibility.
  */
 function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
 	if (cacheRetention) {
 		return cacheRetention;
 	}
-	if (getProviderEnvValue("PI_CACHE_RETENTION", env) === "long") {
+	if (getProviderEnvValue("ICE_CACHE_RETENTION", env) === "long") {
 		return "long";
 	}
 	return "short";
@@ -137,31 +152,138 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 			);
 			const client = createClient(model, context, apiKey, options?.headers, options?.fetch, cacheSessionId);
 			let params = buildParams(model, context, options, compat, grammarToolInputProperties);
+			const corePreviousResponseId =
+				"previous_response_id" in params
+					? (params as ResponseCreateParamsStreaming & { previous_response_id?: string }).previous_response_id
+					: undefined;
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
 				params = nextParams as ResponseCreateParamsStreaming;
+			}
+			const finalParams = params as ResponseCreateParamsStreaming & {
+				previous_response_id?: string;
+				prompt_cache_key?: string;
+				store?: boolean;
+				input?: unknown;
+			};
+			const diagEnabled = isContinuationDiagEnabled(model.provider, options?.env);
+			const requestSequence = diagEnabled ? nextContinuationRequestSequence() : 0;
+			const sessionKey = options?.sessionId ?? null;
+			if (diagEnabled) {
+				const previousResponseId = finalParams.previous_response_id;
+				const previousResponseIdPresent = Boolean(previousResponseId);
+				const inputCount = inputItemCount(finalParams.input);
+				const messageCount = context.messages?.length ?? 0;
+				logContinuationRequest(
+					{
+						timestamp: new Date().toISOString(),
+						requestSequence,
+						iceSessionIdHash: hashOpaqueId(sessionKey),
+						provider: model.provider,
+						model: model.id,
+						api: model.api,
+						baseUrl: model.baseUrl,
+						corePreviousResponseIdPresent: Boolean(corePreviousResponseId),
+						previousResponseIdPresent,
+						previousResponseIdHash: hashOpaqueId(previousResponseId),
+						lastSuccessfulResponseIdHash: lastSuccessfulResponseIdHash(sessionKey),
+						idsEqual:
+							previousResponseIdPresent && sessionKey
+								? hashOpaqueId(previousResponseId) === lastSuccessfulResponseIdHash(sessionKey)
+								: null,
+						extensionInjectedPreviousResponseId: !corePreviousResponseId && previousResponseIdPresent,
+						requestContextMode: classifyRequestContextMode({
+							previousResponseIdPresent,
+							inputItemCount: inputCount,
+							messageCount,
+						}),
+						inputItemCount: inputCount,
+						messageCount,
+						toolCount: context.tools?.length ?? 0,
+						store: typeof finalParams.store === "boolean" ? finalParams.store : null,
+						sessionAffinityHash: hashOpaqueId(cacheSessionId),
+						clientRequestHash: hashOpaqueId(cacheSessionId),
+						promptCacheKeyHash: hashOpaqueId(finalParams.prompt_cache_key),
+					},
+					options?.env,
+				);
 			}
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
 				maxRetries: 0,
 			};
-			const { data: openaiStream, response } = await retryProviderRequest(
-				() => client.responses.create(params, requestOptions).withResponse(),
-				{
-					maxRetries: options?.maxRetries,
-					maxRetryDelayMs: options?.maxRetryDelayMs,
-					signal: options?.signal,
-				},
-			);
-			await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
-			stream.push({ type: "start", partial: output });
+			let staleContinuationRetried = false;
+			let startEmitted = false;
+			for (;;) {
+				try {
+					const { data: openaiStream, response } = await retryProviderRequest(
+						() => client.responses.create(params, requestOptions).withResponse(),
+						{
+							maxRetries: options?.maxRetries,
+							maxRetryDelayMs: options?.maxRetryDelayMs,
+							signal: options?.signal,
+						},
+					);
+					const responseHeaders = headersToRecord(response.headers);
+					await options?.onResponse?.({ status: response.status, headers: responseHeaders }, model);
+					stream.push({ type: "start", partial: output });
+					startEmitted = true;
 
-			await processResponsesStream(openaiStream, output, stream, model, {
-				serviceTier: options?.serviceTier,
-				grammarToolInputProperties,
-				applyServiceTierPricing: (usage, serviceTier) => applyServiceTierPricing(usage, serviceTier, model),
-			});
+					await processResponsesStream(openaiStream, output, stream, model, {
+						serviceTier: options?.serviceTier,
+						grammarToolInputProperties,
+						applyServiceTierPricing: (usage, serviceTier) => applyServiceTierPricing(usage, serviceTier, model),
+					});
+					if (diagEnabled) {
+						logContinuationResponse(
+							{
+								timestamp: new Date().toISOString(),
+								requestSequence,
+								status: response.status,
+								responseIdPresent: Boolean(output.responseId),
+								responseIdHash: hashOpaqueId(output.responseId),
+								stopReason: output.stopReason,
+								codexlbWorkerId: responseHeaders["x-codexlb-worker-id"] ?? null,
+								codexlbAccountId: responseHeaders["x-codexlb-account-id"] ?? null,
+								codexlbUpstreamId: responseHeaders["x-codexlb-upstream-id"] ?? null,
+								codexlbPrevRespSource: responseHeaders["x-codexlb-prev-resp-source"] ?? null,
+								codexlbAffinityKind: responseHeaders["x-codexlb-affinity-kind"] ?? null,
+							},
+							options?.env,
+						);
+					}
+					break;
+				} catch (error) {
+					if (diagEnabled) {
+						const fields = extractProviderErrorFields(error);
+						logContinuationError(
+							{
+								timestamp: new Date().toISOString(),
+								requestSequence,
+								status: fields.status,
+								previousResponseIdHash: hashOpaqueId(finalParams.previous_response_id),
+								providerCode: fields.code,
+								providerMessage: fields.message,
+								providerParam: fields.param,
+							},
+							options?.env,
+						);
+					}
+					const canRetryStaleContinuation =
+						!staleContinuationRetried &&
+						!startEmitted &&
+						!options?.signal?.aborted &&
+						isStalePreviousResponseError(error);
+					if (!canRetryStaleContinuation) {
+						throw error;
+					}
+					staleContinuationRetried = true;
+					forgetSuccessfulResponseId(sessionKey);
+					delete finalParams.previous_response_id;
+					params = finalParams;
+				}
+			}
 
 			if (options?.signal?.aborted) {
 				throw new Error("Request was aborted");
@@ -172,6 +294,13 @@ export const stream: StreamFunction<"openai-responses", OpenAIResponsesOptions> 
 			}
 			if (output.stopReason === "aborted" || output.stopReason === "error") {
 				throw new Error(output.errorMessage || "An unknown error occurred");
+			}
+
+			if (
+				diagEnabled &&
+				(output.stopReason === "stop" || output.stopReason === "toolUse" || output.stopReason === "length")
+			) {
+				rememberSuccessfulResponseId(sessionKey, output.responseId);
 			}
 
 			stream.push({ type: "done", reason: output.stopReason, message: output });

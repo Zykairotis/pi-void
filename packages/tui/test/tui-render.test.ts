@@ -77,9 +77,9 @@ function getCellItalic(terminal: VirtualTerminal, row: number, col: number): num
 
 describe("TUI debug logging", () => {
 	it("writes redraw logs to the provided directory", async () => {
-		const logDir = mkdtempSync(join(tmpdir(), "pi-tui-log-"));
+		const logDir = mkdtempSync(join(tmpdir(), "ice-tui-log-"));
 		try {
-			await withEnv({ PI_DEBUG_REDRAW: "1" }, async () => {
+			await withEnv({ ICE_DEBUG_REDRAW: "1" }, async () => {
 				const terminal = new VirtualTerminal(40, 10);
 				const tui: TUI = new TuiMainScreen(terminal, undefined, logDir);
 				const component = new TestComponent();
@@ -88,7 +88,7 @@ describe("TUI debug logging", () => {
 				tui.start();
 				await terminal.waitForRender();
 
-				assert.match(readFileSync(join(logDir, "pi-debug.log"), "utf-8"), /fullRender: first render/);
+				assert.match(readFileSync(join(logDir, "ice-debug.log"), "utf-8"), /fullRender: first render/);
 				tui.stop();
 			});
 		} finally {

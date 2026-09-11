@@ -30,6 +30,18 @@ import { type Theme, theme } from "../interactive/theme/theme.ts";
 import { toJsonEvent } from "../json-event.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
 import {
+	type CustomStructuredCommand,
+	findCustomStructuredCommands,
+	getIceSettingsCommandSchemaResult,
+	ICE_SETTINGS_SCHEMA_ID,
+	invokeIceSettingsCommand,
+	mergeCustomStructuredCommandInventory,
+	type RpcCommandErrorDetails,
+	RpcCommandExecutionError,
+	type RpcCommandSchemaResult,
+	validateStructuredInvocation,
+} from "./rpc-command-schema.ts";
+import {
 	applyRpcSetting,
 	createRpcSettingsSnapshot,
 	type RpcSettingsContext,
@@ -93,7 +105,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		id: string | undefined,
 		command: string,
 		message: string,
-		details?: { errorCode?: string; errorDetails?: { key?: string; scope?: string } },
+		details?: { errorCode?: string; errorDetails?: RpcCommandErrorDetails },
 	): RpcResponse => {
 		return { id, type: "response", command, success: false, error: message, ...details };
 	};
@@ -420,6 +432,24 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		applyLive: () => session.syncSettingsFromManager(),
 	});
 
+	const getCommandIdentitySources = (name: string): Set<string> => {
+		const sources = new Set<string>();
+		if (name === "settings") sources.add("builtin");
+		for (const extensionCommand of session.extensionRunner.getRegisteredCommands()) {
+			if (extensionCommand.invocationName === name) sources.add("extension");
+		}
+		for (const prompt of session.promptTemplates) {
+			if (prompt.name === name) sources.add("prompt");
+		}
+		for (const skill of session.resourceLoader.getSkills().skills) {
+			if (`skill:${skill.name}` === name) sources.add("skill");
+		}
+		for (const custom of findCustomStructuredCommands(name)) {
+			sources.add(custom.source);
+		}
+		return sources;
+	};
+
 	// Handle a single command
 	const handleCommand = async (command: RpcCommand): Promise<RpcResponse | undefined> => {
 		const id = command.id;
@@ -737,6 +767,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			case "get_commands": {
 				const commands: RpcSlashCommand[] = [];
 
+				// Built-in /settings command
+				commands.push({
+					name: "settings",
+					description: "Configure Ice runtime settings",
+					source: "builtin",
+					interaction: { type: "form", schemaId: "ice.settings" },
+				});
+
 				for (const command of session.extensionRunner.getRegisteredCommands()) {
 					commands.push({
 						name: command.invocationName,
@@ -764,7 +802,229 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 					});
 				}
 
-				return success(id, "get_commands", { commands });
+				return success(id, "get_commands", {
+					commands: mergeCustomStructuredCommandInventory(commands),
+				});
+			}
+
+			case "get_command_schema": {
+				const { name, schemaId, source } = command;
+				if (!source && getCommandIdentitySources(name).size > 1) {
+					return error(id, "get_command_schema", `Command '${name}' is ambiguous across multiple sources.`, {
+						errorCode: "ambiguous",
+					});
+				}
+
+				// 1. Collect all matching structured command candidates
+				type StructuredCandidate =
+					| { kind: "builtin-settings"; schemaId: string; source: "builtin" }
+					| { kind: "custom"; command: CustomStructuredCommand };
+
+				const structuredCandidates: StructuredCandidate[] = [];
+				if (name === "settings" && (!source || source === "builtin")) {
+					structuredCandidates.push({
+						kind: "builtin-settings",
+						schemaId: ICE_SETTINGS_SCHEMA_ID,
+						source: "builtin",
+					});
+				}
+
+				const customMatches = findCustomStructuredCommands(name, source);
+				for (const cmd of customMatches) {
+					structuredCandidates.push({ kind: "custom", command: cmd });
+				}
+
+				if (structuredCandidates.length > 1) {
+					return error(id, "get_command_schema", `Command '${name}' is ambiguous across multiple sources.`, {
+						errorCode: "ambiguous",
+					});
+				}
+
+				if (structuredCandidates.length === 1) {
+					const candidate = structuredCandidates[0]!;
+					if (candidate.kind === "builtin-settings") {
+						const schemaResult = getIceSettingsCommandSchemaResult(getSettingsContext());
+						if (schemaId && schemaResult.schema && schemaId !== schemaResult.schema.schemaId) {
+							return error(
+								id,
+								"get_command_schema",
+								`Schema ID mismatch for /settings: expected '${schemaResult.schema.schemaId}', received '${schemaId}'.`,
+								{
+									errorCode: "stale",
+									errorDetails: {
+										schemaId: schemaResult.schema.schemaId,
+										schemaRevision: schemaResult.schema.revision,
+									},
+								},
+							);
+						}
+						return success(id, "get_command_schema", schemaResult);
+					}
+
+					const res = candidate.command.getSchema();
+					const schemaResult: RpcCommandSchemaResult =
+						"capability" in res
+							? res
+							: { capability: "available", schema: res, diagnostics: res.diagnostics ?? [] };
+
+					if (schemaId && schemaResult.schema && schemaId !== schemaResult.schema.schemaId) {
+						return error(
+							id,
+							"get_command_schema",
+							`Schema ID mismatch: expected '${schemaResult.schema.schemaId}', received '${schemaId}'.`,
+							{
+								errorCode: "stale",
+								errorDetails: {
+									schemaId: schemaResult.schema.schemaId,
+									schemaRevision: schemaResult.schema.revision,
+								},
+							},
+						);
+					}
+
+					return success(id, "get_command_schema", schemaResult);
+				}
+
+				// 2. Known raw slash commands without structured schemas -> unsupported
+				const rawMatches: RpcSlashCommand[] = [];
+				for (const extCmd of session.extensionRunner.getRegisteredCommands()) {
+					if (extCmd.invocationName === name && (!source || source === "extension")) {
+						rawMatches.push({ name: extCmd.invocationName, source: "extension" });
+					}
+				}
+				for (const prompt of session.promptTemplates) {
+					if (prompt.name === name && (!source || source === "prompt")) {
+						rawMatches.push({ name: prompt.name, source: "prompt" });
+					}
+				}
+				for (const skill of session.resourceLoader.getSkills().skills) {
+					const skillCmdName = `skill:${skill.name}`;
+					if (skillCmdName === name && (!source || source === "skill")) {
+						rawMatches.push({ name: skillCmdName, source: "skill" });
+					}
+				}
+
+				if (rawMatches.length > 1) {
+					return error(id, "get_command_schema", `Command '${name}' is ambiguous across multiple sources.`, {
+						errorCode: "ambiguous",
+					});
+				}
+
+				if (rawMatches.length === 1) {
+					return success(id, "get_command_schema", {
+						capability: "unsupported",
+						schema: null,
+						diagnostics: [`Command '${name}' does not expose a structured schema.`],
+					});
+				}
+
+				return error(id, "get_command_schema", `Command '${name}' not found.`, {
+					errorCode: "not_found",
+				});
+			}
+
+			case "invoke_command": {
+				const { name, schemaId, schemaRevision, source, arguments: args, options } = command;
+				if (!source && getCommandIdentitySources(name).size > 1) {
+					return error(id, "invoke_command", `Command '${name}' is ambiguous across multiple sources.`, {
+						errorCode: "ambiguous",
+					});
+				}
+
+				// 1. Collect all matching structured command candidates
+				type StructuredInvokeCandidate =
+					| { kind: "builtin-settings"; source: "builtin" }
+					| { kind: "custom"; command: CustomStructuredCommand };
+
+				const invokeCandidates: StructuredInvokeCandidate[] = [];
+				if (name === "settings" && (!source || source === "builtin")) {
+					invokeCandidates.push({ kind: "builtin-settings", source: "builtin" });
+				}
+
+				const customMatches = findCustomStructuredCommands(name, source);
+				for (const cmd of customMatches) {
+					invokeCandidates.push({ kind: "custom", command: cmd });
+				}
+
+				if (invokeCandidates.length > 1) {
+					return error(id, "invoke_command", `Command '${name}' is ambiguous across multiple sources.`, {
+						errorCode: "ambiguous",
+					});
+				}
+
+				if (invokeCandidates.length === 1) {
+					const candidate = invokeCandidates[0]!;
+					if (candidate.kind === "builtin-settings") {
+						try {
+							const isBusy = session.isStreaming || session.isCompacting;
+							const result = await invokeIceSettingsCommand(
+								getSettingsContext(),
+								{ schemaId, schemaRevision, arguments: args, options },
+								isBusy,
+							);
+							return success(id, "invoke_command", result);
+						} catch (err: unknown) {
+							if (err instanceof RpcCommandExecutionError) {
+								return error(id, "invoke_command", err.message, {
+									errorCode: err.errorCode,
+									errorDetails: err.errorDetails,
+								});
+							}
+							return error(
+								id,
+								"invoke_command",
+								err instanceof Error ? err.message : "Command invocation failed.",
+								{
+									errorCode: "failed",
+								},
+							);
+						}
+					}
+
+					// Custom structured command
+					const cmd = candidate.command;
+					try {
+						const isBusy = session.isStreaming || session.isCompacting;
+						if (isBusy) {
+							throw new RpcCommandExecutionError(
+								"busy",
+								`Cannot invoke /${name} while a session turn is running.`,
+							);
+						}
+
+						const schemaRes = cmd.getSchema();
+						const schema = "capability" in schemaRes ? schemaRes.schema : schemaRes;
+						if (!schema) {
+							throw new RpcCommandExecutionError("unsupported", `Command '${name}' schema is unavailable.`);
+						}
+
+						// Run authoritative generic validation
+						validateStructuredInvocation(schema, { schemaId, schemaRevision, arguments: args, options });
+
+						const result = await cmd.invoke({ schemaId, schemaRevision, arguments: args, options });
+						return success(id, "invoke_command", result);
+					} catch (err: unknown) {
+						if (err instanceof RpcCommandExecutionError) {
+							return error(id, "invoke_command", err.message, {
+								errorCode: err.errorCode,
+								errorDetails: err.errorDetails,
+							});
+						}
+						return error(
+							id,
+							"invoke_command",
+							err instanceof Error ? err.message : "Command invocation failed.",
+							{
+								errorCode: "failed",
+							},
+						);
+					}
+				}
+
+				// 2. Not found or unsupported
+				return error(id, "invoke_command", `Command '${name}' does not support structured invocation.`, {
+					errorCode: "unsupported",
+				});
 			}
 
 			default: {

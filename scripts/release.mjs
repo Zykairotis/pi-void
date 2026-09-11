@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Release script for pi-mono
+ * Release script for ice-mono
  *
  * Usage:
  *   node scripts/release.mjs <major|minor|patch>
@@ -15,7 +15,7 @@
  * 6. Commit and tag the release
  * 7. Add new [Unreleased] section to changelogs
  * 8. Commit next-cycle changelog updates
- * 9. Push main and the tag to trigger CI publishing
+ * 9. Push void (the fork's default branch) and the tag to trigger CI publishing
  */
 
 import { execSync } from "node:child_process";
@@ -240,7 +240,7 @@ console.log();
 
 // 9. Push
 console.log("Pushing to remote...");
-run("git push origin main");
+run("git push origin void");
 run(`git push origin v${version}`);
 console.log();
 

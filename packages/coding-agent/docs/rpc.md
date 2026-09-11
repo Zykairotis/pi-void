@@ -2,12 +2,12 @@
 
 RPC mode enables headless operation of the coding agent via a JSON protocol over stdin/stdout. This is useful for embedding the agent in other applications, IDEs, or custom UIs.
 
-**Note for Node.js/TypeScript users**: If you're building a Node.js application, consider using `AgentSession` directly from `@earendil-works/pi-coding-agent` instead of spawning a subprocess. See [`src/core/agent-session.ts`](../src/core/agent-session.ts) for the API. For a subprocess-based TypeScript client, see [`src/modes/rpc/rpc-client.ts`](../src/modes/rpc/rpc-client.ts).
+**Note for Node.js/TypeScript users**: If you're building a Node.js application, consider using `AgentSession` directly from `@zykairotis/ice-coding-agent` instead of spawning a subprocess. See [`src/core/agent-session.ts`](../src/core/agent-session.ts) for the API. For a subprocess-based TypeScript client, see [`src/modes/rpc/rpc-client.ts`](../src/modes/rpc/rpc-client.ts).
 
 ## Starting RPC Mode
 
 ```bash
-pi --mode rpc [options]
+ice --mode rpc [options]
 ```
 
 Common options:
@@ -16,6 +16,37 @@ Common options:
 - `--name <name>` / `-n <name>`: Set the session display name at startup
 - `--no-session`: Disable session persistence
 - `--session-dir <path>`: Custom session storage directory
+
+### ICE unsafe subagent execution
+
+The `ice` launcher supports session-wide unsafe delegated-child authorization in RPC mode when all of these flags are explicit:
+
+```bash
+ice --mode rpc \
+  --ice-mode build \
+  --ice-allow-bash \
+  --approve \
+  --sub-yolo
+```
+
+`--sub-yolo` makes a child profile's requested host/mutation capabilities eligible for the lifetime of that RPC process, intersected with the trusted parent's active scoped built-ins (`read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write`). It does not automatically give every role every tool. RPC has no per-launch TUI confirmation; the startup command is the authorization. Build mode, project trust, parent Bash capability, the profile's requested capabilities, and the existing scope checks still apply. Without `--sub-yolo`, RPC delegation remains read-only by default.
+
+This is not a sandbox. Host filesystem, process, network, credentials, and detached-descendant cleanup remain outside containment. Child extensions, MCP, recursive delegation, and `delegate_write` remain disabled for delegated read/review children; normal `delegate_write` remains worktree-isolated.
+
+### ICE external host filesystem access
+
+`--allow-external` is a separate, explicit parent capability for trusted build sessions. It permits the parent’s guarded `edit`, `write`, and writer-integration path to address absolute paths outside the current project root:
+
+```bash
+ice --mode rpc \
+  --ice-mode build \
+  --allow-external \
+  --approve
+```
+
+The flag requires explicit build mode, an approval-capable TUI or RPC client, project trust, and no `--no-approve`. It does not imply `--sub-yolo`: delegated children and direct YOLO writers receive external scope access only when `--sub-yolo` is also explicitly authorized. Normal isolated `delegate_write` remains contained in its detached worktree even if a request carries an external-scope bit.
+
+`--allow-external` is unrestricted host access, not a sandbox. It does not contain shell commands, processes, network access, credentials, symlinks, or descendants; use it only in a trusted worktree with explicit user approval.
 
 ## Protocol Overview
 
@@ -64,7 +95,7 @@ With images:
 
 If the agent is streaming and no `streamingBehavior` is specified, the command returns an error.
 
-**Extension commands**: If the message is an extension command (e.g., `/mycommand`), it executes immediately even during streaming. Extension commands manage their own LLM interaction via `pi.sendMessage()`.
+**Extension commands**: If the message is an extension command (e.g., `/mycommand`), it executes immediately even during streaming. Extension commands manage their own LLM interaction via `ice.sendMessage()`.
 
 **Input expansion**: Skill commands (`/skill:name`) and prompt templates (`/template`) are expanded before sending/queueing.
 
@@ -490,7 +521,7 @@ If output was truncated, includes `fullOutputPath`:
     "exitCode": 0,
     "cancelled": false,
     "truncated": true,
-    "fullOutputPath": "/tmp/pi-bash-abc123.log"
+    "fullOutputPath": "/tmp/ice-bash-abc123.log"
   }
 }
 ```
@@ -786,7 +817,7 @@ Response:
 }
 ```
 
-The current session name is available via `get_state` in the `sessionName` field. To set the initial name when starting RPC mode, pass `--name <name>` or `-n <name>` to the `pi --mode rpc` process.
+The current session name is available via `get_state` in the `sessionName` field. To set the initial name when starting RPC mode, pass `--name <name>` or `-n <name>` to the `ice --mode rpc` process.
 
 ### Commands
 
@@ -806,9 +837,9 @@ Response:
   "success": true,
   "data": {
     "commands": [
-      {"name": "session-name", "description": "Set or clear session name", "source": "extension", "path": "/home/user/.pi/agent/extensions/session.ts"},
-      {"name": "fix-tests", "description": "Fix failing tests", "source": "prompt", "location": "project", "path": "/home/user/myproject/.pi/agent/prompts/fix-tests.md"},
-      {"name": "skill:brave-search", "description": "Web search via Brave API", "source": "skill", "location": "user", "path": "/home/user/.pi/agent/skills/brave-search/SKILL.md"}
+      {"name": "session-name", "description": "Set or clear session name", "source": "extension", "path": "/home/user/.ice/agent/extensions/session.ts"},
+      {"name": "fix-tests", "description": "Fix failing tests", "source": "prompt", "location": "project", "path": "/home/user/myproject/.ice/agent/prompts/fix-tests.md"},
+      {"name": "skill:brave-search", "description": "Web search via Brave API", "source": "skill", "location": "user", "path": "/home/user/.ice/agent/skills/brave-search/SKILL.md"}
     ]
   }
 }
@@ -818,12 +849,12 @@ Each command has:
 - `name`: Command name (invoke with `/name`)
 - `description`: Human-readable description (optional for extension commands)
 - `source`: What kind of command:
-  - `"extension"`: Registered via `pi.registerCommand()` in an extension
+  - `"extension"`: Registered via `ice.registerCommand()` in an extension
   - `"prompt"`: Loaded from a prompt template `.md` file
   - `"skill"`: Loaded from a skill directory (name is prefixed with `skill:`)
 - `location`: Where it was loaded from (optional, not present for extensions):
-  - `"user"`: User-level (`~/.pi/agent/`)
-  - `"project"`: Project-level (`./.pi/agent/`)
+  - `"user"`: User-level (`~/.ice/agent/`)
+  - `"project"`: Project-level (`./.ice/agent/`)
   - `"path"`: Explicit path via CLI or settings
 - `path`: Absolute file path to the command source (optional)
 
@@ -881,7 +912,7 @@ Emitted when one low-level agent run completes. Contains all messages generated 
 
 ### agent_settled
 
-Emitted after the full session-level run settles. At this point Pi will not continue automatically through retry, compaction retry, or queued follow-up messages.
+Emitted after the full session-level run settles. At this point Ice will not continue automatically through retry, compaction retry, or queued follow-up messages.
 
 ```json
 {"type": "agent_settled"}
@@ -1292,7 +1323,7 @@ Set the terminal window/tab title. Fire-and-forget.
   "type": "extension_ui_request",
   "id": "uuid-8",
   "method": "setTitle",
-  "title": "pi - my project"
+  "title": "ice - my project"
 }
 ```
 
@@ -1490,7 +1521,7 @@ import subprocess
 import json
 
 proc = subprocess.Popen(
-    ["pi", "--mode", "rpc", "--no-session"],
+    ["ice", "--mode", "rpc", "--no-session"],
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE,
     text=True
@@ -1529,7 +1560,7 @@ For a complete example of handling the extension UI protocol, see [`examples/rpc
 const { spawn } = require("child_process");
 const { StringDecoder } = require("string_decoder");
 
-const agent = spawn("pi", ["--mode", "rpc", "--no-session"]);
+const agent = spawn("ice", ["--mode", "rpc", "--no-session"]);
 
 function attachJsonlReader(stream, onLine) {
     const decoder = new StringDecoder("utf8");

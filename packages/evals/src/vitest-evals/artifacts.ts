@@ -10,12 +10,12 @@ import {
 } from "vitest";
 import type { HarnessRun } from "vitest-evals/harness";
 
-export const PI_SESSION_SNAPSHOT_ARTIFACT = "piSessionJsonl";
+export const ICE_SESSION_SNAPSHOT_ARTIFACT = "iceSessionJsonl";
 
-const evalSessionArtifactKey = Symbol("pi-evals-session-artifact");
-const evalSourceArtifactKey = Symbol("pi-evals-source-artifact");
+const evalSessionArtifactKey = Symbol("ice-evals-session-artifact");
+const evalSourceArtifactKey = Symbol("ice-evals-source-artifact");
 
-interface PiSessionAttachment extends TestAttachment {
+interface IceSessionAttachment extends TestAttachment {
 	name: "session.jsonl";
 	contentType: "application/jsonl";
 	body: string;
@@ -29,21 +29,21 @@ export interface SourceAttachment extends TestAttachment {
 	bodyEncoding: "utf-8";
 }
 
-interface PiSessionArtifact extends TestArtifactBase {
-	type: "@earendil-works/pi-evals:session";
+interface IceSessionArtifact extends TestArtifactBase {
+	type: "@zykairotis/ice-evals:session";
 	runId: string;
-	attachments: [PiSessionAttachment] | [];
+	attachments: [IceSessionAttachment] | [];
 }
 
 interface SourceArtifact extends TestArtifactBase {
-	type: "@earendil-works/pi-evals:source";
+	type: "@zykairotis/ice-evals:source";
 	runId: string;
 	attachments: [SourceAttachment] | [];
 }
 
 declare module "vitest" {
 	interface TestArtifactRegistry {
-		[evalSessionArtifactKey]: PiSessionArtifact;
+		[evalSessionArtifactKey]: IceSessionArtifact;
 		[evalSourceArtifactKey]: SourceArtifact;
 	}
 }
@@ -53,13 +53,13 @@ export async function recordEvalSessionArtifact(
 	run: Pick<HarnessRun, "artifacts">,
 ): Promise<void> {
 	const runId = run.artifacts?.runId;
-	const session = run.artifacts?.[PI_SESSION_SNAPSHOT_ARTIFACT];
+	const session = run.artifacts?.[ICE_SESSION_SNAPSHOT_ARTIFACT];
 	if (session === undefined) return;
 	if (typeof runId !== "string" || typeof session !== "string") {
-		throw new TypeError("Pi eval session artifact metadata is invalid.");
+		throw new TypeError("Ice eval session artifact metadata is invalid.");
 	}
 	await recordArtifact(task, {
-		type: "@earendil-works/pi-evals:session",
+		type: "@zykairotis/ice-evals:session",
 		runId,
 		attachments: [
 			{
@@ -78,7 +78,7 @@ export async function recordEvalSourceArtifact(
 	attachment: SourceAttachment,
 ): Promise<void> {
 	await recordArtifact(task, {
-		type: "@earendil-works/pi-evals:source",
+		type: "@zykairotis/ice-evals:source",
 		runId,
 		attachments: [attachment],
 	});
@@ -92,13 +92,12 @@ export async function persistEvalArtifactReferences(
 	const references: Array<{ name: string; path: string }> = [];
 	for (const artifact of artifacts) {
 		if (
-			(artifact.type !== "@earendil-works/pi-evals:session" &&
-				artifact.type !== "@earendil-works/pi-evals:source") ||
+			(artifact.type !== "@zykairotis/ice-evals:session" && artifact.type !== "@zykairotis/ice-evals:source") ||
 			artifact.runId !== runId
 		) {
 			continue;
 		}
-		const category = artifact.type === "@earendil-works/pi-evals:session" ? "sessions" : "sources";
+		const category = artifact.type === "@zykairotis/ice-evals:session" ? "sessions" : "sources";
 		for (const attachment of artifact.attachments) {
 			const name = basename(attachment.name);
 			if (name !== attachment.name) throw new TypeError(`Invalid eval artifact name: ${attachment.name}`);

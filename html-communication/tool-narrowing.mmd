@@ -1,0 +1,6 @@
+flowchart TD
+  P["Role file: tools request"] --> I["Call: execution.tools narrows"]
+  I --> J["Settings: denyTools removes"]
+  J --> K["Parent active tools intersect"]
+  K --> L["YOLO off: clamp to read grep find ls"]
+  K --> M["YOLO on + trusted: allow bash edit write if requested"]

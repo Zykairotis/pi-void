@@ -1,0 +1,14 @@
+sequenceDiagram
+  participant C as RPC client
+  participant R as RPC mode
+  participant S as Schema registry
+  participant P as Ice command
+  C->>R: get_command_schema
+  R->>S: resolve typed schema
+  S-->>R: form or text contract
+  R-->>C: schema result
+  C->>R: invoke_command
+  R->>S: validate arguments and scope
+  S->>P: apply validated command
+  P-->>R: result or typed error
+  R-->>C: invocation response

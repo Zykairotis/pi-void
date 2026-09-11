@@ -2,7 +2,7 @@
 
 ## Outcome
 
-Guarded Build v0 is implemented as a hidden extension factory loaded only by the `piv` launcher. The normal `pi` launcher remains unchanged and does not expose Pi Void flags or commands.
+Guarded Build v0 is implemented as a hidden extension factory loaded only by the `ice` launcher. The normal `ice` launcher remains unchanged and does not expose ICE flags or commands.
 
 The implementation provides guarded host execution rather than operating-system sandboxing. It narrows the model-visible and runtime-authorized tool surface, protects direct `edit` and `write` paths, records a read-only Git baseline, persists versioned state outside model context, and runs one explicitly supplied trusted verifier after successful mutation generations.
 
@@ -14,34 +14,34 @@ The implementation provides guarded host execution rather than operating-system 
 - Build tools include `read`, `grep`, `find`, `ls`, `read_plan`, `edit`, and `write`; draft and proposal tools remain plan-only.
 - Plan mode stores bounded session-native Markdown drafts, separates repository investigation from preference questions, requires explicit interactive approval before build handoff, and keeps headless proposals pending.
 - Plan review displays the full Markdown and supports direct editing, refinement feedback, reopening a dismissed proposal, and OMP-equivalent `fresh`, `compact`, or `keep` context handoffs.
-- Planning may use `--piv-plan-model`; execution may use `--piv-build-model` or an interactively selected scoped model. The pre-plan model and thinking level remain the fallback.
+- Planning may use `--ice-plan-model`; execution may use `--ice-build-model` or an interactively selected scoped model. The pre-plan model and thinking level remain the fallback.
 - Prose-only planning endings receive at most three hidden continuation reminders before yielding to the user.
 - Approved build mode requires `read_plan` before mutation and after build-mode re-entry or compaction.
 - Bash is available only when all three conditions are true:
   - mode is `build`;
-  - the current process received `--piv-allow-bash`;
+  - the current process received `--ice-allow-bash`;
   - the project is trusted.
 - User-entered Bash through `!` or `!!` follows the same gate.
 - Unknown, custom, and MCP tools are denied unless they are in the exact active set.
 - Tool hiding and pre-execution runtime denial are both enforced.
-- The verifier must be supplied by the current process through `--piv-verify` as a nonempty bounded JSON string array.
+- The verifier must be supplied by the current process through `--ice-verify` as a nonempty bounded JSON string array.
 - Verifier execution does not use a shell.
 - Automatic verification runs once for each new successful authorized `edit` or `write` generation after `agent_settled`.
-- Manual `/piv-verify` may rerun the current generation.
+- Manual `/ice-verify` may rerun the current generation.
 
 ## Files
 
 ### Production
 
-- `packages/coding-agent/src/piv.ts`
-  - validates Pi Void startup arguments before normal CLI processing;
-  - injects the hidden `piv-safe-verify` extension factory into `piv` only;
+- `packages/coding-agent/src/ice.ts`
+  - validates ICE startup arguments before normal CLI processing;
+  - injects the hidden `ice-safe-verify` extension factory into `ice` only;
   - marks the bundled guard as an application-owned `before-user` inline extension.
 - `packages/coding-agent/src/core/extensions/types.ts`
   - defines the narrow inline-extension priority contract.
 - `packages/coding-agent/src/core/resource-loader.ts`
   - places `before-user` inline guards ahead of discovered user extensions while preserving normal inline ordering.
-- `packages/coding-agent/src/piv-safe-verify.ts`
+- `packages/coding-agent/src/ice-safe-verify.ts`
   - mode parsing, planning/execution model transitions, and fresh/compact/keep context handoffs;
   - interactive planning questions, bounded convergence, full-plan review, direct refinement, and durable review reopening;
   - active tool selection and runtime denial;
@@ -54,7 +54,7 @@ The implementation provides guarded host execution rather than operating-system 
 
 ### Tests
 
-- `packages/coding-agent/test/piv-safe-verify.test.ts`
+- `packages/coding-agent/test/ice-safe-verify.test.ts`
   - focused contract, safety, lifecycle, launcher-isolation, and process-cleanup tests.
 - `packages/coding-agent/test/suite/regressions/6260-inline-extension-naming.test.ts`
   - proves application-owned `before-user` handlers precede discovered user handlers without changing normal inline order.
@@ -91,7 +91,7 @@ This is a pre-execution direct-tool guard. Filesystem time-of-check/time-of-use 
 
 ### Git baseline
 
-At session initialization, Pi Void determines the guard root through `git rev-parse --show-toplevel`, falling back to the current working directory when needed. It captures only read-only evidence:
+At session initialization, ICE determines the guard root through `git rev-parse --show-toplevel`, falling back to the current working directory when needed. It captures only read-only evidence:
 
 - canonical root;
 - HEAD;
@@ -117,9 +117,9 @@ It does not persist raw verifier argv, environment values, tokens, authenticatio
 
 ### Plan handoff
 
-`Approve and execute` preserves the session journal but installs a durable execution-start boundary in the model context, giving the executor a fresh effective context without adding an artifact protocol or replacing Pi's session engine. Orphaned tool results before that boundary are removed.
+`Approve and execute` preserves the session journal but installs a durable execution-start boundary in the model context, giving the executor a fresh effective context without adding an artifact protocol or replacing Ice's session engine. Orphaned tool results before that boundary are removed.
 
-All approval paths request a normal stop after the proposal tool turn and begin the build handoff from `agent_settled`, avoiding a false abort error and ensuring compaction starts only while Pi is idle. `Approve and compact context` asks Pi's native compactor to preserve execution-relevant rationale and preferences, then dispatches execution after the compaction callback. A compaction error falls back to the existing context with a visible warning.
+All approval paths request a normal stop after the proposal tool turn and begin the build handoff from `agent_settled`, avoiding a false abort error and ensuring compaction starts only while Ice is idle. `Approve and compact context` asks Ice's native compactor to preserve execution-relevant rationale and preferences, then dispatches execution after the compaction callback. A compaction error falls back to the existing context with a visible warning.
 
 `Approve and keep context` retains the planning conversation. All three paths store the approved Markdown outside model context, switch to the guarded build tool set, and enforce `read_plan` before direct mutation.
 
@@ -129,7 +129,7 @@ A restored `running` verifier is converted to `cancelled` with an interruption r
 
 The verifier is spawned directly with `shell: false` in the canonical guard root. Output retained in memory is capped across stdout and stderr. Execution has a fixed timeout and explicit cancellation.
 
-On POSIX systems, the verifier runs in a detached process group. Cancellation sends `SIGTERM` to the group and escalates to `SIGKILL` after the grace period. On Windows, process-tree termination uses `taskkill`, with forced tree termination as the escalation path. Detached verifier PIDs are also registered with Pi's existing shutdown tracking.
+On POSIX systems, the verifier runs in a detached process group. Cancellation sends `SIGTERM` to the group and escalates to `SIGKILL` after the grace period. On Windows, process-tree termination uses `taskkill`, with forced tree termination as the escalation path. Detached verifier PIDs are also registered with Ice's existing shutdown tracking.
 
 `session_shutdown` clears pending mutation authorizations, aborts an active verifier, and waits for its completion before extension teardown proceeds. This covers quit, reload, session replacement, resume, and fork teardown paths.
 
@@ -145,7 +145,7 @@ Failed, denied, missing, read-only, Bash, unknown, and verifier operations do no
 
 ### Reporting and exit behavior
 
-`/piv-status` reports mode, root, trust, Bash state, generations, verifier configuration, terminal state, exit code, duration, and truncation. Print mode writes this report visibly to stderr.
+`/ice-status` reports mode, root, trust, Bash state, generations, verifier configuration, terminal state, exit code, duration, and truncation. Print mode writes this report visibly to stderr.
 
 Verifier failure, timeout, spawn error, cancellation, or untrusted blocking sets a nonzero headless process exit status. A passing verifier exits successfully.
 
@@ -153,8 +153,8 @@ Verifier failure, timeout, spawn error, cancellation, or untrusted blocking sets
 
 The focused suite validates:
 
-- ordinary `pi` launcher isolation;
-- hidden guard persistence under `piv --no-extensions`;
+- ordinary `ice` launcher isolation;
+- hidden guard persistence under `ice --no-extensions`;
 - strict mode and verifier argument parsing;
 - default plan mode;
 - exact plan/build tool sets;
@@ -183,7 +183,7 @@ Validation commands and expected outcomes:
 
 ```text
 cd packages/coding-agent
-node ../../node_modules/vitest/dist/cli.js --run test/piv-safe-verify.test.ts test/suite/regressions/6260-inline-extension-naming.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/ice-safe-verify.test.ts test/suite/regressions/6260-inline-extension-naming.test.ts
 # 2 files passed; 41 tests passed
 
 cd ../..
@@ -197,15 +197,15 @@ git status --short -- agent_references
 # no output
 ```
 
-The real interactive smoke used the local `cx/gpt-5.6-luna` route in an isolated temporary Git repository. The model read `README.md`, saved a draft, proposed it, displayed all four review choices, and continued through the default fresh-context approval. The proposal tool turn stopped normally with no abort error; `agent_settled` then started a separate build turn. Build mode required `read_plan` before the first mutation, wrote `result.txt`, and read it back. `/piv-status` reported `Plan status: approved`, `Plan read in build: true`, `Plan approval mode: fresh`, and `Mutation generation: 1`. Independent host inspection confirmed a two-byte file with hexadecimal content `6f 6b`. The temporary repository and tmux session were removed afterward.
+The real interactive smoke used the local `cx/gpt-5.6-luna` route in an isolated temporary Git repository. The model read `README.md`, saved a draft, proposed it, displayed all four review choices, and continued through the default fresh-context approval. The proposal tool turn stopped normally with no abort error; `agent_settled` then started a separate build turn. Build mode required `read_plan` before the first mutation, wrote `result.txt`, and read it back. `/ice-status` reported `Plan status: approved`, `Plan read in build: true`, `Plan approval mode: fresh`, and `Mutation generation: 1`. Independent host inspection confirmed a two-byte file with hexadecimal content `6f 6b`. The temporary repository and tmux session were removed afterward.
 
 CLI smoke coverage includes:
 
-- malformed `--piv-mode` rejected with exit 1;
-- non-JSON shell-string `--piv-verify` rejected with exit 1;
-- stock `pi --help` does not expose Pi Void flags;
-- `piv --no-extensions --help` still exposes bundled Pi Void flags;
-- default `/piv-status` is visible in print mode and reports `Mode: plan`;
+- malformed `--ice-mode` rejected with exit 1;
+- non-JSON shell-string `--ice-verify` rejected with exit 1;
+- stock `ice --help` does not expose ICE flags;
+- `ice --no-extensions --help` still exposes bundled ICE flags;
+- default `/ice-status` is visible in print mode and reports `Mode: plan`;
 - passing manual verifier exits 0;
 - failing manual verifier is visible and exits 1.
 
@@ -218,7 +218,7 @@ A read-only Guardrails agent reviewed the implementation after the initial valid
 - stale restored `running` state;
 - missing real launcher/process-cleanup regressions.
 
-All four were corrected and covered by focused tests. A second read-only review then identified one adjacent enforcement bypass: discovered user extensions were ordered before the bundled guard for first-result `user_bash` dispatch. A narrow application-owned inline priority was added, Pi Void's guard was marked `before-user`, and a regression proves the guard handler is first while ordinary inline extensions keep their prior ordering.
+All four were corrected and covered by focused tests. A second read-only review then identified one adjacent enforcement bypass: discovered user extensions were ordered before the bundled guard for first-result `user_bash` dispatch. A narrow application-owned inline priority was added, ICE's guard was marked `before-user`, and a regression proves the guard handler is first while ordinary inline extensions keep their prior ordering.
 
 Several separate local orchestration-agent profiles could not complete because their configured local model endpoints were unavailable. They made no repository changes. A final read-only re-review was also attempted after the ordering fix, but its local model endpoint stalled and was cancelled after producing no additional finding.
 
@@ -238,7 +238,7 @@ This is guarded execution, not a sandbox. The following remain outside Part 01 g
 
 ## Remaining integration limitation
 
-The dynamic model-catalog refresh timed out during the interactive smoke, so Pi Void used its last valid exact catalog. The configured local model route remained operational and completed the full model-driven plan-to-build sequence. This fallback condition does not weaken the plan-mode evidence, but endpoint catalog freshness remains dependent on the local provider responding within its configured timeout.
+The dynamic model-catalog refresh timed out during the interactive smoke, so ICE used its last valid exact catalog. The configured local model route remained operational and completed the full model-driven plan-to-build sequence. This fallback condition does not weaken the plan-mode evidence, but endpoint catalog freshness remains dependent on the local provider responding within its configured timeout.
 
 ## Repository and GitHub state
 

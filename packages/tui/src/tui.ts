@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
 import { isKeyRelease, matchesKey } from "./keys.ts";
+import { getTuiEnv, ICE_CURSOR_MARKER, normalizeCursorMarkers } from "./legacy-compat.ts";
 import type { Terminal } from "./terminal.ts";
 import {
 	isOsc11BackgroundColorResponse,
@@ -76,7 +77,7 @@ export function isFocusable(component: Component | null): component is Component
  * Components emit this at the cursor position when focused.
  * TUI finds and strips this marker, then positions the hardware cursor there.
  */
-export const CURSOR_MARKER = "\x1b_pi:c\x07";
+export const CURSOR_MARKER = ICE_CURSOR_MARKER;
 
 export { visibleWidth };
 
@@ -317,7 +318,7 @@ export interface TUI extends Component {
 	queryTerminalColorScheme(options: { timeoutMs: number }): Promise<TerminalColorScheme | undefined>;
 }
 
-export const VIEWPORT_TUI = Symbol.for("@earendil-works/pi-tui/viewport");
+export const VIEWPORT_TUI = Symbol.for("@zykairotis/ice-tui/viewport");
 
 export interface ViewportTUI extends TUI {
 	readonly [VIEWPORT_TUI]: true;
@@ -325,7 +326,8 @@ export interface ViewportTUI extends TUI {
 }
 
 export function isViewportTUI(tui: TUI): tui is ViewportTUI {
-	return (tui as Partial<ViewportTUI>)[VIEWPORT_TUI] === true;
+	const candidate = tui as Partial<ViewportTUI>;
+	return VIEWPORT_TUI in candidate && candidate[VIEWPORT_TUI] === true;
 }
 
 export abstract class TuiBase extends Container implements TUI {
@@ -340,8 +342,8 @@ export abstract class TuiBase extends Container implements TUI {
 	private renderTimer: NodeJS.Timeout | undefined;
 	private lastRenderAt = 0;
 	private static readonly MIN_RENDER_INTERVAL_MS = 16;
-	private showHardwareCursor = process.env.PI_HARDWARE_CURSOR === "1";
-	private clearOnShrink = process.env.PI_CLEAR_ON_SHRINK === "1";
+	private showHardwareCursor = getTuiEnv("ICE_HARDWARE_CURSOR") === "1";
+	private clearOnShrink = getTuiEnv("ICE_CLEAR_ON_SHRINK") === "1";
 	protected fullRedrawCount = 0;
 	protected stopped = false;
 	private pendingOsc11BackgroundReplies = 0;
@@ -362,7 +364,7 @@ export abstract class TuiBase extends Container implements TUI {
 	constructor(terminal: Terminal, showHardwareCursor?: boolean, logDirectory?: string) {
 		super();
 		this.terminal = terminal;
-		this.logDirectory = logDirectory ?? process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent");
+		this.logDirectory = logDirectory ?? process.env.ICE_CODING_AGENT_DIR ?? path.join(os.homedir(), ".ice", "agent");
 		if (showHardwareCursor !== undefined) {
 			this.showHardwareCursor = showHardwareCursor;
 		}
@@ -1176,14 +1178,16 @@ export abstract class TuiBase extends Container implements TUI {
 		const viewportTop = Math.max(0, lines.length - height);
 		for (let row = lines.length - 1; row >= viewportTop; row--) {
 			const line = lines[row];
-			const markerIndex = line.indexOf(CURSOR_MARKER);
+			const normalizedLine = normalizeCursorMarkers(line);
+			const markerIndex = normalizedLine.indexOf(CURSOR_MARKER);
 			if (markerIndex !== -1) {
 				// Calculate visual column (width of text before marker)
-				const beforeMarker = line.slice(0, markerIndex);
+				const beforeMarker = normalizedLine.slice(0, markerIndex);
 				const col = visibleWidth(beforeMarker);
 
 				// Strip marker from the line
-				lines[row] = line.slice(0, markerIndex) + line.slice(markerIndex + CURSOR_MARKER.length);
+				lines[row] =
+					normalizedLine.slice(0, markerIndex) + normalizedLine.slice(markerIndex + CURSOR_MARKER.length);
 
 				return { row, col };
 			}

@@ -1,838 +1,1348 @@
-# Pi Void + Cognee Memory
+# ICE Subagent Implementation Plan
 
-## Status
-
-| Field | Value |
-|-------|--------|
-| Research | Complete |
-| Implementation | **Implemented (slice 1)** |
-| Plan revision | 2026-08-07 — phased commits + dedicated branch |
-| Live Cognee API | Stopped (`127.0.0.1:8211`); do not assume health |
-
-Decision-complete for **slice 1** (bounded recall + compaction remember + toggles). Later slices (auto-improve, write tools, shared `agent_sessions`) stay roadmap-only.
-
----
+_Last updated: 2026-08-08_
 
 ## Goal
 
-Make Cognee a **first-class Pi Void memory subsystem** loaded by `piv`, with runtime toggles for network recall and writes.
+Add native subagents to ICE while preserving Ice's existing agent/session ownership and ICE's guarded-build safety model.
 
-| System | Role |
-|--------|------|
-| **Pi** | Authoritative loop, session JSONL tree, native compaction, overflow recovery |
-| **Blackhole** (optional) | Mid-run compact trigger + deterministic summary engine |
-| **piv-cognee** | Bounded **derived** memory across sessions — not a second history store |
+The first release is deliberately narrow:
 
-Success means: better cross-session answers when Cognee is up, **zero hard dependency** when it is down, and **no token spiral** from always-on improve / full-trace ingest.
+> one ICE-only `delegate` tool that runs one foreground, read-only, non-recursive native child `AgentSession` with fresh in-memory history, no discovered child resources, at most `read`/`grep`/`find`/`ls`, deterministic cancellation, bounded typed output, and parent-side verification.
+
+Explicit trusted configurable roles and selective resource inheritance are implemented in Post-MVP Phase A. Read-only parallelism, W1 writer isolation, W2 bounded writer patch artifacts, W3 parent verification/integration, W4 parent-owned proposal decisions, W7.1/W7.2 bounded durable read-only jobs, W8.1 metadata-only durable job observatory visibility, W8.2 explicit terminal-result inspection, and W8.3 frozen persisted completion-inbox metadata are implemented separately. Background writers, remote execution, auto-resume, and recursive agent trees remain later milestones.
 
 ---
 
-## Branch strategy
+## Non-negotiable invariants
 
-### Branch name
-
-```text
-void
-```
-
-Execution override: work directly on the user-approved `void` customization branch. Keep `main` untouched and do not create or switch to a feature branch.
-
-### Create (do this first, before any implementation commit)
-
-```bash
-cd /home/mewtwo/ZSSD/pi-void
-
-# Leave unrelated work alone (Blackhole edits, review branch, etc.)
-git status -sb
-
-# The user explicitly approved direct work on the local customization branch.
-git switch void
-
-# Confirm clean intent: only Cognee plan + later Cognee commits on this branch
-git branch --show-current   # must be void
-```
-
-### Rules for this branch
-
-1. **Only Cognee / piv-cognee work** on `void`.
-2. **Do not** commit or overwrite pre-existing Blackhole worktree changes
-   (`examples/extensions/pi-blackhole/**`, `test/suite/blackhole-compaction.test.ts`) unless they are on a different branch/commit already merged.
-3. **Commit after every completed phase** (see below). One logical phase → one commit (or a small intentional pair if tests must land with code).
-4. **Do not** `git push` or open a PR unless the user explicitly asks.
-5. Commit messages: complete sentences, scoped to the phase. Example subject prefix: `feat(piv-cognee): …`.
-6. If the working tree has unrelated dirty files when starting, **stash or leave them** — never fold them into Cognee commits.
-
-### Suggested commit series (summary)
-
-| Commit | After phase | Message (subject) |
-|--------|-------------|-------------------|
-| C0 | Branch + plan only (optional) | `docs: add piv-cognee memory task plan` |
-| C1 | Phase 1 | `feat(piv-cognee): add HTTP client for recall and remember` |
-| C2 | Phase 2 | `feat(piv-cognee): add config, queue, redaction, and status helpers` |
-| C3 | Phase 3 | `feat(piv-cognee): wire before_agent_start recall and session_compact remember` |
-| C4 | Phase 4 | `feat(piv-cognee): add /cognee commands and read-only search tool` |
-| C5 | Phase 5 | `feat(piv): load hidden piv-cognee extension` |
-| C6 | Phase 6 | `test(piv-cognee): offline unit and extension coverage` |
-| C7 | Phase 7 | `docs: document piv Cognee memory boundary` |
-
-Phases 1–4 may be squashed if a phase is too thin to stand alone, but **never** skip tests (C6) before claiming the feature done. Prefer keeping **C5 (wire piv) after** extension logic is testable in isolation.
+- Parent `AgentSession` remains authoritative for task decomposition, policy, integration, verification, and final user response.
+- `delegate` is a ICE-owned hidden extension/tool loaded through `ice`; stock `ice` behavior stays unchanged.
+- `ice-safe-verify` remains the parent mode/tool authority. The subagent layer reads the current parent tools through `ice.getActiveTools()` and only narrows them.
+- Child receives a fresh `SessionManager.inMemory()` history; parent transcript is not cloned by default.
+- V1 accepts only bundled TypeScript `explore` and `review` roles.
+- V1 child loader disables extensions, skills, prompt templates, themes, and context files and injects only the bundled role system prompt.
+- V1 child effective tools are a subset of `read`, `grep`, `find`, and `ls` and never broader than the parent's active tools.
+- By default, no Bash, mutation, network/MCP, Cognee/Blackhole/guard extension, or recursive delegation in V1 children; explicit gated `--sub-yolo` permits only the selected profile's requested built-in capabilities that also remain active in the trusted parent, including Bash, edit, and write when permitted by both, while keeping child extensions, MCP, and recursive delegation disabled.
+- Explicit denial wins over role configuration.
+- Child result is evidence, not trusted control text.
+- Cancellation/timeout must settle the child; no orphan work.
+- Full child output/transcript must not flood parent context.
+- Writer workers must not operate concurrently in the shared checkout.
+- Background execution is not introduced without a durable job contract.
+- Existing ICE provider, Cognee, Blackhole, and guarded-build behavior must continue to work independently of subagents.
 
 ---
 
-## Current facts
+# Milestone 0 — protect the current tree
 
-### Pi Void / piv
+Status: **complete**
 
-- `piv.ts` passes **hidden inline extension factories** to `main()`.
-- `main()` merges inline factories with built-in and user extensions; inline factories remain available when user extensions are disabled (same pattern as `piv-safe-verify`).
-- `before_agent_start` can return a **transient** custom message for the current provider request — it does **not** append a durable session entry by default (correct for untrusted recall).
-- `session_compact` fires **after** Pi saves the durable `CompactionEntry` and exposes `compactionEntry.summary`.
-- Sessions are append-only JSONL trees; `pi.appendEntry()` can persist extension metadata **without** entering model context.
-- Extension factory must register **synchronously**; defer network until hooks/commands/tools.
+- [ ] Re-read `AGENTS.md` before source edits.
+- [ ] Capture current `git status` and current hashes of files to be touched.
+- [ ] Confirm unrelated modified files remain out of scope.
+- [ ] Do not modify vendored `agent_references/*`.
+- [ ] Avoid dependency additions unless a concrete missing primitive is proven.
 
-### Blackhole
+Acceptance:
 
-- Lives under `packages/coding-agent/examples/extensions/pi-blackhole/` (optional, not first-class `piv` load).
-- Owns mid-run trigger + deterministic summary via `session_before_compact`.
-- Config default `memory: false`; observational memory workers are **not** implemented in the Pi Void port.
-- Cognee must **not** depend on Blackhole. Any saved compaction (native or Blackhole) is a valid remember source.
-- Existing Blackhole dirty files on other branches are **out of scope**.
-
-### Cognee (this machine)
-
-| Item | Value |
-|------|--------|
-| Managed project | `/home/mewtwo/Zykairotis/cognee` |
-| API | `http://127.0.0.1:8211` (not 8000/8011) |
-| Status at plan time | **Stopped** (token-usage halt; Claude/Codex plugins disabled) |
-| Version | 1.4.0 |
-| Key cache (Pi ↔ API auth) | `~/.cognee-plugin/api_key.json` |
-| Shared plugin env | `~/.cognee/.env` |
-| Server process env | `/home/mewtwo/Zykairotis/cognee/.env` (via `scripts/env.sh` / `start-local-api.sh`) |
-| User guide | `…/cognee/docs/cognee-user-guide.html` |
-
-### Two config layers (critical — do not conflate)
-
-Pi Void’s extension and Cognee’s extraction/embeddings use **different** credentials.
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│ Layer A — piv-cognee (TypeScript, this monorepo)            │
-│ Needs ONLY:                                                 │
-│   COGNEE_BASE_URL / baseUrl  →  http://127.0.0.1:8211       │
-│   COGNEE_API_KEY             →  auth to local Cognee API    │
-│ Does NOT need: Voyage, Gemini, 9router, LLM_ENDPOINT        │
-└───────────────────────────┬─────────────────────────────────┘
-                            │ HTTP recall / remember
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Layer B — Cognee API process (Python, Zykairotis stack)     │
-│ Needs:                                                      │
-│   LLM_*  →  9router / local gateway :20128 → Gemini flash   │
-│   VOYAGE / EMBEDDING_*  →  Voyage voyage-code-3 embeddings  │
-│   DATA/SYSTEM roots, VECTOR_DB, COGNEE_PORT                 │
-│ Loaded from Zykairotis .env when the API is started         │
-└─────────────────────────────────────────────────────────────┘
-```
-
-If Layer B is wrong, Layer A may still connect and then get empty recalls, 5xx, or slow timeouts. Slice-1 code soft-fails; **ops must keep Layer B healthy** for useful memory.
-
-### Layer B — LLM (9router / Gemini flash) and Voyage embeddings
-
-**Server-side only.** Must live in the env used by `start-local-api.sh`. Not hard-coded into Pi Void. Not stored in `~/.pi/agent/pi-cognee/config.json`.
-
-#### Required: use the keys and model from Claude (this machine)
-
-**Do not invent new API keys or pick a different model for Cognee.**
-
-When configuring / reconciling Layer B, **read and reuse** the live values already configured for agents on this host:
-
-| Priority | Source | What to take |
-|----------|--------|----------------|
-| **1 (preferred)** | `~/.claude/settings.json` → top-level `"env"` | **`LLM_API_KEY`**, **`LLM_MODEL`**, **`LLM_ENDPOINT`**, **`LLM_PROVIDER`**, **`VOYAGE_API_KEY`**, **`EMBEDDING_API_KEY`**, **`EMBEDDING_MODEL`**, **`EMBEDDING_DIMENSIONS`**, **`EMBEDDING_PROVIDER`**, **`EMBEDDING_BATCH_SIZE`**, related `LLM_*` / `COGNEE_*` cost knobs |
-| 2 | `~/.codex/config.toml` → `[shell_environment_policy.set]` | Same names if Claude is missing a field (Codex may use `gemini-3.6-flash-low`; **prefer Claude’s medium model** when both exist) |
-| 3 | `~/.cognee/.env` | Plugin-shared copy of the same stack |
-| Runtime file | `/home/mewtwo/Zykairotis/cognee/.env` | **Write target** for the API process — populate/sync **from** Claude (or Codex) values above; mode `600` |
-
-**Mandatory copy-from-Claude fields for the Cognee server `.env`:**
-
-```text
-# Take these FROM ~/.claude/settings.json env (same values — do not rotate unless broken)
-LLM_PROVIDER          ← Claude env
-LLM_ENDPOINT          ← Claude env  (expect http://127.0.0.1:20128/v1)
-LLM_MODEL             ← Claude env  (expect openai/ag/gemini-3.6-flash-medium)
-LLM_API_KEY           ← Claude env  (gateway / 9router key)
-LLM_INSTRUCTOR_MODE   ← Claude env
-LLM_MAX_COMPLETION_TOKENS  ← Claude env (or server 8192 if you want more headroom)
-EMBEDDING_PROVIDER    ← Claude env
-EMBEDDING_MODEL       ← Claude env  (expect voyage/voyage-code-3)
-EMBEDDING_API_KEY     ← Claude env  (Voyage)
-EMBEDDING_DIMENSIONS  ← Claude env  (expect 1024)
-EMBEDDING_BATCH_SIZE  ← Claude env
-VOYAGE_API_KEY        ← Claude env  (same Voyage secret; keep both set for LiteLLM)
-```
-
-**Expected shape once taken from Claude (names + shape only; never commit real secrets):**
-
-| Setting | Expected from Claude `env` | Notes |
-|---------|----------------------------|--------|
-| `LLM_PROVIDER` | `openai` | OpenAI-compatible client → gateway |
-| `LLM_ENDPOINT` | `http://127.0.0.1:20128/v1` | **9router / local gateway** — chat only |
-| `LLM_MODEL` | `openai/ag/gemini-3.6-flash-medium` | **Use this model from Claude.** Keep `openai/` prefix |
-| `LLM_API_KEY` | Claude’s `LLM_API_KEY` | **Use that key**, not a new one |
-| `VOYAGE_API_KEY` | Claude’s `VOYAGE_API_KEY` | **Use that key** |
-| `EMBEDDING_API_KEY` | Claude’s `EMBEDDING_API_KEY` | Usually same Voyage material; use Claude’s value |
-| `EMBEDDING_MODEL` | `voyage/voyage-code-3` | From Claude |
-| **Do not set** | `EMBEDDING_ENDPOINT` for `voyage/*` | Breaks routing |
-
-Also on Claude (optional align): `COGNEE_AUTO_IMPROVE_EVERY`, `COGNEE_IDLE_THRESHOLD`, `COGNEE_IMPROVE_COOLDOWN`, `COGNEE_LLM_KEY_CHECK`, `COGNEE_SKIP_CONNECTION_TEST` — server/plugin cost knobs; Pi does not call `improve` in slice 1.
-
-**Layer A auth (Pi → `:8211`) is separate but also already on disk:**
-
-| Source | Use |
-|--------|-----|
-| Claude `env.COGNEE_API_KEY` | May match the HTTP API key |
-| `~/.cognee-plugin/api_key.json` | Preferred cache for clients; mint with `scripts/mint-api-key.sh` if 401 |
-| Pi resolution order | `COGNEE_API_KEY` env → `api_key.json` → none |
-
-Do **not** put Voyage/LLM keys into Pi config. Do **use** Claude’s Voyage/LLM keys in the **server** `.env`.
-
-**Implementer / ops checklist:**
-
-1. Open `~/.claude/settings.json` → `"env"`.
-2. Copy **`LLM_API_KEY`**, **`LLM_MODEL`** (`openai/ag/gemini-3.6-flash-medium`), **`LLM_ENDPOINT`**, **`VOYAGE_API_KEY`**, **`EMBEDDING_*`** into `/home/mewtwo/Zykairotis/cognee/.env` (and keep `~/.cognee/.env` aligned if plugins run).
-3. Keep file mode `600`. Never commit these files or paste secrets into the monorepo / plan / tests.
-4. Start API with project scripts so the process inherits Zykairotis `.env` — Claude being open is not required at runtime.
-5. Confirm `:20128` is listening (9router) before expecting good remember/extract quality.
-6. For `piv`, only Layer A `COGNEE_API_KEY` / `api_key.json` is required.
-
-Embeddings go **direct to Voyage**, not through `:20128`. The gateway is chat-only.
-
-**Security:**
-
-- Never paste real keys into `task_plan.md`, commits, tests, CHANGELOG, or Pi config.
-- Never log `LLM_API_KEY`, `VOYAGE_API_KEY`, `EMBEDDING_API_KEY`, or `COGNEE_API_KEY`.
-- Pi Void may **read** only `COGNEE_API_KEY` / `api_key.json`; it must **not** require Voyage/LLM keys.
-- Docs may say “reuse keys/model from `~/.claude/settings.json` env” without printing values.
-
-#### Not in `~/.pi/agent/pi-cognee/config.json`
-
-```text
-LLM_API_KEY, LLM_ENDPOINT, LLM_MODEL
-VOYAGE_API_KEY, EMBEDDING_API_KEY, EMBEDDING_MODEL
-COGNEE_AUTO_IMPROVE_*, improve cooldowns
-```
-
-Pi only toggles whether to call the API and which **dataset** (`pi-void` default).
-
-#### Existing cost knobs (server/plugin — leave alone in slice 1)
-
-```text
-COGNEE_AUTO_IMPROVE_EVERY=300
-COGNEE_IDLE_THRESHOLD=120
-COGNEE_IMPROVE_COOLDOWN=900
-COGNEE_LLM_KEY_CHECK=off
-LLM_MAX_COMPLETION_TOKENS=4096|8192
-EMBEDDING_BATCH_SIZE=16
-```
-
-Pi does **not** call `improve` in slice 1. Compaction-remember still costs Voyage + LLM **on the server** when Cognee processes the write — keep `rememberMaxChars` tight.
-
-### HTTP contracts (installed client behavior)
-
-| Operation | Method | Notes |
-|-----------|--------|--------|
-| Recall | `POST /api/v1/recall` | JSON body; API key header |
-| Remember | `POST /api/v1/remember` | **Multipart** form (`datasetName`, `node_set`, `run_in_background`, `data` file) |
-| Health | `GET /health` | Optional for status |
-
-Do **not** call `cognee-cli`, `improve`, or `cognify` from the Pi extension in slice 1.
-
-Known ops risks (handle as soft-fail): service down, 401 if key stale, gateway `:20128` down (remember/cognify quality), bad Voyage key (embeddings), historical graph schema noise (`source_run_refs`), recall latency ~seconds if graph scopes are used — hence **hard budgets**.
+- existing unrelated worktree changes are unchanged;
+- implementation is confined to subagent-related source/tests plus minimal ICE loading/docs if required.
 
 ---
 
-## Design decisions (locked for slice 1)
+# Milestone 1 — freeze the public/internal contracts
 
-### Ownership diagram
+Status: **complete for V1**
 
-```text
-piv
- |
- +-- Pi agent loop, provider routing, session JSONL, native compaction
- |
- +-- hidden piv-cognee extension  (always loaded by piv only)
-       |
-       +-- bounded recall → transient before_agent_start inject
-       +-- selected compaction summaries → queue → remember
-       +-- /cognee commands + read-only cognee_search tool
-       +-- local config, pending queue, circuit breaker, redacted metadata
- |
- +-- (optional) user-loaded Blackhole extension
-       +-- compact/resume only — not Cognee network policy
-```
+## 1.1 Define core types
 
-### Hard rules
+Add the smallest appropriate source module(s) for:
 
-1. **`piv-cognee` is always loaded by `piv`**; not an optional package install. Runtime **toggles** control network, not load.
-2. **`pi` (stock CLI) unchanged** — no Cognee wiring.
-3. Cognee **never** replaces Pi history, compaction, or context construction.
-4. Blackhole remains independently loadable; Cognee consumes **any** saved compaction summary.
-5. Toggles affect **network behavior**, not command registration or help text.
-6. Default dataset is **`pi-void`** — not `agent_sessions` — so Hermes/Claude/Codex noise does not mix in unless the user **explicitly** sets `PI_COGNEE_DATASET` / config.
-7. No LLM-callable **write** tool in slice 1 (untrusted model → durable memory). Read-only search tool only when enabled.
-8. No automatic `improve` / full-trace ingest (cost control; matches why Claude/Codex plugins were disabled).
+- `SubagentProfile`;
+- `SubagentRequest`;
+- `SubagentStatus`;
+- `SubagentRun`;
+- `SubagentResult`;
+- artifact/evidence/diagnostic types;
+- stable failure codes.
 
-### Configuration
-
-**Path:** `~/.pi/agent/pi-cognee/config.json`
-(or under `PI_CODING_AGENT_DIR` if set)
-
-Create dir mode `0700`, file mode `0600`, **atomic writes**.
+Required statuses:
 
 ```text
-enabled            boolean, default true
-autoRecall         boolean, default true
-autoRemember       "off" | "compaction", default "compaction"
-baseUrl            string, default http://127.0.0.1:8211
-dataset            string, default pi-void
-topK               integer 1..10, default 5
-recallBudgetMs     integer, default 1500
-recallMaxChars     integer, default 6000
-rememberMaxChars   integer, default 12000
-queueLimit         integer, default 64
+created
+running
+completed
+failed
+cancelled
+timed_out
+verification_failed
 ```
 
-**Env overrides (validated):**
+Required result properties:
+
+- stable `runId`;
+- parent/child lineage IDs;
+- profile/source;
+- bounded summary;
+- `partial` flag;
+- diagnostics;
+- usage when reliable;
+- evidence/artifact handles;
+- verification metadata.
+
+## 1.2 Define error taxonomy
+
+At minimum distinguish:
+
+- unknown profile;
+- untrusted profile;
+- invalid scope;
+- model unavailable/auth missing;
+- capability denied;
+- child startup failure;
+- child protocol/runtime failure;
+- timeout;
+- cancellation;
+- output truncation;
+- malformed/invalid result;
+- verification failure.
+
+Acceptance:
+
+- no lifecycle state is inferred from free-form child text;
+- terminal transitions can be implemented idempotently;
+- contracts do not depend on native vs subprocess runner.
+
+Tests:
+
+- type/schema validation;
+- invalid request rejection;
+- terminal state transition unit tests.
+
+---
+
+# Milestone 2 — bundled V1 roles
+
+Status: **complete**
+
+V1 intentionally has no role/profile discovery.
+
+## 2.1 Add bundled TypeScript roles
+
+### `explore`
+
+Purpose: repository discovery, architecture tracing, fact gathering, implementation localization.
+
+Capability target:
 
 ```text
-PI_COGNEE_ENABLED
-PI_COGNEE_RECALL
-PI_COGNEE_REMEMBER
-PI_COGNEE_BASE_URL
-PI_COGNEE_DATASET
+read
+grep
+find
+ls
 ```
 
-**Compatibility inputs (existing stack):**
+Explicitly absent:
 
 ```text
-COGNEE_BASE_URL
-COGNEE_API_KEY
+bash
+edit
+write
+network/MCP
+memory adapters
+delegate
 ```
 
-Do **not** auto-inherit `COGNEE_PLUGIN_DATASET` / Claude-Codex `agent_sessions`.
+### `review`
 
-**API key resolution order:**
+Purpose: adversarial correctness/regression/security review using supplied code/diff/repository evidence.
 
-1. `COGNEE_API_KEY`
-2. Endpoint-matched `~/.cognee-plugin/api_key.json` (if present and usable)
-3. No key → treat as auth missing on first network op
+Same capability floor as `explore`; the distinction is prompt/report contract, not higher privilege.
 
-**Never** write the key into Pi config, session entries, queue files, logs, notifications, fixtures, or error strings.
+## 2.2 Role definition rules
 
-### Recall
+Each bundled role is a static ICE-owned TypeScript object containing only reviewed fields such as:
 
-On `before_agent_start`, when `enabled && autoRecall`:
+```text
+name
+description
+systemPrompt
+defaultModel?
+thinkingLevel?
+tools
+timeoutMs
+maxOutputBytes
+```
 
-1. Query = raw expanded user prompt.
-2. `POST /api/v1/recall` JSON, e.g.:
+Do not allow the parent model to supply arbitrary child system prompts or permission lists.
+
+Acceptance:
+
+- exactly the intended bundled V1 roles resolve;
+- unknown role fails before child creation;
+- roles cannot grant tools outside policy;
+- role definitions are deterministic and require no project trust or filesystem discovery.
+
+Tests:
+
+- bundled `explore` resolution;
+- bundled `review` resolution;
+- unknown role rejection;
+- role tool list cannot widen runtime policy.
+
+Implemented in Post-MVP Phase A:
+
+- user roles;
+- trusted project roles;
+- deterministic project-over-user precedence;
+- bundled-role shadow rejection;
+- provenance/source hashes and execution-time revalidation;
+- explicit selected skills, prompts, and context files.
+
+Still deferred:
+
+- project extensions;
+- ambient resource loading;
+- parallel workers and writer/background execution.
+
+---
+
+# Milestone 3 — capability/policy resolver
+
+Status: **complete**
+
+Implement child capability derivation as a small explicit policy function using the parent extension runtime as the source of truth:
+
+```text
+parentAllowed = ice.getActiveTools()
+childEffective = parentAllowed ∩ roleAllowed ∩ runtimePolicyAllowed
+```
+
+For V1:
+
+```text
+runtimePolicyAllowed = { read, grep, find, ls }
+```
+
+## V1 rules
+
+- `ice-safe-verify` decides the parent's current active tools; the subagent layer does not parse or duplicate plan/build policy;
+- add `delegate` to the guarded-build mode tool lists where delegation should be available;
+- hard child tool allowlist uses Ice's existing `createAgentSession({ tools })` / `allowedToolNames` mechanism;
+- `delegate` is never in the child list;
+- no write/edit/apply;
+- no Bash;
+- no implicit network/MCP/credential inheritance;
+- scope roots normalize inside allowed repository roots;
+- child cannot request a higher-privilege role dynamically.
+
+Acceptance:
+
+- built-in/custom tools outside the allowlist are genuinely absent from the child registry;
+- if the parent does not currently have a read-only capability active, the child does not gain it;
+- a role definition cannot widen capabilities;
+- the subagent layer has no independent plan/build permission state.
+
+Tests:
+
+- parent active-tool intersection;
+- tool allowlist integration test;
+- child `delegate` absent;
+- edit/write/Bash absent;
+- invalid/outside scope rejected;
+- deny precedence tests.
+
+---
+
+# Milestone 4 — stripped V1 child resources
+
+Status: **complete by default; explicit Phase A resource selection implemented**
+
+This is the native-runner safety gate, and the V1 target is now explicit rather than exploratory.
+
+Construct the child `DefaultResourceLoader` with:
+
+```text
+noExtensions: true
+noSkills: true
+noPromptTemplates: true
+noThemes: true
+noContextFiles: true
+systemPrompt: <bundled role system prompt>
+```
+
+Do not pass child `extensionFactories`. Do not inherit `ice-cognee`, `ice-safe-verify`, Blackhole extensions, user extensions, project extensions, or ambient skills, templates, themes, or repository context files. Phase A may pass only explicitly selected, hash-validated resources.
+
+Relevant repository instructions needed by a specific task must be included deliberately in the bounded handoff packet rather than discovered implicitly.
+
+The hard `tools` allowlist remains an independent final capability boundary even though extension/resource discovery is disabled.
+
+Acceptance:
+
+- child `getExtensions()` contains no loaded user/project/ICE extension hooks;
+- child skills/prompts/themes/context-file collections are empty when no resources are selected; selected Phase A resources enter only through explicit validated paths;
+- bundled or resolved trusted role system prompt is the intended worker prompt;
+- a fixture project containing extensions, skills, prompts, themes, `AGENTS.md`, and other local resources cannot alter default child behavior; explicitly selected trusted resources are the only exception;
+- tool registry still matches the explicit child allowlist.
+
+Fallback only if these existing loader controls do not behave as documented/tested:
+
+- reassess the native runner and benchmark the subprocess boundary while preserving the same request/result contracts.
+
+---
+
+# Milestone 5 — native foreground runner
+
+Status: **implemented; normal faux-provider completion is covered**
+
+Implement a `NativeAgentSessionRunner` or equivalent minimal module.
+
+## Child construction
+
+Use existing Ice infrastructure:
+
+- `createAgentSession()` or `createAgentSessionFromServices()`;
+- `SessionManager.inMemory()`;
+- existing model runtime;
+- explicit model/thinking choice;
+- hard `tools` allowlist;
+- constrained resource loader;
+- child-specific session start metadata if useful.
+
+## Context handoff
+
+Construct a self-contained child prompt containing only:
+
+- role objective/system instructions;
+- task;
+- approved scope;
+- explicitly selected context/artifacts;
+- output/report requirements.
+
+Do not copy parent messages wholesale.
+
+## Execution
+
+- create `runId` before startup;
+- transition `created -> running` only after valid child construction;
+- subscribe to child events;
+- call child `prompt()`;
+- capture bounded final assistant result/evidence;
+- dispose/settle the child on every path.
+
+Acceptance:
+
+- native child completes a faux-provider fixture task;
+- parent session history is unchanged except for the parent-side delegation tool call/result;
+- child session has independent history.
+
+Tests:
+
+- fresh history;
+- prompt handoff contents;
+- normal completion;
+- model failure;
+- child runtime failure;
+- cleanup after failure.
+
+---
+
+# Milestone 6 — cancellation and timeout
+
+Status: **implemented; race/tool-execution coverage remains**
+
+## Parent abort
+
+Connect the delegation tool's `AbortSignal` to the child runner.
+
+Native behavior:
+
+1. abort controller fires;
+2. call/propagate `child.abort()`;
+3. await `child.waitForIdle()`;
+4. retain bounded partial output;
+5. transition to `cancelled` exactly once.
+
+## Timeout
+
+Use a child-run timeout controller composed with the parent signal.
+
+Timeout must produce `timed_out`, not generic `failed`.
+
+Acceptance:
+
+- child does not continue after parent cancellation;
+- timeout settles even if the model/tool is still active;
+- partial result state is preserved;
+- late events cannot flip terminal state.
+
+Tests:
+
+- cancellation before prompt;
+- cancellation during model streaming;
+- cancellation during child tool execution;
+- timeout;
+- cancel/timeout race;
+- idempotent cleanup.
+
+---
+
+# Milestone 7 — bounded event/progress bridge
+
+Status: **implemented; consumer adapter coverage remains**
+
+Define ICE subagent events without streaming the full child transcript.
+
+Minimum events:
+
+```text
+subagent_created
+subagent_started
+subagent_progress
+subagent_tool_start
+subagent_tool_end
+subagent_completed
+subagent_failed
+subagent_cancelled
+subagent_timed_out
+```
+
+Every event carries lineage IDs.
+
+Progress may include:
+
+- profile;
+- latest operation label;
+- elapsed time;
+- request/token usage when available;
+- capped output tail.
+
+Do not include unbounded raw tool results.
+
+Acceptance:
+
+- interactive, JSON, and RPC consumers can eventually use the same normalized event data;
+- event ordering is deterministic enough for tests;
+- all payloads are bounded/redacted.
+
+Tests:
+
+- stable IDs across events;
+- terminal event exactly once;
+- output-tail cap;
+- sensitive/oversized diagnostic handling.
+
+---
+
+# Milestone 8 — result normalization and artifact boundary
+
+Status: **bounded structured result implemented; artifact persistence deferred**
+
+Create the final `SubagentResult` from observed child state.
+
+## Parent-visible result
+
+- concise bounded summary;
+- status;
+- partial flag;
+- profile/source;
+- usage;
+- evidence refs;
+- diagnostics.
+
+## Full output
+
+If useful full output exceeds the parent-visible budget:
+
+- persist it under a ICE-owned artifact location;
+- return an artifact ID/path;
+- record truncation;
+- never inject the full transcript into parent context automatically.
+
+Acceptance:
+
+- output cap is enforced in bytes;
+- truncation is explicit;
+- child result cannot spoof observed usage/status/changed paths.
+
+Tests:
+
+- small output;
+- very large output;
+- unicode byte accounting;
+- cancellation with partial output;
+- artifact write failure soft/hard behavior defined.
+
+---
+
+# Milestone 9 — wire the ICE `delegate` tool
+
+Status: **implemented**
+
+Add a hidden ICE-owned extension/factory and load it through `packages/coding-agent/src/ice.ts`. Do not add it to stock `ice` built-ins.
+
+Use the model-facing name `delegate`.
+
+Wire `delegate` into the appropriate `ice-safe-verify` active-tool lists so existing mode/tool policy decides when the parent can delegate. The subagent extension itself should not maintain a second plan/build mode state.
+
+Public parameters remain bounded. Phase A adds optional selected role/resource names without exposing raw permission lists or arbitrary system prompts. Example shape:
 
 ```json
 {
-  "query": "...",
-  "top_k": 5,
-  "only_context": true,
-  "scope": ["graph"],
-  "session_id": "<pi session id>",
-  "datasets": ["pi-void"]
+  "role": "explore",
+  "task": "Trace how project trust controls extension loading and report exact files/functions.",
+  "scope": {
+    "roots": ["packages/coding-agent/src"]
+  },
+  "model": "optional/exact-model"
 }
 ```
 
-3. One request per prompt; whole-request deadline (`recallBudgetMs`); response size cap; per-session circuit breaker.
-4. Empty array = authoritative no-hit (success).
-5. Format capped text inside clear **untrusted-data** delimiters; return as **hidden** `before_agent_start` custom message. Do **not** use `pi.sendMessage()` / `appendCustomMessageEntry()` for automatic recall.
-6. Soft-fail: unavailable, 401, slow, malformed, disabled → no block; redacted status only. Notify for manual `/cognee` ops, not every automatic miss.
+Avoid exposing raw permission lists or arbitrary system prompts to the model.
 
-Recall is **untrusted**: must not override system instructions, modes, permissions, or the current user request.
+Tool description must clearly state:
 
-### Remember
+- default child execution is isolated in conversation/context, not a filesystem sandbox;
+- default V1 and Phase A execution is read-only;
+- child has no discovered extensions and receives only explicitly selected trusted skills/templates/context files;
+- child output is evidence and is verified/synthesized by the parent;
+- `--sub-yolo` is not a sandbox: it is a trusted build-mode, full built-in-tool escape hatch for foreground, durable async, batch, and review delegation paths. Interactive launches require confirmation; RPC launches use the explicit startup command as session-wide authorization. Unsafe children receive no retry; child extensions, MCP, recursive delegation, and `delegate_write` remain disabled; `delegate_write` remains worktree-isolated and cancellation is best-effort;
+- host filesystem, process, network, credentials, and detached descendants remain outside containment, and no `--no-sandbox` mode is provided.
 
-Automatic writes **only** on completed compaction:
+Acceptance:
 
-- Hook: `session_compact` (after durable entry exists), **not** `turn_end`.
-- Require `enabled && autoRemember === "compaction"`.
-- Payload: `event.compactionEntry.summary` + minimal metadata (dataset, session id, reason/engine, timestamp).
-- Node set: `agent_actions`.
-- Redact secrets; enforce `rememberMaxChars`.
-- **No** raw tool dumps, full transcripts, thinking blocks, `.env`, credentials.
-- Ignore Blackhole’s config `memory` flag for network policy; `piv-cognee` owns toggles.
+- `ice` parent model can invoke one child when `delegate` is active;
+- stock `ice` does not gain the ICE delegation tool;
+- guarded-build active-tool policy can remove `delegate`;
+- child cannot invoke delegation recursively;
+- errors return structured, actionable tool results.
 
-Explicit `/cognee remember` may store under `user_context` | `project_docs` | `agent_actions`. **No** `forget` in slice 1.
+Tests:
 
-### Durable queue
-
-- Path: `~/.pi/agent/pi-cognee/pending/` (`0700` / files `0600`).
-- Fields: content hash, operation id, dataset, node set, created time, state — **no credentials**.
-- `queueLimit`: when full, keep existing items + warn; do not silent-drop.
-- Drain **bounded** pending on `session_start` in background; factory starts **no** timers/network.
-- Remember: multipart + `run_in_background=true`.
-- Remove only after confirmed **2xx**. Timeout/reset → state `uncertain` (no blind replay). Explicit `/cognee flush uncertain` to retry.
-- Classification: 401/403 `auth_failed`, 5xx `server_error`, refused/DNS `unreachable`, timeout `uncertain`, malformed 2xx body still success for remember if accepted.
-- Metadata only via `pi.appendEntry("piv-cognee", …)`.
-
-### User controls
-
-```text
-/cognee status
-/cognee on | off
-/cognee recall on | off
-/cognee remember on | off
-/cognee search <query>
-/cognee remember [user_context|project_docs|agent_actions] <text>
-/cognee flush [pending|uncertain]
-```
-
-`status`: toggles, endpoint, dataset, queue counts, breaker, last **redacted** error — never credentials.
-
-### Files to create / touch (target tree)
-
-```text
-packages/coding-agent/src/piv-cognee-client.ts     # HTTP client
-packages/coding-agent/src/piv-cognee.ts             # extension factory + hooks
-packages/coding-agent/src/piv.ts                    # wire hidden factory
-packages/coding-agent/test/piv-cognee.test.ts       # offline tests
-packages/coding-agent/test/piv-safe-verify.test.ts  # only if launcher smoke needs update
-idea.md
-packages/coding-agent/docs/compaction.md
-packages/coding-agent/CHANGELOG.md
-task_plan.md                                        # this file (progress updates)
-```
-
-Optional later (not slice 1 unless needed): split helpers under `src/piv-cognee/` if the single file exceeds maintainability.
-
-**Do not modify for this feature:**
-
-- `packages/coding-agent/examples/extensions/pi-blackhole/**` (unless a pure docs cross-link is approved later)
-- Stock `src/cli.ts` / non-`piv` entrypoints
-- Live Cognee Python project under `Zykairotis/cognee` (ops only, outside this PR)
+- `ice` extension registration;
+- stock `ice` unchanged;
+- happy path tool call;
+- malformed parameters;
+- unknown role;
+- mode/tool gating;
+- cancellation;
+- model override unavailable.
 
 ---
 
-## Phases (implement → verify → commit)
+# Milestone 10 — parent-side verification gate
 
-Work **only** on `void`. After each phase: targeted tests for that phase when they exist, then commit.
+Status: **implemented and verified for bounded structured read-only evidence**
 
-### Phase 0 — Branch and plan baseline
+The parent now allocates stable logical `runId` values before launch, requires child lineage and `partial === false` for verified completion, applies parent-side evidence bounds, and preserves bounded unresolved review claims. Failed, timed-out, cancelled, malformed, out-of-scope, and partial results remain unverified.
 
-**Do:**
+Verification: `ice-subagents.test.ts` plus `ice-safe-verify.test.ts` pass `181/181`; the complete foreground delegation regression shard passes `263/263` across seven test files. Targeted Biome and `git diff --check` pass. Root `npm run check` reaches only the inherited `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` TypeScript error.
 
-1. Confirm the working branch is the user-approved `void` customization branch; do not switch to a feature branch.
-2. Ensure this `task_plan.md` is the source of truth on the branch.
-3. Confirm dirty Blackhole (or other) files are **not** staged.
+Implement a lightweight verifier for child results.
 
-**Commit C0 (optional but recommended if plan is not on the branch yet):**
+For MVP read-only results:
 
-```text
-docs: add piv-cognee memory task plan
+- validate lineage;
+- validate terminal status;
+- validate result schema/size;
+- normalize/canonicalize referenced paths;
+- reject paths outside scope;
+- optionally check cited files/lines/evidence exist;
+- record unresolved claims.
 
-Capture the first-class piv Cognee memory design, phase gates,
-and direct `void` branch workflow.
-```
+Do not treat child confidence or prose as proof.
 
-**Gate:** `git branch --show-current` is `void`; plan present.
+Integrate with guarded-build semantics so a worker cannot implicitly authorize mutation or transition modes.
 
----
+Acceptance:
 
-### Phase 1 — HTTP client (no extension wiring)
-
-**Files:** `packages/coding-agent/src/piv-cognee-client.ts` (+ co-located unit tests if preferred; full suite may land in Phase 6).
-
-**Implement:**
-
-- Native Node 22 APIs only: `fetch`, `AbortSignal.timeout`, `FormData`, `Blob`, `crypto`, `URL`.
-- Types: `CogneeConfig` (client-facing), `RecallResult`, `RememberRequest`, classified `CogneeError`.
-- `recall()`: JSON, dataset list, caps, empty-array success, deadline.
-- `remember()`: multipart matching installed Cognee client; `run_in_background=true`.
-- API-key header; never embed key in thrown messages.
-- Transport/status classification; **no** hidden retries.
-- DI for `fetch` + clock so tests need no real service.
-
-**Do not:** import Python plugins, add npm deps for Cognee, call improve/cognify.
-
-**Verify:**
-
-```bash
-cd packages/coding-agent
-# If Phase-1-only tests exist:
-node ../../node_modules/vitest/dist/cli.js --run test/piv-cognee.test.ts -t client
-# Or typecheck path later via npm run check at Phase 7/end
-```
-
-**Commit C1:**
-
-```text
-feat(piv-cognee): add HTTP client for recall and remember
-
-Introduce a fetch-based Cognee client with deadlines, response
-caps, multipart remember, and injectable transport for offline tests.
-```
+- failed/timed-out/cancelled result cannot be represented as verified success;
+- invalid paths/evidence are surfaced;
+- parent remains responsible for final synthesis.
 
 ---
 
-### Phase 2 — Config, queue, redaction, status helpers
+# Milestone 11 — MVP integration test suite
 
-**Files:** primarily `packages/coding-agent/src/piv-cognee.ts` (helpers can be internal functions or small modules).
+Status: **implemented for the deterministic foreground delegate path**
 
-**Implement:**
+`ice-delegate-mvp.test.ts` uses the Faux provider and the real `iceSubagents` factory. Its `9/9` scenarios cover ICE-only registration, fresh/selected context and parent-history isolation, verified completion/provenance, malformed/unknown-role/unavailable-model/inactive-parent gates, unresolved review claims, foreground and durable-async timeout handling, cancellation, explicit build-only `--sub-yolo` gating, and confirmed unsafe review/batch delegation. The inherited focused delegation shard passes `261/261`.
 
-- Load/validate config + env overrides; atomic save with `0600`.
-- Key resolution (env → api_key.json → none) without persisting secrets.
-- Pending queue under `~/.pi/agent/pi-cognee/pending/` (in tests: temp dir via DI or env override if added — prefer injectable paths for tests).
-- Content hash IDs; states: `pending` | `uncertain` | terminal outcomes as needed.
-- Secret redaction pass + char caps.
-- Circuit breaker state machine (open after N failures; half-open trial).
-- Status snapshot builder (no credentials).
+The remaining checklist items are covered by the lower-level subagent, safe-verify, adversarial, jobs, observatory, and writer suites where applicable; full end-to-end coverage of every deferred resource/artifact scenario is not claimed here. Root `npm run check` retains only the inherited `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` TypeScript error.
 
-**Verify:** unit tests for config defaults, invalid env, queue full, redaction — if not yet in repo, write them now or with Phase 6; do not leave untestable pure logic.
+Create a deterministic faux-provider/fixture suite covering the complete path.
 
-**Commit C2:**
+Canonical W1-W11 executable acceptance evidence is recorded in `findings.md` section 21. Current focused evidence is C1 `263/263`, C2 `181/181`, C3 `9/9`; W5B remains pending external provider certification.
 
-```text
-feat(piv-cognee): add config, durable queue, and redaction helpers
+Current acceptance mapping:
 
-Add atomic config I/O, secret-safe key resolution, pending remember
-queue with uncertain-write handling, and status reporting helpers.
-```
+- Covered by M11 integration: ICE-only registration, guarded active-tool gating, fresh/selected context, parent-history isolation, normal completion, malformed/unknown role/model/mode gates, cancellation, foreground and durable-async timeouts, unsafe-mode gating, and confirmed unsafe review/batch delegation.
+- Covered by lower-level suites: stripped extensions/skills/prompts/themes/context discovery, Cognee/Blackhole/safe-verify exclusion, read-only tool intersection, recursive delegation denial, trusted user/project roles and resources, TOCTOU revalidation, lineage/events, output bounds, and writer boundaries.
+- Superseded by Phase A: “only bundled V1 roles resolve”; trusted user/project role resolution is implemented with provenance and source-hash revalidation.
+- Explicitly deferred: full-output artifact persistence and every end-to-end resource/artifact scenario not covered by the lower-level suites.
+- Existing ICE core tests remain a separate repository gate; no M11 claim overrides unrelated failures.
+
+MVP exit criteria:
+
+- M11 integration and lower-level regression tests pass;
+- targeted coding-agent typecheck/lint gates pass apart from recorded unrelated diagnostics;
+- no unrelated diff churn;
+- minimality review finds no unnecessary architecture.
 
 ---
 
-### Phase 3 — Extension hooks (recall + compact remember)
+# Milestone 12 — native vs subprocess benchmark/decision
 
-**Files:** `packages/coding-agent/src/piv-cognee.ts`
+Status: **COMPLETE / VERIFIED / FROZEN**; the repaired harness records real resource-loader and CLI contract vectors, startup metrics, honest end-RSS availability, memory summaries, and maintenance rationale. Canonical full-budget runs are cold `99f421f8-228b-4137-a44e-092895359713` (30), warm `d6222038-23e7-4ca9-a8ce-1770dc96db37` (5 warmups + 100 measured), safety `67457e73-cd91-452b-b0a0-154ebf94a369` (50), and compatibility `430338fe-ddb8-45f6-a0ee-fdaaee129df9` (3); all reports have `hardGate: true` and decide `native-only`.
 
-**Implement factory registration (still not wired into piv if delayed to Phase 5 — either is fine as long as C3 is self-contained):**
+Only after the native MVP works, compare against Ice's subprocess implementation.
 
-| Event | Behavior |
-|-------|----------|
-| `session_start` | Background drain of **bounded** pending items; no factory-time network |
-| `before_agent_start` | Soft-fail recall inject when enabled |
-| `session_compact` | Queue redacted summary when autoRemember is compaction |
-| `session_shutdown` | Idempotent cleanup; no dangling work assumptions |
+Execution boundary: deterministic benchmark fixtures only; native and subprocess adapters must share the same fixture/event/result contract. The subprocess adapter is benchmark-only until M12 selects and M13 freezes a production policy. W5B live-provider certification remains separate and pending.
+
+Evaluate:
+
+- startup latency;
+- memory;
+- cancellation reliability;
+- crash containment;
+- event/result complexity;
+- resource-loader safety;
+- CLI compatibility;
+- maintenance burden.
+
+Decision options:
+
+1. native only;
+2. native default + subprocess isolation backend;
+3. subprocess only if native resource isolation proves unsafe.
+
+Do not maintain two backends without a concrete reason.
+
+M12 exit record: the four canonical manifests and reports are schema-v2, record elapsed/startup/end-RSS, cancellation, cleanup, and real compatibility gates, and all hard gates pass. The native-only decision is frozen for this benchmark evidence; subprocess remains benchmark/isolation evidence without automatic fallback.
+
+---
+
+# Milestone 13 — execution backend policy freeze and rollback gate
+
+Status: **COMPLETE / VERIFIED / FROZEN**; the production native-only policy remains implemented, and the final verifier consumed exactly the four canonical M12 runs plus observed C1/C2/C3 results.
+
+M13 freezes one backend policy source of truth, preserves Ice as the sole authoritative loop, verifies event/result/resource/CLI/cancellation parity, exercises decision-specific rollback without state migration, and records acceptance artifacts. `m13:verify` now requires exactly one full-budget cold performance, warm performance, safety, and compatibility run, then executes C1/C2/C3 and records observed counts, exit codes, Git SHA, and dirty-worktree qualification. It must not add automatic backend routing, a planner, a second provider layer, autonomous execution, or W5B status changes.
+
+M13 exit checks:
+
+- exactly one M12 decision is encoded;
+- native remains default unless M12 proves otherwise;
+- invalid backend selection fails closed and no error silently switches backend;
+- C1/C2/C3 are executed by M13 and their observed pass/total counts and exit codes are recorded;
+- targeted Biome and `git diff --check` pass;
+- root `npm run check` has only the inherited `maxTokensField` diagnostic;
+- W5B remains explicitly pending unless external evidence arrives.
+- Canonical artifact: `.artifacts/m13/m13-1786296433961/`; acceptance is schema-v2 with `dirty: true`, current HEAD provenance, and observed C1 `263/263`, C2 `181/181`, C3 `9/9`.
+
+---
+
+# Post-MVP Phase A — explicit trusted configurability
+
+Status: **implemented for roles and selected read-only resources**
+
+Implemented as two independently gated capabilities:
+
+- trusted user role definitions with deterministic provenance;
+- project role definitions only behind existing project trust;
+- deterministic project-over-user precedence with bundled-role shadow rejection;
+- role/resource source hashes revalidated immediately before execution;
+- explicit selected skills, prompt templates, and context files only;
+- extensions remain excluded;
+- `delegate`, mutation tools, credential expansion, and executable project hooks remain independently policy-gated;
+- stripped-resource mode remains the safe fallback/default for read-only workers.
+
+Do not re-enable all normal parent resources merely for convenience. Parallel workers remain Post-MVP Phase B.
+
+---
+
+# Post-MVP Phase B — bounded parallel read workers
+
+Status: **implemented and verified — B1 parallel read fanout only**
+
+B1 scope:
+
+- typed hidden `delegate_batch` tool;
+- up to 8 sibling read-only tasks;
+- default concurrency `2`, hard maximum `4`;
+- parent-owned reservation ledger over complete JSON report bytes, with bounded public `totalBudgetBytes`;
+- each task resolves once and executes through `runResolved()`;
+- deterministic input-order results and batch/run lifecycle IDs;
+- parent cancellation and batch timeout stop queued work and abort active children;
+- no chains, writers, background jobs, nested delegation, or Hivemind.
+
+Prerequisites already satisfied:
+
+- stable run/result/events;
+- correct cancellation;
+- usage accounting;
+- deterministic single-child behavior.
+
+B1 exit checks:
+
+- concurrency cap and reservation-before-launch are enforced;
+- unused reservations release and observed terminal report bytes reconcile without clamping overruns;
+- sibling failures preserve settled results;
+- cancellation/timeout handle active and queued tasks;
+- `concurrency: 1` matches sequential atomic delegation semantics;
+- selected resource/tool/scope isolation remains unchanged.
+
+# Phase B2 — typed parallel reviewer orchestration
+
+Status: **implemented and verified**
+
+B2 scope:
+
+- typed hidden `review_batch` facade over `delegate_batch`/`runResolved()`;
+- review dimensions `correctness`, `security`, `tests`, and `regressions`;
+- forced read-only `review` role with independent scopes and fresh sessions;
+- structured findings with bounded evidence references;
+- deterministic input-order reviewer results;
+- contradiction preservation with no deduplication, voting, quorum, or consensus;
+- reviewer verification remains separate from parent synthesis.
+
+B2 exit checks:
+
+- all reviewers execute through the existing bounded scheduler;
+- findings retain reviewer and dimension identity;
+- invalid finding evidence fails only that reviewer and preserves other results;
+- contradictory findings remain separate in the typed result;
+- parent remains the only synthesizer;
+- chains, writers, background jobs, cross-model policy, launch preflight, context packets, sanitization, and Hivemind remain deferred.
+
+Do not use parallel fan-out for tightly sequential tasks by default.
+
+# Phase B3.1 — deterministic cross-model reviewer routing
+
+Status: **implemented and verified**
+
+B3.1 scope:
+
+- typed `ReviewerModelPolicy` with batch default and per-dimension overrides;
+- deterministic precedence `task.model > byDimension > default > parent`;
+- complete model assignment and validation before scheduler launch;
+- typed task/dimension/default/parent model provenance;
+- model selection changes only compute; tools, scope, resources, trust, IDs, budgets, and lifecycle remain unchanged;
+- no fallback, retries, voting, consensus, chains, writers, background jobs, or Hivemind.
+
+B3.1 exit checks:
+
+- unavailable and ambiguous configured model references reject before any child starts;
+- mixed-model reviewers preserve deterministic input order and aggregate accounting;
+- one model/runtime failure remains an isolated sibling result;
+- cancellation and fail-fast behavior remain scheduler-owned and unchanged.
+
+Verification: `npm run check` passed; focused subagent and safe-verify suites passed with `89/89` tests. No fallback, retry, voting, consensus, chain, writer, background, or Hivemind behavior was added.
+
+# Phase B4 — launch preflight and digest
+
+Status: **implemented and verified**
+
+B4 scope:
+
+- one typed parent-owned `SubagentLaunchPreflight` for `delegate_batch` and `review_batch`;
+- preflight generated after resolved tasks, model assignments, resource resolution, and before scheduler `pump()`;
+- existing profile/resource hash checks, effective read-tool derivation, task-ID checks, concurrency validation, timeout validation, and budget configuration reused rather than reimplemented;
+- requested model references remain separate from resolved actual compute models;
+- complete preflight stays in typed tool details; `formatSubagentLaunchDigest()` injects only a bounded summary into parent context;
+- resource names plus source/hash/path provenance are represented without resource bodies;
+- no provider calls, session creation, fallback, retries, voting, consensus, chains, writers, background jobs, or Hivemind.
+
+B4 exit checks:
+
+- invalid task, changed profile/resource, denied effective tools, and impossible per-task reservations reject before worker one;
+- preflight task order and resolved models match scheduler input and runner assignments;
+- preflight `reservedOutputBytes` is the planned sum of per-task output caps, while the live scheduler ledger separately tracks simultaneous reservations and reconciliation;
+- digest is byte-bounded and truncation leaves typed details unchanged;
+- subagent and reviewer batch results expose the same base preflight contract.
+
+Verification: `npm run check` passed; focused subagent and safe-verify suites passed with `93/93` tests. `git diff --check` passed.
+
+# Phase B5 — selective context packets
+
+Status: **implemented and verified**
+
+B5 scope:
+
+- normalize legacy `context` text and typed `contextPacket` input through one immutable packet contract;
+- cap packets at 16 items, 8 KiB per item, and 64 KiB aggregate UTF-8 bytes;
+- preserve fresh child history and pass only explicitly selected packet items as untrusted handoff data;
+- expose packet item IDs/kinds/bytes and aggregate bytes in typed preflight, never packet bodies in the digest;
+- keep packet data independent from tools, scopes, resources, trust, model routing, budgets, cancellation, and sibling state;
+- no transcript fork, fallback, retries, chains, writers, background jobs, or Hivemind.
+
+B5 acceptance targets:
+
+- zero packet preserves current prompt/history behavior;
+- ordering, duplicate IDs, per-item/aggregate UTF-8 limits, immutable resolution, and batch preflight rejection are tested;
+- packet metadata reaches preflight while packet bodies stay out of the digest;
+- packet content does not widen effective tools, scope, resources, or trust and sibling packets remain isolated.
+
+Verification: `npm run check` passed; focused subagent and safe-verify suites passed with `98/98` tests. `git diff --check` passed.
+
+# Phase B6.1 — sanitized fork snapshots
+
+Status: **implemented and verified**
+
+B6.1 scope:
+
+- add opt-in `contextMode: "fresh" | "fork"`, defaulting to `fresh`;
+- resolve fork input only from the parent `buildSessionContext().messages` projection, never `getBranch()` or a session clone;
+- retain only user text, assistant text, compaction summaries, and branch summaries;
+- drop thinking, tool calls, tool results, images, custom messages, and empty content;
+- redact common credentials with a shared utility, then enforce 32 messages, 8 KiB per message, and 64 KiB aggregate UTF-8 limits using a deterministic recent suffix;
+- freeze the sanitized snapshot and inject it, followed by B5 packet content, as untrusted handoff data into a fresh `SessionManager.inMemory()` child;
+- expose fork source/size/drop metadata and the combined B5+B6 64 KiB transient budget in B4 preflight, without bodies or secrets in the digest;
+- keep tools, scope, resources, trust, model routing, scheduling, cancellation, fail-fast, output accounting, and reviewer routing unchanged; no fallback, retries, chains, writers, background jobs, or Hivemind.
+
+B6.1 exit checks:
+
+- fresh-mode prompt behavior remains unchanged;
+- fork source, allowlist, summaries, drops, credential redaction, UTF-8 caps, suffix ordering, immutability, fresh child history, sibling isolation, and prompt ordering are tested;
+- combined packet/fork budget rejects before the scheduler starts; preflight exposes metadata only;
+- no provider call or model summarization occurs during fork normalization.
+
+Verification: `npm run check` passed; focused fork, packet, child-session, subagent, and safe-verify tests passed; `git diff --check` passed.
+
+# Phase B7.1 — bounded transient failure recovery
+
+Status: **FROZEN**
+
+B7.1 scope:
+
+- applies uniformly to `delegate`, `delegate_batch`, and `review_batch` through one recovery wrapper;
+- allows exactly two attempts: the initial attempt plus at most one retry;
+- retries only failures marked retryable by typed provider/startup classification at the failure boundary;
+- reuses the exact normalized request, effective tools, resolved model, selected resources and hashes, trust, B5 packet, and B6.1 fork snapshot;
+- never retries cancellation, timeout, verification or malformed results, validation/policy/scope/trust/resource/auth failures, budget exhaustion, or child tool failures;
+- keeps `failFast` at logical-task granularity, after retry exhaustion rather than after a recoverable first attempt;
+- aggregates usage across attempts, keeps terminal `observedOutputBytes` scoped to the terminal attempt, and records immutable per-attempt bytes plus recovery totals;
+- reserves and reconciles output capacity per attempt in the parent ledger, suppressing retries when the next cap cannot be admitted or a typed cancellation/timeout/fail-fast stop gate is active, before any second reservation or runner/session creation, and keeping `budget.consumed <= budget.total`;
+- adds B4 recovery-policy metadata and max-potential output without treating retry capacity as live-reserved;
+- adds no fallback model, re-normalization, resnapshot, chain, writer, background, or Hivemind behavior.
+
+B7.1 exit checks:
+
+- typed transient provider stream failures retry once; message text alone never enables retry;
+- terminal typed failures and untyped failures do not retry;
+- single-child, batch, and reviewer paths share the same-model recovery behavior;
+- batch fail-fast waits for a logical task's recovery result;
+- immutable request identity and context are reused across attempts;
+- attempt statuses/failure codes, per-attempt bytes, terminal bytes, aggregate usage, and total observed bytes remain available on the terminal result;
+- retries are admitted only after per-attempt ledger reconciliation and a typed stop-state check; preflight reports the retry policy without live-reserving retry bytes;
+- parent cancellation, batch timeout, and sibling fail-fast each suppress the second runner/session invocation and reservation;
+- two forked siblings call the parent `buildSessionContext()` exactly once.
+
+Verification: B7.1 FROZEN. `npm run check` passed; `ice-subagents.test.ts` and `ice-safe-verify.test.ts` passed with `115/115` tests; Cognee redaction regression passed; `git diff --check` passed.
+
+---
+
+# Phase B8 — Read-Only Subagents v1 benchmark and adversarial-hardening implementation gate
+
+Status: **implementation gate complete — B8.1 PASS, B8.2 harness/provider-smoke PASS, B8.3 report present; exhaustive comparison optional**
+
+B8 is an implementation-validation gate, not a feature phase. B7.1 remains FROZEN and must not be reopened unless benchmark evidence exposes a concrete defect.
+
+## B8.1 deterministic adversarial suite
+
+- deterministic security and lifecycle regressions live in `packages/coding-agent/test/`;
+- tests use the existing faux-provider and temporary-fixture seams;
+- no external repository is required;
+- stable scenario IDs align with `benchmarks/read-only-subagents/scenarios.json` through a benchmark-side data check;
+- every concrete benchmark defect must receive a regression before repair;
+- no fallback models, roles, writers, background jobs, steering, persistent memory, Hivemind, or production orchestration primitives are added.
+
+Initial attack coverage includes symlink replacement and scope escape, resource mutation before launch, UTF-8 fork boundaries, credential variants, provider startup and partial-output failures, cancellation and timeout between attempts, concurrent retry-budget contention, invalid evidence in valid JSON, oversized evidence arrays, and context that impersonates system policy.
+
+Verification: `ice-subagents-adversarial.test.ts`, `ice-subagents.test.ts`, and `ice-safe-verify.test.ts` pass with `128/128` tests.
+
+## B8.2 comparative benchmark harness
+
+- versioned inputs live under `benchmarks/read-only-subagents/`;
+- `manifest.json` pins immutable external commits and uses `CURRENT_WORKSPACE` for ICE;
+- unresolved external baselines remain explicitly unavailable and never use guessed SHAs;
+- target preparation may inspect an existing checkout/cache only when its `HEAD` exactly matches the manifest SHA;
+- preparation never fetches, switches branches, upgrades dependencies, rewrites target configuration, or substitutes a newer revision;
+- adapters normalize target observations without importing benchmark modules into coding-agent tests;
+- `--target ice`, `--matrix`, `--scenario`, and `--repeat` are explicit CLI modes;
+- deterministic scenarios reject repeated runs; model-quality scenarios may repeat;
+- JSONL artifacts record schema version, run ID, implementation, resolved commit, scenario, repetition, timing, result, verification, attempts, output bytes, usage, and cost without raw prompts, transcripts, credentials, or absolute checkout paths;
+- `results/*` is ignored and created on demand.
+
+Verification: benchmark-side Node tests pass with `31/31`; `npx tsgo --noEmit -p benchmarks/read-only-subagents/tsconfig.json` passes. ICE-only mode writes a redacted result with resolved commit provenance. Provider smoke passes across all four pinned targets for both configured routes. The exhaustive 48 deterministic / 112 model-quality matrix remains optional external certification evidence.
+
+## B8.3 findings and hardening
+
+- pinned upstream Ice at `e47b8e37a6211ebd0b2942fa87059d64f81eec02` and `nicobailon/ice-subagents` at `67cf559acbb4b621b53879e2df3c8bd211c2b44b`;
+- resolved exact local/cache checkouts without harness fetch, checkout, branch switching, dependency upgrade, or substitution;
+- implemented real CLI adapters: stock Ice through `ice`, the native example through `ice --extension`, `ice-subagents` through its extension entry point on the pinned Ice host, and ICE through `ice`;
+- ran deterministic infrastructure/security scenarios separately from repeated model-quality scoring;
+- recorded the abbreviated provider-compatible sanity comparison and its limitations in `benchmarks/read-only-subagents/B8.3-report.md`;
+- no production change is justified unless a B8 finding reproduces a concrete defect, with its regression added first;
+- the report records that the exhaustive comparative matrix is optional certification evidence and does not block the implementation freeze.
+
+B8 implementation validation is complete. W5B live writer runs and the exhaustive B8 matrix remain unclaimed external certification evidence; Read-Only Subagents v1 implementation is frozen.
+
+# Post-MVP Phase C — Hivemind coordination
+
+Hivemind is a higher-level consumer of the stable subagent executor, not a replacement worker runtime. Detailed architecture lives under `docs/hivemind/`.
+
+Prerequisites:
+
+- single-child `delegate` lifecycle/result/verification contract is stable;
+- bounded parallel read workers are stable;
+- aggregate usage/cancellation can be measured correctly;
+- parent remains the sole authority for decomposition, mode, permissions, mutation approval, and final verification.
+
+Initial Hivemind shape:
+
+```text
+Parent Ice AgentSession = logical queen
+  -> explicit HiveRequest
+      -> HivemindCoordinator
+          -> sibling SubagentRuns via the same internal executor as `delegate`
+          -> run-scoped typed EvidenceBoard
+          -> bounded aggregate result
+  -> parent verifies/synthesizes
+```
 
 Rules:
 
-- Register handlers **synchronously** in the factory.
-- Transient hidden recall message only.
-- Session metadata: non-secret operation notes via `appendEntry("piv-cognee", …)` when useful.
-- Soft-fail all automatic network paths.
+- star topology first; no nested queens or direct child-to-child delegation;
+- explicit parent-supplied tasks initially; no separate planning model;
+- same role/capability intersection as ordinary `delegate` workers;
+- default low concurrency inherited from parallel-read policy;
+- hive-level task, worker, wall-time, output, request/token/cost budgets;
+- settled partial results survive independent worker failures;
+- advisory consensus cannot widen permissions or override deterministic verification;
+- prefer `evidence_quorum` over plain voting for consequential recommendations;
+- do not claim Byzantine fault tolerance unless a real distributed fault model and identity/transport assumptions are implemented and tested;
+- initial workers receive no direct Hivemind/Cognee durable-memory tools;
+- durable learning is separate: redacted/distilled knowledge remains candidate-only until verification/promotion policy accepts it.
 
-**Verify:** extension fixture tests (Phase 6 if deferred).
+Acceptance before Hivemind leaves experimental status:
 
-**Commit C3:**
-
-```text
-feat(piv-cognee): wire recall inject and compaction remember hooks
-
-Use before_agent_start for bounded untrusted recall and
-session_compact for queued background remember of summaries.
-```
-
----
-
-### Phase 4 — Commands and read-only search tool
-
-**Implement:**
-
-- `/cognee` parser for all forms listed under User controls.
-- Runtime toggles persist to config file immediately (atomic).
-- Manual search/remember surface actionable errors.
-- `cognee_search` tool via TypeBox + `registerTool`; only active when extension enabled (and preferably when autoRecall or an explicit “tools enabled” path matches product intent — **default: tool available when `enabled`**).
-- `setActiveTools()` must not clobber unrelated tools.
-
-**No** write tool for the model.
-
-**Commit C4:**
-
-```text
-feat(piv-cognee): add /cognee commands and read-only search tool
-
-Expose runtime toggles, manual search/remember, queue flush, and a
-read-only cognee_search tool without model-driven durable writes.
-```
+- one worker is not routed through a hive when normal `delegate` is sufficient;
+- cancellation stops new scheduling and aborts every active child;
+- duplicate results cannot count twice toward consensus;
+- contradictory evidence remains visible;
+- verifier failure overrides worker agreement;
+- aggregate output/context remains bounded;
+- Hivemind can be disabled without changing `delegate` behavior.
 
 ---
 
-### Phase 5 — Wire into `piv`
+# Post-MVP Phase D — chain mode
 
-**Files:** `packages/coding-agent/src/piv.ts` (+ minimal test touch if needed)
+Add only when result boundaries are proven.
 
-**Implement:**
+Rules:
+
+- next child receives a bounded previous result/artifact summary;
+- never inject previous raw transcript;
+- each step has its own run ID and terminal state;
+- chain stops or explicitly continues according to typed failure policy;
+- aggregate usage/result remains bounded.
+
+---
+
+# W1 — isolated writer foundation
+
+Status: **implemented, verified, and frozen**
+
+W1 adds a separate build-only `delegate_write` primitive. It requires a Git parent worktree with empty `git status --porcelain=v1 -uall`, a full local 40-character SHA equal to current `HEAD`, and one foreground detached temporary worktree. The writer child receives only scoped `read`, `grep`, `find`, `ls`, `write`, and `edit`; Bash, network, MCP, extensions, Git metadata, delegation, retries, background jobs, and parent integration remain disabled. The temporary worktree is removed on success, failure, cancellation, and timeout. W1 intentionally discards edits because patch capture belongs to W2 and deterministic parent verification/integration belongs to W3.
+
+W1 exit checks:
+
+- clean, staged, tracked, untracked, ignored, malformed-SHA, unknown-commit, historical-commit, and non-HEAD preconditions are tested;
+- new-file, edit, `..`, absolute, symlink, new-under-symlink, and lexical/canonical `.git` confinement is tested;
+- parent content/status remains unchanged after success and failure paths;
+- cleanup is verified for success, failure, cancellation, and timeout.
+
+---
+
+# W2 — bounded writer patch artifacts
+
+Status: **implemented, verified, and frozen**
+
+W2 adds a trusted parent-side collector after a `completed` writer prompt and before temporary worktree cleanup. It derives the inventory from actual `git status --porcelain=v1 -z -uall`, not writer prose or only `git diff HEAD`, then reads raw `HEAD:path` and writer-worktree bytes, hashes those exact bytes, and builds an isolated `git diff --no-index` patch with external diff and textconv disabled. Proposal construction does not run `git add`, update an index, commit, or write Git objects; untracked files are included without mutating either worktree or repository object storage.
+
+Contract:
 
 ```ts
-{ name: "piv-cognee", factory: pivCogneeExtension, hidden: true, priority: "before-user" }
+interface WriterPatchArtifact {
+  schemaVersion: 1;
+  runId: string;
+  baseCommit: string;
+  changedFileCount: number;
+  patchBytes: number;
+  patchSha256: string;
+  patchRef: string;
+  files: Array<{
+    path: string;
+    change: "add" | "modify" | "delete";
+    beforeSha256?: string;
+    afterSha256?: string;
+  }>;
+}
 ```
 
-Beside existing `piv-safe-verify` (or same inline list).
+W2 policy:
 
-**Preserve:**
+- only `completed` writers can produce a patch artifact; failed, cancelled, and timed-out writers produce none;
+- changed files are repo-relative, scope-checked, and limited to 32 entries;
+- regular UTF-8 text additions and modifications are supported;
+- deletions, renames, copies, ignored paths, symlinks, gitlinks, binary data, unsupported statuses, and scope escapes are rejected;
+- patch bytes are measured from the actual patch and capped at 512 KiB;
+- patch files are written outside both worktrees with exclusive creation and read-only permissions;
+- the parent worktree, parent index, writer worktree, and Git metadata remain unmodified.
 
-- Stock `cli.ts` / `pi` entry.
-- `--no-extensions` semantics already used for application-owned inline factories.
-- No Blackhole load/modify.
+W2 exit checks:
 
-**Commit C5:**
+- untracked additions are present in the patch and file inventory;
+- before/after hashes and actual byte counts are recorded from the same bytes used in the patch;
+- object-store isolation, CRLF patch/hash consistency, and clean-filter non-execution are regression-tested;
+- failed, cancelled, timed-out, binary, delete, and oversized proposals are rejected without an eligible artifact;
+- cleanup still removes the temporary worktree after collection.
+
+Verification: focused writer and safe-verify suites pass with `132/132` tests; `npm run check` reaches the repository TypeScript gate with one pre-existing unrelated error at `packages/ai/test/openai-completions-tool-choice.test.ts:1410`; `git diff --check` passes.
+
+---
+
+# W3 — parent verification and integration
+
+Status: **implemented and frozen**
+
+W3 adds one parent-owned `integrateWriterPatchArtifact()` entry point for W2 artifacts. It snapshots and deeply freezes the validated artifact expectations before any transaction work, revalidates immutable patch bytes and SHA-256 digest, exact `git apply --numstat -z -p1` file inventory, approved scope, current `HEAD == baseCommit`, and clean parent worktree/index before checking every preimage hash. It then runs only `git apply --check -p1` followed by plain `git apply -p1`, validates postimages before and after a required caller-owned parent verifier, rejects unexpected non-ignored parent status, and uses compare-and-swap rollback: exact proposed bytes and modes are restored only while the post-apply state still matches; safe paths are restored even when another path conflicts, and conflicts raise `rollback_conflict` without overwriting newer or non-regular replacements. It never uses fuzzy apply, three-way merge, reject files, rebasing, commits, index updates, child tests, or conflict resolution. W3 v1 does not add a tool, automatic verifier discovery, merge policy, temporary verification worktrees, or retry loop.
+
+W3 provides optimistic concurrency control, not literal atomic filesystem compare-and-swap: without OS/repository locking, an external writer can still race the final comparison and filesystem operation.
+
+W3 exit checks:
+
+- successful add integration retains the parent change and invokes the parent verifier;
+- tampered digest, mismatched inventory, checked-apply conflict, and dirty-parent preconditions reject before mutation;
+- verifier mutation cannot return `applied`; immutable expectations remain authoritative; safe files roll back when another touched file conflicts; unrelated non-ignored changes survive rollback;
+- focused writer, safe-verify, and adversarial suites pass with `156/156` tests; `npm run check` reaches the existing unrelated TypeScript error at `packages/ai/test/openai-completions-tool-choice.test.ts:1410`; `git diff --check` passes;
+- W3 is frozen at this narrow API boundary.
+
+---
+
+# W4 — parent-owned writer proposal workflow
+
+Status: **implemented, verified, and frozen**
+
+W4 wires the frozen W1/W2/W3 writer APIs into the real parent-facing workflow through three stateless build tools. `inspect_writer_patch` validates the complete W2 artifact, requires canonical equality between `patchRef` and `<agentDir>/artifacts/writer/<runId>/proposal.patch`, rejects symlink/non-regular paths, rechecks exact bytes/hash/schema/inventory, and returns complete metadata with a 32 KiB capped preview. `reject_writer_patch` is an explicit non-mutating decision; it does not delete, consume, or tombstone the immutable artifact. `integrate_writer_patch` requires a trusted project and configured `--ice-verify` before calling `integrateWriterPatchArtifact()`; the verifier callback uses the existing bounded `runVerifier()` seam. Parent review and integration remain explicit, never automatic after `delegate_write`.
+
+W4 exit checks:
+
+- inspect, reject, and integrate are registered as separate tools and active only in build mode;
+- valid-hash artifacts outside the production path and symlinked expected paths are rejected;
+- missing verifier fails before W3 mutation; configured success integrates; verifier failure reports `verification_failed` and rolls back;
+- rejection leaves the parent and reusable artifact unchanged;
+- focused writer, safe-verify, and adversarial suites pass with `159/159` tests;
+- `npm run check` passes all repository gates through the existing unrelated TypeScript error at `packages/ai/test/openai-completions-tool-choice.test.ts:1410`; `git diff --check` passes.
+
+---
+
+# W5 — adversarial writer hardening and explicit dogfooding
+
+Status: **W5A automated/adversarial PASS / FROZEN; W5B live harness READY; live certification PENDING external environment**
+
+W5 drives the complete production sequence `delegate_write -> inspect_writer_patch -> reject_writer_patch | integrate_writer_patch -> verifier -> parent result` without changing W1-W4 authority. Automated tests use only the existing faux provider and temporary Git fixtures. Coverage includes successful faux writer completion, multi-file integration, repeated rejection/reuse, tampered artifacts, path escape, symlink replacement, patch-limit metadata, stale bases, dirty parents, verifier failure, rollback conflict, capability-denied writers, cancellation, timeout, and parent-state preservation.
+
+The explicit live harness is `packages/coding-agent/examples/w5-writer-dogfood.ts`, exposed as `npm --workspace @zykairotis/ice-coding-agent run w5:live -- <route>`. It refuses to run unless `W5_LIVE=1`, requires a clean `W5_LIVE_ROOT`, accepts only `cx/gpt-5.6-luna` or `cx/deepseek/deepseek-v4-flash`, uses disposable Git worktrees, and writes bounded JSONL operational records without prompts, fork bodies, patch bodies, credentials, or absolute checkout paths. Live results are certification evidence and are not part of `npm test`, `npm run check`, or the automated W5 gate.
+
+W5 verification:
+
+- `ice-writer-w5.test.ts`, `ice-subagents.test.ts`, `ice-subagents-adversarial.test.ts`, and `ice-safe-verify.test.ts` pass with `170/170` tests;
+- W5A automated/adversarial layer is PASS / FROZEN;
+- W5B live harness is READY; `cx/gpt-5.6-luna` and `cx/deepseek/deepseek-v4-flash` remain optional external production-certification evidence and are not claimed until both representative runs complete in an available environment;
+- W6 Subagent Observatory/TUI is implemented and frozen; W5B remains optional external production-certification evidence;
+- durable decisions/jobs, parallel writers, merge/rebase/commit/conflict-resolution semantics, and release cleanup remain deferred.
+
+---
+
+# W6 — Subagent Observatory / TUI
+
+Status: **FROZEN**
+
+W6 keeps runtime `SubagentEvent` facts separate from bounded presentation `SubagentProgressSnapshot` state. A reducer/sanitizer emits snapshots through existing `onUpdate()` for `tool_execution_update` transport and feeds an extension-owned capped store. Interactive TUI renderers use existing `renderCall`/`renderResult` and `/agents` plus `/subagents` use one read-only `ctx.ui.custom()` overlay. JSON/RPC receive typed progress updates; ordinary print remains unchanged. No core AgentSession bus, persistent sidebar, overlay actions, or W1-W5 semantic changes are allowed.
+
+Freeze gate:
+
+- live updates work for single, batch, review, and writer tools;
+- writer proposal, inspection, rejection, integration, verifier, rollback, and conflict phases are visible;
+- active/recent `/agents` and `/subagents` views support navigation, expansion/collapse, and close only;
+- reducer, renderer, transport, command, redaction, bound, and update-permutation tests pass;
+- dropping, duplicating, or reordering observability updates cannot change execution or integration outcomes;
+- focused W6/W5/W4 suites pass with `184/184` tests and `npm run check` reaches only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` failure;
+- live TUI smoke verified delegation activity/current path, proposal-ready writer activity, RECENT transition, expansion/collapse/close, and identical `/agents`/`/subagents` overlays;
+- live writer integration certification remains pending as external W5B production evidence and does not block the V1 implementation freeze after automated writer validation;
+- W7.1 one-owner durable asynchronous read-only jobs, W7.2 bounded multi-job durable read-only scheduling, and W8.1 metadata-only durable job observatory visibility are implemented and frozen as bounded V2 slices; job actions, background batch facades, writers, auto-resume, steering, and Hivemind remain deferred.
+
+---
+
+# W7.1 — one-owner durable asynchronous read-only job
+
+Status: **IMPLEMENTED / FROZEN**
+
+W7.1 adds exactly one durable asynchronous read-only job per Ice session owner. `delegate_async` captures the normalized request and launch provenance before acceptance, persists an append-only created snapshot, and returns acceptance metadata without awaiting the child. The detached worker reuses the frozen model/trust/resource resolution, bounded recovery, native runner, and parent verification path with an independent job-owned cancellation signal.
+
+The extension-owned `SubagentJobRegistry` persists bounded/redacted state through session custom entries, enforces one active owner job, validates canonical terminal snapshots, retains at most 32 terminal jobs, supports owner-only inspection/cancellation, awaits cancellation and shutdown settlement, and restores stale active snapshots as `interrupted` without relaunch. Completion messages contain only job metadata, are emitted after terminal persistence, are deferred until `agent_settled`, use `triggerTurn: false`, and are deduplicated from persisted `custom_message` details.
+
+The three tools are `delegate_async`, `inspect_subagent_job`, and `cancel_subagent_job`. The foreground `delegate`, batch/review tools, observatory, and core session manager remain unchanged. Queues, multiple jobs, parallel/background batches, budgets across jobs, priorities/fairness, background writers, auto-resume/relaunch, automatic result ingestion, active-job TUI management, steering, recursive delegation, network/Bash expansion, and Hivemind remain **NOT YET IMPLEMENTED**.
+
+Exit verification:
+
+- `ice-subagent-jobs.test.ts`: `16/16`;
+- integration plus safe-verify/subagent suite: `172/172`;
+- frozen W7/W6/W5/W4/adversarial suite: `202/202`;
+- `npx tsgo --noEmit` and `npm run check` report only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` error;
+- `git diff --check` passes.
+
+# W7.2 — bounded multi-job durable read-only scheduling
+
+Status: **IMPLEMENTED / FROZEN**
+
+W7.2 extends the W7.1 owner-scoped durable job registry without changing the foreground runner or adding a second scheduler. The registry admits up to 2 active jobs by default, caps active concurrency at 4, retains up to 8 FIFO queued jobs, and reserves planned output against a 256 KiB owner aggregate budget before durable admission. It persists queued state before acceptance, promotes only after terminal persistence, exposes queue position and budget metadata, cancels queued jobs without invoking their closures, releases each reservation exactly once, and fails closed on persistence transitions. Shutdown and restore mark both queued and active jobs `interrupted` without relaunch.
+
+The slice excludes priority, steering, recursive delegation, Bash/network/writer privileges, background batch facades, auto-resume, automatic result ingestion, job actions, and Hivemind. Verification is `ice-subagent-jobs.test.ts` `31/31`, `ice-subagents.test.ts` `115/115`, and `ice-safe-verify.test.ts` included in the `189/189` focused run; root `npm run check` reaches only the documented pre-existing `maxTokensField` diagnostic.
+
+# W8.1 — durable job observatory visibility
+
+Status: **IMPLEMENTED / FROZEN**
+
+W8.1 adds metadata-only owner-scoped durable job sections to the existing read-only `/agents` and `/subagents` overlays. `SubagentJobRegistry.subscribe()` is a non-authoritative change stream published after durable admission, running/terminal transitions, restore completion, and fail-closed terminal presentation. The overlay projects bounded identity, role/model, status, timestamps, queue position, reservation/budget counters, and stable result references without result summaries or diagnostics. It uses no polling and adds no cancel, retry, resume, steer, result-ingestion, scheduler, background batch, writer, auto-resume, or Hivemind behavior.
+
+Verification:
+
+- `ice-subagent-jobs.test.ts` and `ice-subagent-observatory.test.ts`: `48/48`;
+- `npx tsgo --noEmit` and `npm run check` reach only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` error;
+- `git diff --check` passes.
+
+# W8.2 — explicit read-only durable-result inspection
+
+Status: **IMPLEMENTED / FROZEN**
+
+W8.2 adds exactly one UI capability to the existing read-only `/agents` and `/subagents` overlays: an explicit configurable `app.subagents.inspect` action (`ctrl+enter`) for terminal BACKGROUND RECENT rows. Enter remains expand/collapse and Esc returns from detail before closing the overlay. Detail mode calls the current owner-scoped `SubagentJobRegistry.inspect(jobId)` API once per explicit action and renders only an ephemeral frozen projection of the already bounded durable result envelope: terminal-safe/redacted summary, repo-relative evidence, findings, verification, diagnostics, and stable metadata. Active, queued, and foreground rows cannot open result detail; provider/model IDs remain intact and URI/absolute evidence paths are rejected.
+
+Inspection is UI-only. It does not call `sendMessage`, `appendEntry`, or any agent/model turn; it does not mutate `SubagentObservatoryStore`, scheduler state, parent context, or result ingestion. If retention removes the selected job while detail is open, the view shows a bounded no-longer-retained state and restores selection by job ID when returning.
+
+Verification:
+
+- focused `ice-subagent-observatory.test.ts` and `ice-subagents.test.ts`: `134/134`; registry-inclusive `ice-subagent-jobs.test.ts`, `ice-subagent-observatory.test.ts`, and `ice-subagents.test.ts`: `169/169`;
+- final frozen six-file regression surface: `231/231`;
+- `npx tsgo --noEmit` and `npm run check` reach only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` error;
+- `git diff --check` passes.
+
+# W8.3 — read-only persisted completion-inbox metadata
+
+Status: **IMPLEMENTED / FROZEN**
+
+W8.3 adds one noninteractive `COMPLETION INBOX` section to the existing `/agents` and `/subagents` overlays. At each overlay open, it reads the current session entries once and intersects exact persisted `JOB_COMPLETION_MESSAGE_TYPE` metadata with the current owner-scoped retained terminal job projection. The projector validates bounded job IDs, terminal status, exact status/result-reference matches, canonical timestamps, newest-first ordering, duplicate suppression, and a maximum of 32 frozen items. Message `content` is never parsed or rendered.
+
+Inbox rows contain only job ID, terminal status, role/model, optional finished/notified timestamps, and the authoritative result reference. They are appended after all selectable rows and contribute zero `entryKeys()`, so Enter, Ctrl+Enter, Up/Down, and Esc retain their W8.1/W8.2 behavior. The snapshot remains unchanged while the overlay is open; reopening reconstructs it from persisted metadata. No registry inspection, result-body read, message send, entry append, polling, live session subscription, context mutation, scheduler change, cancellation, queue control, result ingestion, or persistent inbox state was added.
+
+Verification:
+
+- focused `ice-subagent-observatory.test.ts` and `ice-subagents.test.ts`: `139/139`;
+- registry-inclusive `ice-subagent-jobs.test.ts`, `ice-subagent-observatory.test.ts`, and `ice-subagents.test.ts`: `174/174`;
+- frozen six-file regression surface: `236/236`;
+- `npx tsgo --noEmit` and `npm run check` reach only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` error;
+- `git diff --check` passes.
+
+# V1 implementation freeze and external certification
+
+Status: **COMPLETE / FROZEN**.
+
+The V1 implementation freeze was satisfied by implementation correctness, focused validation, B8.1 deterministic adversarial regressions, B8.2 pinned four-target harness correctness and provider smoke, the present B8.3 finding-based report, W5A automated writer validation, and frozen W6 observability/TUI.
+
+The exhaustive B8 comparative matrices and W5B live writer runs are optional post-freeze external certification evidence. They remain explicitly unclaimed until their runs complete; they do not become implementation requirements because of provider latency or endpoint availability.
+
+W7.1/W7.2 durable background read-only jobs and bounded parallel scheduling, plus W8.1-W8.3 observability slices, are implemented V2 work and are not part of the narrow V1 definition. Hivemind, autonomous mode, unrestricted subagent Bash, background writers, execution auto-resume/relaunch, result ingestion, steering/priority, and management authority remain deferred.
+
+---
+
+# Post-MVP Phase F — background writers and durable-job follow-ons
+
+W7.1/W7.2 already provide the durable read-only job foundation:
+
+- stable job/run identity;
+- owner/session identity;
+- persisted lifecycle status;
+- metadata-only completion notification;
+- owner-scoped cancellation;
+- restart recovery by interrupting stale nonterminal work without relaunch;
+- terminal retention;
+- bounded active concurrency, FIFO queueing, reservations, and deterministic promotion.
+
+Remaining Phase F follow-ons are separate slices:
+
+- execution resume/auto-resume, if ever justified;
+- bounded logs/artifacts beyond the current result envelope;
+- richer management/task-tree UI beyond the current read-only observatory;
+- background writers.
+
+Do not add `background: true` to the foreground runner. Follow-on work must not add priority, steering, auto-resume, writers, or Hivemind without a separate bounded slice.
+
+References:
+
+- OpenCode background job model;
+- Oh My Ice async job/registry lifecycle;
+- II-Agent persistent run state;
+- Claw Code worker health registry.
+
+---
+
+# Post-MVP Phase G — optional memory integration
+
+Cognee remains off for child automatic memory by default. Hivemind learning follows the separate promotion model in `docs/hivemind/memory-learning.md` rather than turning the shared run board into permanent memory.
+
+If durable learning is enabled later:
+
+- capture structured hive/subagent outcomes with redaction and provenance;
+- distill knowledge/skill candidates after the run rather than injecting raw transcripts;
+- keep unverified output candidate-only until verifier/repeated-success/user policy promotes it;
+- make recall parent-selected initially and pass only bounded relevant entries in child handoffs;
+- scope durable knowledge by repository/user before organization-wide propagation;
+- support invalidation/revalidation when source state changes;
+- allow `ice-cognee` or another store only through a backend-neutral adapter contract;
+- scope any later child recall/write by hive/run/profile/session and parent capability;
+- retrieved memory remains untrusted;
+- never share credentials through handoff;
+- keep parent, child, Hivemind run-board, and durable-memory state logically separable.
+
+---
+
+# Files likely to be touched during MVP
+
+This is a planning estimate, not a mandate.
+
+Likely new area:
 
 ```text
-feat(piv): load hidden piv-cognee extension
-
-Always register piv-cognee for the piv launcher so memory is
-available without a user package install; stock pi stays unchanged.
+packages/coding-agent/src/subagents/*
 ```
 
----
-
-### Phase 6 — Offline regression suite
-
-**Files:** `packages/coding-agent/test/piv-cognee.test.ts`
-Optional: `test/piv-safe-verify.test.ts` launcher smoke only.
-
-**Minimum coverage:**
-
-- Defaults + invalid config/env.
-- Recall request shape, dataset, key header, caps, empty results.
-- Auth / server / unreachable / timeout / malformed / breaker.
-- Remember multipart shape, background flag, redaction, no key persistence.
-- Uncertain writes not auto-replayed.
-- `before_agent_start` injects hidden recall without durable session message.
-- Disabled recall → zero HTTP.
-- `session_compact` queues once; session metadata non-secret only.
-- Compaction details without Blackhole loaded still work.
-- Commands toggle state; manual ops surface errors.
-- Queue drain bounds; no silent drop of concurrent items under limit policy.
-
-**Rules:** fake `fetch` only; no live API, no paid models, no `cognee-cli`.
-
-**Verify:**
-
-```bash
-cd /home/mewtwo/ZSSD/pi-void/packages/coding-agent
-node ../../node_modules/vitest/dist/cli.js --run test/piv-cognee.test.ts
-# if launcher assertion added:
-node ../../node_modules/vitest/dist/cli.js --run test/piv-safe-verify.test.ts
-```
-
-**Commit C6:**
+Likely integration points:
 
 ```text
-test(piv-cognee): add offline client and extension coverage
-
-Cover recall/remember contracts, queue uncertainty, toggles, and
-hook soft-fail behavior without a live Cognee service.
+packages/coding-agent/src/ice.ts
+packages/coding-agent/src/ice-safe-verify.ts  # expose/gate `delegate` through existing mode tool policy
+packages/coding-agent/src/index.ts            # only if public exports are required
+packages/coding-agent/test/*                  # dedicated subagent tests
 ```
 
----
-
-### Phase 7 — Docs + changelog
-
-**Files:**
-
-- `idea.md` — first-class `piv` Cognee; toggles; Pi-owned history; `pi-void` dataset isolation; compaction-only auto writes; future improve = roadmap.
-- `packages/coding-agent/docs/compaction.md` — compaction still full Pi history; Cognee gets **derived** summaries after save.
-- `packages/coding-agent/CHANGELOG.md` — Unreleased **Added** only.
-
-Update this `task_plan.md` status to **Implemented (slice 1)** when done.
-
-**Verify:**
-
-```bash
-cd /home/mewtwo/ZSSD/pi-void
-npm run check
-```
-
-Do **not** run full `npm test` or `npm run build` unless requested.
-
-**Commit C7:**
+Potentially relevant existing internals to reuse, not rewrite:
 
 ```text
-docs: document piv Cognee memory boundary
-
-Describe first-class toggles, dataset isolation, compaction-linked
-remember, and the non-replacement of Pi session history.
+packages/coding-agent/src/core/sdk.ts
+packages/coding-agent/src/core/agent-session.ts
+packages/coding-agent/src/core/agent-session-services.ts
+packages/coding-agent/src/core/session-manager.ts
+packages/coding-agent/src/core/resource-loader.ts / resource loading modules
+packages/coding-agent/src/core/model-runtime.ts
+packages/coding-agent/src/core/extensions/*
 ```
 
----
-
-## Phase 8 — Live smoke (not a code commit unless fixes required)
-
-**Only when the user starts Cognee on purpose.**
-
-**Preflight Layer B (server), then Layer A (Pi):**
-
-```bash
-# 1) LLM gateway (9router) must be up for extraction quality
-ss -ltnp | grep 20128 || echo "WARN: :20128 not listening"
-
-# 2) Server .env must have LLM_* + VOYAGE/EMBEDDING_* (do not cat secrets into logs)
-test -f /home/mewtwo/Zykairotis/cognee/.env && echo "server .env present"
-
-# 3) Start Cognee API (inherits Zykairotis .env via scripts)
-/home/mewtwo/Zykairotis/cognee/scripts/start-local-api.sh
-/home/mewtwo/Zykairotis/cognee/scripts/status.sh
-# mint COGNEE_API_KEY if 401:
-# /home/mewtwo/Zykairotis/cognee/scripts/mint-api-key.sh
-```
-
-If server `.env` is missing LLM/Voyage: **copy the actual API keys and model from `~/.claude/settings.json` → `env`** (`LLM_API_KEY`, `LLM_MODEL=openai/ag/gemini-3.6-flash-medium`, `LLM_ENDPOINT`, `VOYAGE_API_KEY`, `EMBEDDING_*`) into `/home/mewtwo/Zykairotis/cognee/.env` (mode `600`, never commit). Fall back to Codex toml only if Claude lacks a field. Do not invent new keys/models. Do not expect `piv` to read Claude settings at runtime.
-
-Manual checklist (unique non-secret marker, dataset **`pi-void`** only):
-
-1. `/cognee status` → `127.0.0.1:8211`, no key printed (Layer A).
-2. `/cognee remember user_context <marker>` succeeds or queues (server uses Voyage + LLM).
-3. `/cognee search <marker>` finds it with dataset isolation.
-4. Native `/compact` or Blackhole compact → one queued remember item.
-5. Stop API → agent still usable; pending item retained; no crash.
-6. `/cognee off` → no network on subsequent prompts.
-7. Optional negative: stop `:20128` only — server remember may degrade; Pi must soft-fail/queue, not hang.
-
-**If smoke finds bugs:** fix on `void` with a focused commit:
-
-```text
-fix(piv-cognee): <short symptom>
-```
-
-Do not claim live pass without observed output.
+Do not alter Ice core abstractions unless a test proves the subagent layer cannot be implemented cleanly through existing APIs.
 
 ---
 
-## Verification (definition of done for slice 1)
+# Reference map during implementation
 
-### Offline (required)
+Use references for ideas/contracts, not direct code copying.
 
-```bash
-cd /home/mewtwo/ZSSD/pi-void/packages/coding-agent
-node ../../node_modules/vitest/dist/cli.js --run test/piv-cognee.test.ts
-cd /home/mewtwo/ZSSD/pi-void
-npm run check
-```
+## Ice
 
-### Live (optional, post-ops)
+- `packages/coding-agent/examples/extensions/subagent/index.ts`
+- `packages/coding-agent/examples/extensions/subagent/agents.ts`
+- `packages/coding-agent/examples/extensions/subagent/README.md`
 
-See Phase 8.
+## Oh My Ice
 
-### Acceptance criteria
+- task types/executor/discovery/parallel/worktree;
+- async job manager and agent registry for later background phase.
 
-- [ ] `piv` loads Cognee without a user extension install; `pi` unchanged.
-- [ ] Toggles work without restart; disabled mode makes **no** network requests.
-- [ ] Auto recall is bounded, dataset-scoped (`pi-void` default), transient, untrusted, soft-failing.
-- [ ] Auto writes are redacted, capped, compaction-summary-only, background/queued.
-- [ ] Pi session + compaction entries remain history source of truth.
-- [ ] API keys never enter source, config, session metadata, queue, logs, or tests.
-- [ ] Uncertain writes are not blindly replayed.
-- [ ] Offline tests + `npm run check` pass with no unresolved diagnostics.
-- [ ] Blackhole worktree / extension code left intact.
-- [ ] All work landed on **`void`** with phase commits C1–C7 (C0 optional).
+## OpenCode
 
----
+- task parent/child linkage;
+- permission derivation;
+- nested delegation denial;
+- background lifecycle.
 
-## Out of scope (explicit non-goals for this branch)
+## II-Agent
 
-| Item | Why |
-|------|-----|
-| Embedding Cognee in Blackhole `memory: true` | Different product; Blackhole stays compact-only |
-| Auto-improve / cognify from Pi | Cost; Jul 31 disable reason |
-| Full tool-trace session capture | Cost + noise |
-| Model-callable `cognee_remember` tool | Untrusted durable writes |
-| Default dataset `agent_sessions` | Isolation from Claude/Codex/Hermes |
-| Destructive forget | Defer until policy is clear |
-| Changing stock `pi` CLI | Product boundary |
-| Starting/stopping Cognee systemd/service in monorepo | Ops outside package |
-| Fixing Ladybug `source_run_refs` graph bug | Cognee server issue |
-| Re-enabling Claude/Codex Cognee plugins | Separate decision |
+- typed run/event state;
+- cancellation/parent linkage;
+- persistent status model.
 
----
+## Claw Code
 
-## Roadmap (after slice 1 merges)
+- task validation;
+- worker lifecycle/health;
+- deny-first permissions;
+- evidence/report schema.
 
-1. Optional per-project dataset from cwd/repo name.
-2. Opt-in `autoRemember: "session_end"` with hard cooldowns (still no full traces).
-3. Opt-in `improve` with same cooldowns as `~/.cognee/.env`.
-4. Shared `agent_sessions` mode for cross-tool memory (explicit only).
-5. Statusline / footer widget for breaker + queue depth.
-6. Visualize integration via existing Zykairotis graph scripts.
+## ActiveLoop Hivemind
+
+- Ice lifecycle integration for capture/recall;
+- structured trace/session summarization;
+- reusable skill-learning pipeline;
+- shared-memory concepts, adapted behind ICE verification/promotion policy.
+
+## Ruflo Hive Mind
+
+- explicit hive topology and worker membership;
+- typed shared state and consensus proposals;
+- bounded multi-worker coordination;
+- use Hivemind only when a single native subagent is insufficient;
+- do not copy nested queen hierarchies or treat model voting as deterministic verification.
+
+See `docs/hivemind/references.md` for source-level notes and adaptation boundaries.
 
 ---
 
-## Progress log
+# Stop conditions
 
-| Date | Note |
-|------|------|
-| 2026-08-07 | Plan expanded: direct `void` branch execution, phases 0–8, commit gates C0–C7, ops context, acceptance checklist. Implementation not started. |
-| 2026-08-07 | Documented two-layer config: Layer A (Pi needs only COGNEE API key/URL) vs Layer B (server needs 9router `:20128` Gemini flash + Voyage embeddings). |
-| 2026-08-07 | Explicit ops rule: **use API keys + model from `~/.claude/settings.json` env** (LLM_API_KEY, openai/ag/gemini-3.6-flash-medium, Voyage keys) when filling Zykairotis Cognee `.env` — do not invent new credentials. |
-| 2026-08-07 | Phase 1 complete on `void`: native fetch client and offline recall/remember contract tests pass; `npm run check` is clean. |
-| 2026-08-07 | Phase 2 complete on `void`: validated config, secret-safe key resolution, redaction, bounded queue, and circuit helpers pass offline tests; `npm run check` is clean. |
-| 2026-08-07 | Phase 3 complete on `void`: transient recall and post-save compaction queue hooks pass with soft-fail fake transport and secret-safe metadata. |
-| 2026-08-07 | Phase 4 complete on `void`: `/cognee` toggles, manual search/remember/flush/status, and read-only `cognee_search` pass offline tests without clobbering active tools. |
-| 2026-08-07 | Phase 5 complete on `void`: `piv` loads hidden `piv-cognee` beside `piv-safe-verify`; stock `pi` remains unchanged. |
-| 2026-08-07 | Phase 6 complete on `void`: 12 offline client/extension tests cover disabled recall, uncertain writes, queueing, toggles, hooks, and read-only search; `npm run check` is clean. |
-| 2026-08-07 | Phase 7 complete on `void`: `idea.md`, compaction boundaries, and the coding-agent Unreleased changelog document shipped Slice 1 without claiming deferred improve or shared-memory features. |
-| 2026-08-07 | Phase 8 live smoke verified: synchronized Layer A key auth, `/cognee status`, remember queue recovery, dataset-scoped remember/search, and `/cognee off` passed; local API stopped afterward. Default 1.5s recall timed out against a 3.8s graph query, while stored `recallBudgetMs: 10000` passed. |
-| 2026-08-07 | Phase 9 complete: `/cognee watch` loopback dashboard, SSE lifecycle stream, redacted ingest inspector, session/agent identity, shutdown cleanup, and pre-model animated recall status pass `23/23`, `npm run check`, build, and compiled browser smoke. |
+Pause implementation and reassess architecture if any of these become true:
+
+- native child `ResourceLoader` cannot be constrained without invasive Ice core changes;
+- Ice's `tools` allowlist can be bypassed by an extension/custom tool path;
+- child cancellation cannot guarantee settlement;
+- parent and child histories cannot be separated cleanly;
+- required session identity cannot be represented without breaking existing session semantics;
+- MVP requires worktree/background infrastructure merely to support a read-only worker;
+- implementation begins duplicating Ice's model/session/tool runtime instead of composing with it.
+
+In those cases, prefer the subprocess backend or a smaller seam rather than expanding the core architecture prematurely.
 
 ---
 
-## Phase 9 — Realtime Cognee observer + prompt activity feedback
+# Cognee contract repair (2026-08-12)
 
-**Goal:** Add a local realtime observer for Cognee request lifecycle and redacted ingest previews, plus visible activity during pre-model Cognee recall.
+Status: **implemented 2026-08-13** (items 1–4, 5 except split circuits, project datasets, Blackhole minimal tail). Report: `agent_docs/ice-cognee-compaction-benchmark-2026-08-13.md`.
 
-**Design:**
+Full findings: `agent_docs/ice-cognee-findings-2026-08-12.md`. Summary: `findings.md` §22.
 
-- Append bounded redacted observation events under the existing `~/.pi/agent/pi-cognee/` storage boundary.
-- Serve a dependency-free local HTML dashboard from `/cognee watch` over loopback with SSE updates.
-- Display agent/session IDs, dataset, request phase, status, latency, queue depth, errors, and capped ingest previews.
-- Set the existing Pi extension status immediately during `before_agent_start`; do not block or replace Pi's model loop.
+Highest-value Cognee work, in order. Do not start with dead env keys, jsonl rotation, or doctor latency.
 
-**Acceptance:**
+1. Keep recall transient (system-prompt append or equivalent; no durable `custom_message`). **done**
+2. Change `auto` so Cognee never owns the Ice compact summary; rewrite `own` to summarize `messagesToSummarize` if the mode stays. **done**
+3. Feed the just-written compact summary into the next recall without waiting for Cognee. **done**
+4. Wait for in-flight capture before idle improve; stamp cooldown on completion. **done**
+5. Set `lastRecallKey` only after a successful recall, with TTL; split recall/write circuits if still coupled. **done (TTL + success-only; circuits still shared)**
+6. Then hygiene: env keys, jsonl/warmup caps, bash exclusion, doctor latency. **bash substring dropped; rest deferred**
 
-- `/cognee watch` prints a local URL and the dashboard updates without refresh.
-- Prompt, recall, remember, trace, improve, queue, and failure events appear with redacted previews.
-- Prompt submission shows an animated Cognee activity status before Pi's model working indicator.
-- Observer is local-only and never logs API keys or uncapped payloads.
-- Focused tests, `npm run check`, coding-agent build, and browser smoke pass.
-
-**Errors encountered:**
-
-| Error | Resolution |
-|-------|------------|
-| Inline dashboard JavaScript was invalid because the TypeScript template string consumed the quote escape in the HTML escape helper. | Replaced the quote lookup with a character-code branch; compiled browser smoke then passed. |
+See `findings.md` §22.
 
 ---
 
-## Phase 10 — Bounded oversized recall envelope
+# Definition of done for the first release
 
-**Goal:** Accept valid Cognee recall envelopes that contain large metadata/context wrappers without weakening the prompt injection cap.
-
-- Live response measured at `73,683` bytes with HTTP `200`; the old `12,000` limit rejected it before normalization.
-- Recall transport now allows up to `128 KiB`, normalizes only requested top-K results, and retains the configured `recallMaxChars` output cap.
-- Regression, `npm run check`, build, and compiled live recall pass.
-
----
-
-## Executor checklist (copy when implementing)
-
-```text
-[ ] On branch void
-[ ] No Blackhole/unrelated files staged
-[x] C1 client
-[x] C2 config/queue/redaction
-[x] C3 hooks
-[x] C4 commands + search tool
-[x] C5 piv wire-up
-[x] C6 offline tests green
-[x] C7 docs + changelog
-[x] npm run check green
-[x] Live smoke verified; API stopped after the intentional test
-[x] Phase 9 observer + activity feedback
-[x] Phase 10 bounded recall envelope
-[ ] Do not push / PR unless asked
-```
+A `ice` session can call `delegate` to run one bundled `explore` or `review` worker. The worker is a fresh native in-memory `AgentSession` whose extensions, skills, prompt templates, themes, and context-file discovery are disabled; whose effective tools are only the intersection of the parent's active tools with `read`/`grep`/`find`/`ls`; and which cannot recursively delegate, mutate, use Bash, or inherit Cognee/Blackhole/guard hooks. It respects parent cancellation and timeout, returns a typed bounded result with stable lineage/evidence, and the parent verifies and integrates that result without importing the child's transcript or authority. Stock `ice` remains unchanged.
