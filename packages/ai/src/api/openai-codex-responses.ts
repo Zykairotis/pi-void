@@ -50,7 +50,7 @@ import { uuidv7 } from "../utils/uuid.ts";
 import { createGrammarToolInputProperties } from "./constrained-sampling.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
-import { buildBaseOptions } from "./simple-options.ts";
+import { buildBaseOptions, clampMaxTokensToHardLimit, enforceHardMaxTokensInRecord } from "./simple-options.ts";
 
 // ============================================================================
 // Configuration
@@ -284,6 +284,13 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			const nextBody = await options?.onPayload?.(body, model);
 			if (nextBody !== undefined) {
 				body = nextBody as RequestBody;
+			}
+			if (options?.hardMaxOutputTokens !== undefined) {
+				enforceHardMaxTokensInRecord(
+					body as unknown as Record<string, unknown>,
+					"max_output_tokens",
+					options.hardMaxOutputTokens,
+				);
 			}
 			const websocketRequestId = codexSessionId || uuidv7();
 			const sseHeaders = buildSSEHeaders(model.headers, options?.headers, accountId, apiKey, codexSessionId);
@@ -560,6 +567,9 @@ function buildRequestBody(
 		text: { verbosity: options?.textVerbosity || "low" },
 		include: ["reasoning.encrypted_content"],
 		prompt_cache_key: cacheSessionId,
+		...(options?.maxTokens !== undefined || options?.hardMaxOutputTokens !== undefined
+			? { max_output_tokens: clampMaxTokensToHardLimit(options?.maxTokens, options?.hardMaxOutputTokens) }
+			: {}),
 		tool_choice: options?.toolChoice ?? "auto",
 		parallel_tool_calls: true,
 	};

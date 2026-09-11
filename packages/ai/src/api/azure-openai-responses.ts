@@ -18,7 +18,7 @@ import { retryProviderRequest } from "../utils/provider-retry.ts";
 import { createGrammarToolInputProperties } from "./constrained-sampling.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
-import { buildBaseOptions } from "./simple-options.ts";
+import { buildBaseOptions, clampMaxTokensToHardLimit, enforceHardMaxTokensInRecord } from "./simple-options.ts";
 
 const DEFAULT_AZURE_API_VERSION = "v1";
 const AZURE_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode", "azure-openai-responses"]);
@@ -54,6 +54,7 @@ function formatAzureOpenAIError(error: unknown): string {
 
 // Azure OpenAI Responses-specific options
 export interface AzureOpenAIResponsesOptions extends StreamOptions {
+	toolChoice?: ResponseCreateParamsStreaming["tool_choice"];
 	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 	reasoningSummary?: "auto" | "detailed" | "concise" | null;
 	azureApiVersion?: string;
@@ -109,6 +110,17 @@ export const stream: StreamFunction<"azure-openai-responses", AzureOpenAIRespons
 			const nextParams = await options?.onPayload?.(params, model);
 			if (nextParams !== undefined) {
 				params = nextParams as ResponseCreateParamsStreaming;
+			}
+			if (options?.hardMaxOutputTokens !== undefined) {
+				const payload = params as unknown as Record<string, unknown>;
+				enforceHardMaxTokensInRecord(payload, "max_output_tokens", options.hardMaxOutputTokens);
+				const maxTokens = payload.max_output_tokens as number;
+				if (maxTokens < OPENAI_RESPONSES_MIN_OUTPUT_TOKENS) {
+					if (options.hardMaxOutputTokens < OPENAI_RESPONSES_MIN_OUTPUT_TOKENS) {
+						throw new Error("hardMaxOutputTokens is below the provider minimum output floor.");
+					}
+					payload.max_output_tokens = OPENAI_RESPONSES_MIN_OUTPUT_TOKENS;
+				}
 			}
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
@@ -289,13 +301,19 @@ function buildParams(
 		store: false,
 	};
 
-	if (options?.maxTokens) {
-		params.max_output_tokens = Math.max(options.maxTokens, OPENAI_RESPONSES_MIN_OUTPUT_TOKENS);
+	if (options?.maxTokens || options?.hardMaxOutputTokens !== undefined) {
+		const maxTokens = clampMaxTokensToHardLimit(options.maxTokens, options.hardMaxOutputTokens)!;
+		if (maxTokens < OPENAI_RESPONSES_MIN_OUTPUT_TOKENS && options.hardMaxOutputTokens !== undefined) {
+			throw new Error("hardMaxOutputTokens is below the provider minimum output floor.");
+		}
+		params.max_output_tokens = Math.max(maxTokens, OPENAI_RESPONSES_MIN_OUTPUT_TOKENS);
 	}
 
 	if (options?.temperature !== undefined) {
 		params.temperature = options?.temperature;
 	}
+
+	if (options?.toolChoice !== undefined) params.tool_choice = options.toolChoice;
 
 	if (context.tools && context.tools.length > 0) {
 		params.tools = convertResponsesTools(context.tools, {
@@ -324,6 +342,13 @@ function buildParams(
 	// Last so custom keys override the named request fields.
 	if (options?.samplingParams) {
 		Object.assign(params, options.samplingParams);
+	}
+	if (options?.hardMaxOutputTokens !== undefined) {
+		const maxTokens = clampMaxTokensToHardLimit(params.max_output_tokens, options.hardMaxOutputTokens)!;
+		if (maxTokens < OPENAI_RESPONSES_MIN_OUTPUT_TOKENS) {
+			throw new Error("hardMaxOutputTokens is below the provider minimum output floor.");
+		}
+		params.max_output_tokens = maxTokens;
 	}
 
 	return params;

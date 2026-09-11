@@ -188,6 +188,10 @@ export interface StreamOptions extends ProviderRequestOptions<Model<Api>> {
 	 */
 	samplingParams?: Record<string, unknown>;
 	maxTokens?: number;
+	/** Runtime output authority. This is not a user/provider billing cap. */
+	hardMaxOutputTokens?: number;
+	/** Common/provider-specific tool selector; the runtime uses only auto/none for bounded finalization. */
+	toolChoice?: string | { type: string };
 	/**
 	 * Preferred transport for providers that support multiple transports.
 	 * Providers that do not support this option ignore it.
@@ -302,6 +306,8 @@ export type ProviderImagesOptions = ImagesOptions & Record<string, unknown>;
 
 // Unified options with reasoning passed to streamSimple() and completeSimple()
 export interface SimpleStreamOptions extends StreamOptions {
+	/** Minimal common selector used by bounded report finalization. */
+	toolChoice?: "auto" | "none";
 	reasoning?: ThinkingLevel;
 	/** Ask a capable provider to return a durable handle and continue the request asynchronously. */
 	deferred?: boolean | { window?: "15m" | "1h" | "24h" };

@@ -26,7 +26,7 @@ import { shortHash } from "../utils/hash.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { resolveJsonSchemaStrictSampling } from "./constrained-sampling.ts";
-import { buildBaseOptions } from "./simple-options.ts";
+import { buildBaseOptions, clampMaxTokensToHardLimit, enforceHardMaxTokensInRecord } from "./simple-options.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 const MISTRAL_TOOL_CALL_ID_LENGTH = 9;
@@ -76,6 +76,13 @@ export const stream: StreamFunction<"mistral-conversations", MistralOptions> = (
 			const nextPayload = await options?.onPayload?.(payload, model);
 			if (nextPayload !== undefined) {
 				payload = nextPayload as ChatCompletionStreamRequest;
+			}
+			if (options?.hardMaxOutputTokens !== undefined) {
+				enforceHardMaxTokensInRecord(
+					payload as unknown as Record<string, unknown>,
+					"maxTokens",
+					options.hardMaxOutputTokens,
+				);
 			}
 			const mistralStream = await mistral.chat.stream(payload, buildRequestOptions(model, options));
 			stream.push({ type: "start", partial: output });
@@ -256,7 +263,8 @@ function buildChatPayload(
 
 	if (context.tools?.length) payload.tools = toFunctionTools(context.tools);
 	if (options?.temperature !== undefined) payload.temperature = options.temperature;
-	if (options?.maxTokens !== undefined) payload.maxTokens = options.maxTokens;
+	if (options?.maxTokens !== undefined || options?.hardMaxOutputTokens !== undefined)
+		payload.maxTokens = clampMaxTokensToHardLimit(options?.maxTokens, options?.hardMaxOutputTokens)!;
 	if (options?.toolChoice) payload.toolChoice = mapToolChoice(options.toolChoice);
 	if (options?.promptMode) payload.promptMode = options.promptMode;
 	if (options?.reasoningEffort) payload.reasoningEffort = options.reasoningEffort;

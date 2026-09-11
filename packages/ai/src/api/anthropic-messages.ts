@@ -39,7 +39,13 @@ import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
 import { resolveJsonSchemaStrictSampling } from "./constrained-sampling.ts";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
-import { adjustMaxTokensForThinking, buildBaseOptions, clampMaxTokensToContext } from "./simple-options.ts";
+import {
+	adjustMaxTokensForThinking,
+	buildBaseOptions,
+	clampMaxTokensToContext,
+	clampMaxTokensToHardLimit,
+	enforceHardMaxTokensInRecord,
+} from "./simple-options.ts";
 import { transformMessages } from "./transform-messages.ts";
 
 /**
@@ -551,6 +557,13 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			if (nextParams !== undefined) {
 				params = nextParams as MessageCreateParamsStreaming;
 			}
+			if (options?.hardMaxOutputTokens !== undefined) {
+				enforceHardMaxTokensInRecord(
+					params as unknown as Record<string, unknown>,
+					"max_tokens",
+					options.hardMaxOutputTokens,
+				);
+			}
 			const requestOptions = {
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
@@ -828,9 +841,13 @@ export const streamSimple: StreamFunction<"anthropic-messages", SimpleStreamOpti
 		model.maxTokens,
 		options.reasoning,
 		options.thinkingBudgets,
+		options.hardMaxOutputTokens,
 	);
 
-	const maxTokens = clampMaxTokensToContext(model, context, adjusted.maxTokens);
+	const maxTokens = clampMaxTokensToHardLimit(
+		clampMaxTokensToContext(model, context, adjusted.maxTokens),
+		options.hardMaxOutputTokens,
+	)!;
 
 	return stream(model, context, {
 		...base,
@@ -968,7 +985,7 @@ function buildParams(
 			deferredToolNames,
 			normalizeToolName,
 		),
-		max_tokens: options?.maxTokens ?? model.maxTokens,
+		max_tokens: clampMaxTokensToHardLimit(options?.maxTokens ?? model.maxTokens, options?.hardMaxOutputTokens)!,
 		stream: true,
 	};
 

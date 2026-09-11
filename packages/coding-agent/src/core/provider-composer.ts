@@ -15,6 +15,7 @@ import {
 	type OAuthLoginCallbacks,
 	type Provider,
 	type ProviderHeaders,
+	type ProviderStreamOptions,
 	type RefreshModelsContext,
 	type SimpleStreamOptions,
 	type StreamOptions,
@@ -464,13 +465,13 @@ export function composeModelProvider(
 			if (base && supportsBaseApi(model)) {
 				return simple
 					? base.streamSimple(model, context, options as SimpleStreamOptions)
-					: base.stream(model, context, options);
+					: base.stream(model, context, options as ProviderStreamOptions | undefined);
 			}
 			const api = getApiProvider(model.api);
 			if (!api) throw new Error(`No API provider registered for api: ${model.api}`);
 			return simple
 				? api.streamSimple(model, context, options as SimpleStreamOptions)
-				: api.stream(model, context, options);
+				: api.stream(model, context, options as ProviderStreamOptions | undefined);
 		});
 
 	const provider: Provider = {

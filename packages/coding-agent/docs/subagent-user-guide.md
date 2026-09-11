@@ -114,7 +114,7 @@ Use existing global `<agentDir>/settings.json` (normally `~/.ice/agent/settings.
   "ice": {
     "subagents": {
       "enabled": true,
-      "defaults": { "maxTurns": 12, "maxToolCalls": 40, "timeoutMs": 120000 },
+      "defaults": { "maxTurns": 12, "maxToolCalls": 40, "timeoutMs": 120000, "maxTotalTokens": 100000 },
       "restrictions": { "denyTools": ["bash", "edit", "write"], "maxTurns": 16 },
       "modelSelection": { "mode": "inherit-parent" }
     }
@@ -123,6 +123,14 @@ Use existing global `<agentDir>/settings.json` (normally `~/.ice/agent/settings.
 ```
 
 Deny wins. Empty allowed-role lists are neutral. Invalid policy blocks admission. Settings changes affect future launches and revoke active/queued authority at safe boundaries rather than silently granting more capability.
+
+### Optional aggregate token budget
+
+`execution.maxTotalTokens` and `ice.subagents.defaults.maxTotalTokens` opt into a soft cumulative work-token ceiling. The charged formula is `inputTokens + outputTokens + cacheWriteTokens`; cache reads remain visible in usage but are excluded from the ceiling. Provider-reported usage is preferred. Missing or invalid provider usage is estimated from the actual request context and output and is marked with `~` in observability; mixed provider/estimated runs are reported as mixed.
+
+The limit reserves `min(4096, max(1024, floor(maxTotalTokens * 0.10)))` tokens for one bounded tool-free final report. Ordinary work stops before that reserve when possible; reaching the full work allowance also exhausts ordinary work. A single in-flight provider response may overshoot because usage is charged when it completes; observed usage is never clipped or refunded. The bounded final-report request is issued only on routes that honor a hard per-request output authority and only when the reserve can safely cover the complete finalizer request context plus bounded output; otherwise the parent returns a deterministic bounded partial result and does not issue another explanation request. Token limits are independent from turns, tool calls, timeout, context occupancy, and the UTF-8 result-size cap. They are not a dollar-cost guarantee. Built-in provider adapters receive a runtime output authority when possible; unknown/custom APIs are aggregate-soft, never receive the finalization model request, and must not be described as hard-capped.
+
+For batch/review calls, `totalTokenBudget` atomically reserves each task's resolved `maxTotalTokens`; a task without a resolved token ceiling cannot enter a token-budgeted batch. Unused reservations are released on settlement or cancellation, while actual overshoot and charged usage remain visible. Durable jobs persist the accepted optional ceiling and safe-boundary terminal summary; they do not resume an in-flight model session after restart.
 
 ## Optional child routes
 

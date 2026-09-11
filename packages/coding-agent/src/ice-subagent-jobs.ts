@@ -6,6 +6,7 @@ import type {
 	ReviewFinding,
 	SubagentFailureCode,
 	SubagentResult,
+	SubagentTokenBudgetSummary,
 	SubagentUsage,
 	SubagentVerification,
 } from "./ice-subagents.ts";
@@ -47,6 +48,7 @@ export interface SubagentJobContract {
 	maxTurns: number;
 	maxToolCalls: number;
 	maxOutputBytes: number;
+	maxTotalTokens?: number;
 	tools: readonly string[];
 	sourceHash?: string;
 	/** Deterministic model candidates tried at admission (primary, fallback); parent is implicit. */
@@ -97,6 +99,7 @@ export interface SubagentJobResultEnvelope {
 	/** Bounded parent-owned hook outcomes; never contains raw hook payloads. */
 	hookRecords?: readonly IceHookDispatchRecord[];
 	usage?: SubagentUsage;
+	budget?: SubagentTokenBudgetSummary;
 	diagnostics: readonly {
 		code: string;
 		message?: string;
@@ -154,6 +157,9 @@ export interface SubagentJobInspection {
 		reservedOutputBytes: number;
 		ownerReservedOutputBytes: number;
 		ownerBudgetBytes: number;
+		resolvedMaxTotalTokens?: number;
+		chargedTokens?: number;
+		remainingTokens?: number;
 	}>;
 	result?: Readonly<SubagentJobResultEnvelope>;
 	/** Present when the full result expired from retention; final status stays visible. */
@@ -256,6 +262,63 @@ function boundedPath(value: unknown): string | undefined {
 	return typeof value === "string" && value.length > 0 && Buffer.byteLength(value) <= 4096 ? value : undefined;
 }
 
+function cloneBudget(
+	budget: SubagentTokenBudgetSummary | undefined,
+	maxAllowedTokens?: number,
+): SubagentTokenBudgetSummary | undefined {
+	if (!budget) return undefined;
+	if (!validBudget(budget, maxAllowedTokens)) return undefined;
+	return Object.freeze({ ...budget });
+}
+
+function validBudget(value: unknown, maxAllowedTokens?: number): value is SubagentTokenBudgetSummary {
+	if (!isRecord(value)) return false;
+	const integerKeys = [
+		"maxTotalTokens",
+		"workPhaseLimit",
+		"reportReserveTokens",
+		"chargedTokens",
+		"remainingTokens",
+		"inputTokens",
+		"outputTokens",
+		"cacheReadTokens",
+		"cacheWriteTokens",
+		"overshootTokens",
+	];
+	if (
+		integerKeys.some(
+			(key) => typeof value[key] !== "number" || !Number.isSafeInteger(value[key]) || (value[key] as number) < 0,
+		)
+	)
+		return false;
+	const maxTotalTokens = value.maxTotalTokens as number;
+	const workPhaseLimit = value.workPhaseLimit as number;
+	const reportReserveTokens = value.reportReserveTokens as number;
+	const chargedTokens = value.chargedTokens as number;
+	const remainingTokens = value.remainingTokens as number;
+	const inputTokens = value.inputTokens as number;
+	const outputTokens = value.outputTokens as number;
+	const cacheWriteTokens = value.cacheWriteTokens as number;
+	const overshootTokens = value.overshootTokens as number;
+	if (
+		maxAllowedTokens === undefined ||
+		maxTotalTokens < 1_024 ||
+		maxTotalTokens > 1_000_000 ||
+		maxTotalTokens !== maxAllowedTokens ||
+		reportReserveTokens !== Math.min(4_096, Math.max(1_024, Math.floor(maxTotalTokens * 0.1))) ||
+		workPhaseLimit !== maxTotalTokens - reportReserveTokens ||
+		chargedTokens !== inputTokens + outputTokens + cacheWriteTokens ||
+		remainingTokens !== Math.max(0, maxTotalTokens - chargedTokens) ||
+		overshootTokens !== Math.max(0, chargedTokens - maxTotalTokens)
+	)
+		return false;
+	return (
+		(value.accounting === "provider" || value.accounting === "estimated" || value.accounting === "mixed") &&
+		typeof value.exhausted === "boolean" &&
+		(value.hardCap === "enforced" || value.hardCap === "aggregate-soft")
+	);
+}
+
 function cloneUsage(usage: SubagentUsage | undefined): SubagentUsage | undefined {
 	if (!usage) return undefined;
 	if (
@@ -354,9 +417,11 @@ function cloneHookRecords(
 	);
 }
 
-function cloneResult(result: SubagentJobResultEnvelope): SubagentJobResultEnvelope {
+function cloneResult(result: SubagentJobResultEnvelope, maxAllowedTokens?: number): SubagentJobResultEnvelope {
+	const { budget, ...resultWithoutBudget } = result;
+	const sanitizedBudget = cloneBudget(budget, maxAllowedTokens);
 	return Object.freeze({
-		...result,
+		...resultWithoutBudget,
 		...(result.summary ? { summary: result.summary } : {}),
 		...(result.evidence ? { evidence: Object.freeze({ paths: Object.freeze([...result.evidence.paths]) }) } : {}),
 		...(result.findings ? { findings: Object.freeze(result.findings.map(cloneFindingDeep)) } : {}),
@@ -365,6 +430,7 @@ function cloneResult(result: SubagentJobResultEnvelope): SubagentJobResultEnvelo
 		...(result.observedTurns !== undefined ? { observedTurns: result.observedTurns } : {}),
 		...(cloneHookRecords(result.hookRecords) ? { hookRecords: cloneHookRecords(result.hookRecords) } : {}),
 		...(result.usage ? { usage: Object.freeze({ ...result.usage }) } : {}),
+		...(sanitizedBudget ? { budget: sanitizedBudget } : {}),
 		diagnostics: Object.freeze(result.diagnostics.map((diagnostic) => Object.freeze({ ...diagnostic }))),
 	});
 }
@@ -410,7 +476,7 @@ function cloneInspection(
 		job: cloneJob(state.job),
 		...(metadata?.queuePosition !== undefined ? { queuePosition: metadata.queuePosition } : {}),
 		...(metadata?.budget ? { budget: Object.freeze({ ...metadata.budget }) } : {}),
-		...(state.result ? { result: cloneResult(state.result) } : {}),
+		...(state.result ? { result: cloneResult(state.result, state.job.contract?.maxTotalTokens) } : {}),
 	});
 }
 
@@ -503,7 +569,11 @@ function validWorkArtifactView(value: unknown): value is SubagentJobWorkArtifact
 	return true;
 }
 
-function validResultEnvelope(value: unknown, jobId: string): value is SubagentJobResultEnvelope {
+function validResultEnvelope(
+	value: unknown,
+	jobId: string,
+	jobContractMaxTotalTokens?: number,
+): value is SubagentJobResultEnvelope {
 	if (!isRecord(value) || value.schemaVersion !== 1 || value.jobId !== jobId) return false;
 	if (value.runId !== undefined && !isJobId(value.runId)) return false;
 	if (typeof value.status !== "string" || !TERMINAL_STATUSES.has(value.status as TerminalSubagentJobStatus))
@@ -570,6 +640,11 @@ function validResultEnvelope(value: unknown, jobId: string): value is SubagentJo
 			return false;
 	}
 	if (value.usage !== undefined && !validUsage(value.usage)) return false;
+	if (
+		value.budget !== undefined &&
+		(jobContractMaxTotalTokens === undefined || !validBudget(value.budget, jobContractMaxTotalTokens))
+	)
+		return false;
 	if (value.workArtifact !== undefined && !validWorkArtifactView(value.workArtifact)) return false;
 	if (!Array.isArray(value.diagnostics) || value.diagnostics.length > 32) return false;
 	return value.diagnostics.every(
@@ -634,6 +709,11 @@ function validJobRecord(value: unknown): value is SubagentJobRecord {
 		if (
 			typeof contract.thinking !== "string" ||
 			Buffer.byteLength(contract.thinking) > 16 ||
+			(contract.maxTotalTokens !== undefined &&
+				(typeof contract.maxTotalTokens !== "number" ||
+					!Number.isSafeInteger(contract.maxTotalTokens) ||
+					contract.maxTotalTokens < 1_024 ||
+					contract.maxTotalTokens > 1_000_000)) ||
 			!["timeoutMs", "maxTurns", "maxToolCalls", "maxOutputBytes"].every(
 				(key) => typeof contract[key] === "number" && Number.isSafeInteger(contract[key]) && contract[key] >= 0,
 			) ||
@@ -744,7 +824,11 @@ function validSnapshot(value: unknown): value is PersistedSubagentJobSnapshot {
 	)
 		return false;
 	if (!validJobRecord(value.job)) return false;
-	if (value.result !== undefined && !validResultEnvelope(value.result, value.job.jobId)) return false;
+	if (
+		value.result !== undefined &&
+		!validResultEnvelope(value.result, value.job.jobId, value.job.contract?.maxTotalTokens)
+	)
+		return false;
 	if (isTerminal(value.job.status) !== (value.result !== undefined)) return false;
 	if (value.result !== undefined && value.result.status !== value.job.status) return false;
 	if (
@@ -787,6 +871,7 @@ function projectResult(
 	requestedStop: LiveJob["requestedStop"],
 	runResult: SubagentJobRunResult | undefined,
 	runtimeError?: unknown,
+	maxAllowedTokens?: number,
 ): SubagentJobResultEnvelope {
 	const result = runResult?.result;
 	let status: TerminalSubagentJobStatus;
@@ -840,6 +925,9 @@ function projectResult(
 		...(result?.observedTurns !== undefined ? { observedTurns: result.observedTurns } : {}),
 		...(hookRecords ? { hookRecords } : {}),
 		...(cloneUsage(result?.usage) ? { usage: cloneUsage(result?.usage) } : {}),
+		...(cloneBudget(result?.budget, maxAllowedTokens)
+			? { budget: cloneBudget(result?.budget, maxAllowedTokens) }
+			: {}),
 		...(artifactView ? { workArtifact: artifactView } : {}),
 		diagnostics: resultDiagnostics(result, runtimeError ? "job_runtime_failure" : undefined, runtimeMessage),
 	};
@@ -1132,14 +1220,32 @@ export class SubagentJobRegistry {
 			const data = (entry as JobEntryLike).data;
 			if (!validSnapshot(data) || data.job.ownerSessionId !== this.ownerSessionId) continue;
 			const previous = latest.get(data.job.jobId);
-			if (!previous || data.sequence >= previous.snapshot.sequence) {
+			if (!previous) {
 				latest.set(data.job.jobId, { snapshot: data, order: entryOrder });
+				continue;
 			}
+			if (data.sequence < previous.snapshot.sequence) continue;
+			const previousMaxTokens = previous.snapshot.job.contract?.maxTotalTokens;
+			const nextMaxTokens = data.job.contract?.maxTotalTokens;
+			// Persisted token authority is monotonic. A newer snapshot cannot widen a
+			// bounded job to a larger/unbounded ceiling, nor can it rewind already
+			// recorded charged usage. Keep the last trustworthy snapshot instead.
+			if (previousMaxTokens !== undefined && (nextMaxTokens === undefined || nextMaxTokens > previousMaxTokens)) continue;
+			const previousChargedTokens = previous.snapshot.result?.budget?.chargedTokens;
+			const nextChargedTokens = data.result?.budget?.chargedTokens;
+			if (
+				previousChargedTokens !== undefined &&
+				(nextChargedTokens === undefined || nextChargedTokens < previousChargedTokens)
+			)
+				continue;
+			latest.set(data.job.jobId, { snapshot: data, order: entryOrder });
 		}
 		for (const [jobId, value] of latest) {
 			const state: JobState = {
 				job: { ...value.snapshot.job },
-				...(value.snapshot.result ? { result: cloneResult(value.snapshot.result) } : {}),
+				...(value.snapshot.result
+					? { result: cloneResult(value.snapshot.result, value.snapshot.job.contract?.maxTotalTokens) }
+					: {}),
 			};
 			this.records.set(jobId, state);
 			this.sequences.set(jobId, value.snapshot.sequence);
@@ -1236,7 +1342,7 @@ export class SubagentJobRegistry {
 			schemaVersion: 1,
 			sequence,
 			job: { ...state.job },
-			...(state.result ? { result: cloneResult(state.result) } : {}),
+			...(state.result ? { result: cloneResult(state.result, state.job.contract?.maxTotalTokens) } : {}),
 		};
 		if (!validSnapshot(snapshot))
 			throw new SubagentJobError("job_persistence_failure", "Subagent job snapshot is invalid or oversized.");
@@ -1329,7 +1435,13 @@ export class SubagentJobRegistry {
 	private async settle(live: LiveJob, runResult?: SubagentJobRunResult, runtimeError?: unknown): Promise<void> {
 		if (live.settled) return;
 		live.settled = true;
-		const result = projectResult(live.job.jobId, live.requestedStop, runResult, runtimeError);
+		const result = projectResult(
+			live.job.jobId,
+			live.requestedStop,
+			runResult,
+			runtimeError,
+			live.job.contract?.maxTotalTokens,
+		);
 		const reservedOutputBytes = live.job.reservedOutputBytes ?? 0;
 		if (runResult?.result.runId) live.job = { ...live.job, runId: runResult.result.runId };
 		live.job = {
@@ -1452,6 +1564,15 @@ export class SubagentJobRegistry {
 				reservedOutputBytes: state.job.reservedOutputBytes ?? 0,
 				ownerReservedOutputBytes: this.reservedOutputBytes,
 				ownerBudgetBytes: this.maxAggregateOutputBytes,
+				...(state.job.contract?.maxTotalTokens !== undefined
+					? { resolvedMaxTotalTokens: state.job.contract.maxTotalTokens }
+					: {}),
+				...(state.result?.budget
+					? {
+							chargedTokens: state.result.budget.chargedTokens,
+							remainingTokens: state.result.budget.remainingTokens,
+						}
+					: {}),
 			},
 		});
 	}

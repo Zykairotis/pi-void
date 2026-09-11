@@ -27,6 +27,7 @@ import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord, providerHeadersToRecord } from "../utils/headers.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
+import { clampMaxTokensToHardLimit, enforceHardMaxTokensInRecord } from "./simple-options.ts";
 
 export interface IceMessagesOptions extends StreamOptions {
 	reasoning?: ThinkingLevel;
@@ -367,7 +368,8 @@ export const stream: StreamFunction<"ice-messages", IceMessagesOptions> = (
 				context,
 				options: {
 					temperature: options?.temperature,
-					maxTokens: options?.maxTokens,
+					maxTokens: clampMaxTokensToHardLimit(options?.maxTokens, options?.hardMaxOutputTokens),
+					hardMaxOutputTokens: options?.hardMaxOutputTokens,
 					reasoning: options?.reasoning,
 					cacheRetention: resolveCacheRetention(options?.cacheRetention, options?.env),
 					sessionId: options?.sessionId,
@@ -377,6 +379,21 @@ export const stream: StreamFunction<"ice-messages", IceMessagesOptions> = (
 			const nextPayload = await options?.onPayload?.(payload, model);
 			if (nextPayload !== undefined) {
 				payload = nextPayload;
+			}
+			if (options?.hardMaxOutputTokens !== undefined) {
+				if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+					throw new Error("ICE messages payload must remain an object under a hard output authority.");
+				}
+				const payloadOptions = (payload as Record<string, unknown>).options;
+				if (typeof payloadOptions !== "object" || payloadOptions === null || Array.isArray(payloadOptions)) {
+					throw new Error("ICE messages options must remain an object under a hard output authority.");
+				}
+				enforceHardMaxTokensInRecord(
+					payloadOptions as Record<string, unknown>,
+					"maxTokens",
+					options.hardMaxOutputTokens,
+				);
+				(payloadOptions as Record<string, unknown>).hardMaxOutputTokens = options.hardMaxOutputTokens;
 			}
 
 			const response = await (options?.fetch ?? globalThis.fetch)(url, {

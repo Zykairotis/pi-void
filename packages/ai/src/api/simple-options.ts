@@ -18,12 +18,42 @@ export function clampMaxTokensToContext(model: Model<Api>, context: Context, max
 	return Math.min(maxTokens, Math.max(MIN_MAX_TOKENS, available));
 }
 
+/** Clamp a request to runtime authority without ever widening it. Provider null means unset. */
+export function clampMaxTokensToHardLimit(
+	maxTokens: number | null | undefined,
+	hardMaxOutputTokens: number | undefined,
+): number | undefined {
+	const requested = maxTokens ?? undefined;
+	if (hardMaxOutputTokens === undefined) return requested;
+	if (!Number.isFinite(hardMaxOutputTokens) || hardMaxOutputTokens <= 0) {
+		throw new Error("hardMaxOutputTokens must be a positive finite number.");
+	}
+	if (requested !== undefined && (!Number.isFinite(requested) || requested <= 0)) {
+		throw new Error("maxTokens must be a positive finite number when a hard output authority is supplied.");
+	}
+	return requested === undefined ? hardMaxOutputTokens : Math.min(requested, hardMaxOutputTokens);
+}
+
+/** Reapply the runtime output authority after an adapter payload callback. */
+export function enforceHardMaxTokensInRecord(
+	payload: Record<string, unknown>,
+	field: string,
+	hardMaxOutputTokens: number | undefined,
+): void {
+	if (hardMaxOutputTokens === undefined) return;
+	const value = payload[field];
+	if (value !== undefined && value !== null && typeof value !== "number") {
+		throw new Error(`${field} must be a number when a hard output authority is supplied.`);
+	}
+	payload[field] = clampMaxTokensToHardLimit(value as number | null | undefined, hardMaxOutputTokens);
+}
+
 export function buildBaseOptions(
 	model: Model<Api>,
 	context: Context,
 	options?: SimpleStreamOptions,
 	apiKey?: string,
-): StreamOptions {
+): Omit<StreamOptions, "toolChoice"> & { toolChoice?: "auto" | "none" } {
 	const samplingParams =
 		model.samplingParams || options?.samplingParams
 			? { ...model.samplingParams, ...options?.samplingParams }
@@ -32,7 +62,12 @@ export function buildBaseOptions(
 		serviceTier: options?.serviceTier,
 		temperature: options?.temperature,
 		samplingParams,
-		maxTokens: clampMaxTokensToContext(model, context, options?.maxTokens ?? model.maxTokens),
+		maxTokens: clampMaxTokensToHardLimit(
+			clampMaxTokensToContext(model, context, options?.maxTokens ?? model.maxTokens),
+			options?.hardMaxOutputTokens,
+		),
+		hardMaxOutputTokens: options?.hardMaxOutputTokens,
+		toolChoice: options?.toolChoice,
 		signal: options?.signal,
 		apiKey: apiKey || options?.apiKey,
 		fetch: options?.fetch,
@@ -63,6 +98,7 @@ export function adjustMaxTokensForThinking(
 	modelMaxTokens: number,
 	reasoningLevel: ThinkingLevel,
 	customBudgets?: ThinkingBudgets,
+	hardMaxOutputTokens?: number,
 ): { maxTokens: number; thinkingBudget: number } {
 	const defaultBudgets: ThinkingBudgets = {
 		minimal: 1024,
@@ -73,10 +109,18 @@ export function adjustMaxTokensForThinking(
 	const budgets = { ...defaultBudgets, ...customBudgets };
 
 	const minOutputTokens = 1024;
+	if (hardMaxOutputTokens !== undefined && (!Number.isFinite(hardMaxOutputTokens) || hardMaxOutputTokens <= 0)) {
+		throw new Error("hardMaxOutputTokens must be a positive finite number.");
+	}
+	if (hardMaxOutputTokens !== undefined && hardMaxOutputTokens < minOutputTokens) {
+		throw new Error("hardMaxOutputTokens is below the minimum ordinary output size.");
+	}
 	const level = clampReasoning(reasoningLevel)!;
 	let thinkingBudget = budgets[level]!;
+	const modelCeiling =
+		hardMaxOutputTokens === undefined ? modelMaxTokens : Math.min(modelMaxTokens, hardMaxOutputTokens);
 	const maxTokens =
-		baseMaxTokens === undefined ? modelMaxTokens : Math.min(baseMaxTokens + thinkingBudget, modelMaxTokens);
+		baseMaxTokens === undefined ? modelCeiling : Math.min(baseMaxTokens + thinkingBudget, modelCeiling);
 
 	if (maxTokens <= thinkingBudget) {
 		thinkingBudget = Math.max(0, maxTokens - minOutputTokens);
