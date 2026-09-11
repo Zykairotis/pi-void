@@ -3,15 +3,15 @@
 Date: 2026-09-11
 Branch: `feat/ice`
 Environment: Node v24.21.0, npm 12.0.2
-Verified tip: `57f798412a608b2ef2a60c52037fbe459c242d21`
+Verified implementation tip: `7794dccf7669bff307d24ba202c368a51b07919e`
 Base ref observed on `origin`: `void` at `b919dc81fb9764675fa2695feebc0bc62f02acb4`
 
 ## Scope
 
 Records the verification of the ICE rename, subagent controls, compatibility
 contract, dependency-fork integration, publishing fixes, and workflow repair
-through the current `feat/ice` tip. The branch contains 13 commits after the
-`void` base, including the three pre-existing checkpoints.
+through implementation tip `7794dcc`. That implementation tip contains 16
+commits after the `void` base, including the three pre-existing checkpoints.
 
 ## Commits
 
@@ -30,6 +30,8 @@ through the current `feat/ice` tip. The branch contains 13 commits after the
 | `4d4ecb2cc` | npm 12 publishing fixes, `ice-server`, package licenses, and release-branch fix |
 | `e9c7e8394` | dependency cleanup, lockfile refresh, clipboard `0.3.10` integration, and validation scope |
 | `57f798412` | npm 12 bootstrap before GitHub Actions package-manager caching |
+| `1c9ad2d` | run CI on the `void` branch |
+| `7794dcc` | handle empty interactive asset bundles |
 
 ## Commands and observed results
 
@@ -44,13 +46,21 @@ through the current `feat/ice` tip. The branch contains 13 commits after the
 | Clipboard registry audit | all 11 `0.3.10` tarballs are public, correctly named/licensed, and contain their expected payloads |
 | Published musl smoke tests | x86_64 and aarch64 musl native addons load in explicit Alpine containers with Node 24 |
 | Active old dependency scan | no active `@mariozechner/clipboard`, `@earendil-works/gondolin`, or Gondolin repository references outside preserved historical material |
-| GitHub run `34581105663` | `Publish Model Catalog / generate` passed; npm bootstrap, dependency installation, catalog generation, validation, and artifact upload passed |
+| `npm run build --workspace=@zykairotis/ice-coding-agent` | exit 0 after a clean coding-agent dist; zero interactive asset files were required |
+| GitHub run `34581816479` | `CI / build-check-test` passed through setup, install, build, check, and test |
+| GitHub run `34581816552` | `Publish Model Catalog / generate` passed through npm bootstrap, dependency installation, catalog generation, validation, and artifact upload |
 
 The previous GitHub run `34580749063` failed before dependency installation
 because `actions/setup-node` invoked runner npm 10.9.8 while reading
 `devEngines.packageManager`. Commit `57f798412` disables automatic
 package-manager caching in all seven `setup-node` steps until the explicit npm
-12.0.2 bootstrap completes. The replacement run passed that boundary.
+12.0.2 bootstrap completes. The replacement catalog run passed that boundary.
+
+The first full CI run after enabling the `void` branch, `34581464341`, reached
+Build and exposed the stale unconditional PNG copy after the legacy announcement
+asset was removed. Commit `7794dcc` removes those empty-glob copies while
+retaining destination directories; final CI run `34581816479` passed build,
+check, and test.
 
 ## Required rebuild step
 
@@ -76,7 +86,7 @@ performed against a rebuilt tree.
 
 ## Review state and open items
 
-- `feat/ice` is pushed through `57f798412`; PR [#11](https://github.com/Zykairotis/ice/pull/11) is open from `feat/ice` into `void` and has the updated verification description.
+- `feat/ice` is pushed through `7794dcc`; PR [#11](https://github.com/Zykairotis/ice/pull/11) is open from `feat/ice` into `void` and has the updated verification description.
 - The `void` remote ref was observed unchanged at `b919dc81...` during verification. The PR has not been merged; merge remains subject to review and explicit approval.
 - The PR's external Cubic reviewer was still pending at the last status query.
 - `.github/workflows/issue-analysis.yml` remains intentionally fail-closed until a real organization/team and `ZYKAIROTIS_ORG_READ_TOKEN` are provisioned.
