@@ -9,7 +9,7 @@ import {
 	fauxAssistantMessage,
 	fauxToolCall,
 	registerFauxProvider,
-} from "@earendil-works/pi-ai/compat";
+} from "@zykairotis/ice-ai/compat";
 import { AuthStorage } from "../../../packages/coding-agent/src/core/auth-storage.ts";
 import { ModelRuntime } from "../../../packages/coding-agent/src/core/model-runtime.ts";
 import type {
@@ -24,7 +24,7 @@ import {
 	type SubagentEvent,
 	type SubagentRequest,
 	type SubagentResourceSelection,
-} from "../../../packages/coding-agent/src/piv-subagents.ts";
+} from "../../../packages/coding-agent/src/ice-subagents.ts";
 import {
 	assertTrace,
 	type Backend,
@@ -50,7 +50,7 @@ async function prepareResourceLoaderFixture(cwd: string): Promise<string> {
 	await mkdir(join(agentDir, "skills", "sibling-skill"), { recursive: true });
 	await mkdir(join(agentDir, "prompts"), { recursive: true });
 	await mkdir(join(agentDir, "context"), { recursive: true });
-	await mkdir(join(cwd, ".pi", "skills", "project-only"), { recursive: true });
+	await mkdir(join(cwd, ".ice", "skills", "project-only"), { recursive: true });
 	await writeFile(
 		join(agentDir, "skills", "selected-skill", "SKILL.md"),
 		"---\nname: selected-skill\ndescription: Selected skill.\n---\nSelected skill.\n",
@@ -77,7 +77,7 @@ async function prepareResourceLoaderFixture(cwd: string): Promise<string> {
 		"utf8",
 	);
 	await writeFile(
-		join(cwd, ".pi", "skills", "project-only", "SKILL.md"),
+		join(cwd, ".ice", "skills", "project-only", "SKILL.md"),
 		"---\nname: project-only\ndescription: Project-only skill.\n---\nProject-only skill.\n",
 		"utf8",
 	);
@@ -203,7 +203,7 @@ function runCli(
 		{
 			cwd: repoRoot,
 			encoding: "utf8",
-			env: { ...process.env, PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1" },
+			env: { ...process.env, ICE_OFFLINE: "1", ICE_SKIP_VERSION_CHECK: "1" },
 		},
 	);
 	return {
@@ -217,34 +217,34 @@ let cachedCliContract: ContractEvidence | undefined;
 
 function cliContract(): ContractEvidence {
 	if (cachedCliContract) return cachedCliContract;
-	const piv = runCli(join(repoRoot, "packages/coding-agent/src/piv.ts"), [
+	const ice = runCli(join(repoRoot, "packages/coding-agent/src/ice.ts"), [
 		"--help",
 	]);
-	const stockPi = runCli(join(repoRoot, "packages/coding-agent/src/cli.ts"), [
+	const stockIce = runCli(join(repoRoot, "packages/coding-agent/src/cli.ts"), [
 		"--help",
 	]);
-	const pivInvalidBackend = runCli(
-		join(repoRoot, "packages/coding-agent/src/piv.ts"),
-		["--piv-backend", "subprocess"],
+	const iceInvalidBackend = runCli(
+		join(repoRoot, "packages/coding-agent/src/ice.ts"),
+		["--ice-backend", "subprocess"],
 	);
 	const checks: string[] = [];
-	if (piv.status === 0) checks.push("piv_help");
-	if (piv.stdout.includes("--sub-yolo")) checks.push("piv_exposes_sub_yolo");
-	if (piv.stdout.includes("--piv-mode")) checks.push("piv_exposes_piv_mode");
-	if (piv.stdout.includes("--piv-allow-bash"))
-		checks.push("piv_exposes_piv_allow_bash");
-	if (stockPi.status === 0) checks.push("stock_pi_help");
-	if (!stockPi.stdout.includes("--sub-yolo"))
-		checks.push("stock_pi_hides_sub_yolo");
-	if (!stockPi.stdout.includes("--piv-mode"))
-		checks.push("stock_pi_hides_piv_mode");
-	if (!stockPi.stdout.includes("--piv-allow-bash"))
-		checks.push("stock_pi_hides_piv_allow_bash");
+	if (ice.status === 0) checks.push("ice_help");
+	if (ice.stdout.includes("--sub-yolo")) checks.push("ice_exposes_sub_yolo");
+	if (ice.stdout.includes("--ice-mode")) checks.push("ice_exposes_ice_mode");
+	if (ice.stdout.includes("--ice-allow-bash"))
+		checks.push("ice_exposes_ice_allow_bash");
+	if (stockIce.status === 0) checks.push("stock_ice_help");
+	if (!stockIce.stdout.includes("--sub-yolo"))
+		checks.push("stock_ice_hides_sub_yolo");
+	if (!stockIce.stdout.includes("--ice-mode"))
+		checks.push("stock_ice_hides_ice_mode");
+	if (!stockIce.stdout.includes("--ice-allow-bash"))
+		checks.push("stock_ice_hides_ice_allow_bash");
 	if (
-		pivInvalidBackend.status !== 0 &&
-		pivInvalidBackend.stderr.includes("Unknown option: --piv-backend")
+		iceInvalidBackend.status !== 0 &&
+		iceInvalidBackend.stderr.includes("Unknown option: --ice-backend")
 	) {
-		checks.push("piv_rejects_backend_selection");
+		checks.push("ice_rejects_backend_selection");
 	}
 	cachedCliContract = { kind: "cli", checks };
 	return cachedCliContract;
@@ -428,7 +428,7 @@ export function hashText(value: string): string {
 }
 
 export async function createFixtureWorkspace(): Promise<string> {
-	const cwd = await mkdtemp(join(tmpdir(), "piv-m12-"));
+	const cwd = await mkdtemp(join(tmpdir(), "ice-m12-"));
 	await mkdir(join(cwd, "src"));
 	await writeFile(join(cwd, "src", "fixture.txt"), "M12 fixture\n", "utf8");
 	return cwd;

@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { Text, type TUI } from "@earendil-works/pi-tui";
+import { Text, type TUI } from "@zykairotis/ice-tui";
 import { Type } from "typebox";
 import { beforeAll, describe, expect, test } from "vitest";
 import { getReadmePath } from "../src/config.ts";
@@ -455,9 +455,9 @@ describe("ToolExecutionComponent parity", () => {
 		},
 		{
 			title: "AGENTS.md",
-			path: join(process.cwd(), ".pi", "AGENTS.md"),
+			path: join(process.cwd(), ".ice", "AGENTS.md"),
 			content: "Hidden resource instructions",
-			compact: "read resource .pi/AGENTS.md",
+			compact: "read resource .ice/AGENTS.md",
 			hidden: "Hidden resource instructions",
 			absent: undefined,
 		},
@@ -470,7 +470,7 @@ describe("ToolExecutionComponent parity", () => {
 			absent: undefined,
 		},
 		{
-			title: "Pi documentation",
+			title: "Ice documentation",
 			path: getReadmePath(),
 			content: "Hidden docs content",
 			compact: "read docs README.md",
@@ -508,7 +508,7 @@ describe("ToolExecutionComponent parity", () => {
 
 	for (const scenario of [
 		{ title: "SKILL.md", path: join(process.cwd(), "attio", "SKILL.md"), compact: "[skill] attio:120-329" },
-		{ title: "Pi documentation", path: getReadmePath(), compact: "read docs README.md:120-329" },
+		{ title: "Ice documentation", path: getReadmePath(), compact: "read docs README.md:120-329" },
 	] as const) {
 		test(`shows the read line range in compact ${scenario.title} reads before the expand hint`, () => {
 			const component = new ToolExecutionComponent(

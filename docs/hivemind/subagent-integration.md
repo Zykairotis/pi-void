@@ -1,17 +1,17 @@
-# Hivemind Integration with Pi Void Subagents
+# Hivemind Integration with ICE Subagents
 
 **Status:** Target integration; depends on the subagent V1 contract.
 
 ## Dependency direction
 
 ```text
-Pi core
+Ice core
   ^
   |
-Pi Void subagent runtime
+ICE subagent runtime
   ^
   |
-Pi Void Hivemind
+ICE Hivemind
 ```
 
 Hivemind depends on the subagent system. The subagent system must not depend on Hivemind.
@@ -239,6 +239,6 @@ parent
 
 Consensus can recommend a patch. It cannot merge or authorize the mutation.
 
-## Stock Pi compatibility
+## Stock Ice compatibility
 
-Like `delegate`, Hivemind is Pi Void-owned functionality loaded through `piv`. Stock `pi` should not gain the Hivemind coordinator unless an upstream-neutral shared primitive is independently justified.
+Like `delegate`, Hivemind is ICE-owned functionality loaded through `ice`. Stock `ice` should not gain the Hivemind coordinator unless an upstream-neutral shared primitive is independently justified.

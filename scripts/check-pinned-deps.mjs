@@ -3,7 +3,15 @@ import { join } from "node:path";
 
 const dependencySections = ["dependencies", "devDependencies", "optionalDependencies"];
 const exactVersionPattern = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-const ignoredDirectories = new Set([".ai-bridge", ".git", ".least", "agent_references", "dist", "node_modules"]);
+const ignoredDirectories = new Set([
+	".ai-bridge",
+	".artifacts",
+	".git",
+	".least",
+	"agent_references",
+	"dist",
+	"node_modules",
+]);
 const packageJsonFiles = [];
 
 function collectPackageJsonFiles(directory) {
@@ -22,7 +30,7 @@ function collectPackageJsonFiles(directory) {
 }
 
 function isInternalWorkspaceDependency(name) {
-	return name.startsWith("@earendil-works/pi-");
+	return name.startsWith("@zykairotis/ice-");
 }
 
 function isNonRegistrySpecifier(specifier) {

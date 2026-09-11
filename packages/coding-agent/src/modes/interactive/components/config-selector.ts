@@ -3,7 +3,7 @@
  */
 
 import { homedir } from "node:os";
-import { basename, dirname, join, relative } from "node:path";
+import { basename, dirname, relative } from "node:path";
 import {
 	type Component,
 	Container,
@@ -14,8 +14,8 @@ import {
 	Spacer,
 	truncateToWidth,
 	visibleWidth,
-} from "@earendil-works/pi-tui";
-import { CONFIG_DIR_NAME } from "../../../config.ts";
+} from "@zykairotis/ice-tui";
+import { CONFIG_DIR_NAME, getProjectConfigDir } from "../../../config.ts";
 import type { PathMetadata, ResolvedPaths, ResolvedResource } from "../../../core/package-manager.ts";
 import type { PackageSource, SettingsManager } from "../../../core/settings-manager.ts";
 import { canonicalizePath, isLocalPath, resolvePath } from "../../../utils/paths.ts";
@@ -187,10 +187,16 @@ type FlatEntry =
 class ConfigSelectorHeader implements Component {
 	private writeScope: ConfigWriteScope;
 	private projectModeAvailable: boolean;
+	private settingsPaths: Record<ConfigWriteScope, string>;
 
-	constructor(writeScope: ConfigWriteScope, projectModeAvailable: boolean) {
+	constructor(
+		writeScope: ConfigWriteScope,
+		projectModeAvailable: boolean,
+		settingsPaths: Record<ConfigWriteScope, string>,
+	) {
 		this.writeScope = writeScope;
 		this.projectModeAvailable = projectModeAvailable;
+		this.settingsPaths = settingsPaths;
 	}
 
 	setWriteScope(writeScope: ConfigWriteScope): void {
@@ -209,8 +215,8 @@ class ConfigSelectorHeader implements Component {
 		const spacing = Math.max(1, width - visibleWidth(title) - visibleWidth(hint));
 		const scopeHint =
 			this.writeScope === "project"
-				? theme.fg("muted", `${CONFIG_DIR_NAME}/settings.json · inherited global resources are dimmed`)
-				: theme.fg("muted", `~/${CONFIG_DIR_NAME}/agent/settings.json`);
+				? theme.fg("muted", `${this.settingsPaths.project} · inherited global resources are dimmed`)
+				: theme.fg("muted", this.settingsPaths.global);
 
 		return [
 			truncateToWidth(`${title}${" ".repeat(spacing)}${hint}`, width, ""),
@@ -848,7 +854,7 @@ class ResourceList implements Component, Focusable {
 	}
 
 	private getTopLevelBaseDir(scope: "user" | "project"): string {
-		return scope === "project" ? join(this.cwd, CONFIG_DIR_NAME) : this.agentDir;
+		return scope === "project" ? getProjectConfigDir(this.cwd) : this.agentDir;
 	}
 
 	private getResourcePattern(item: ResourceItem): string {
@@ -901,7 +907,10 @@ export class ConfigSelectorComponent extends Container implements Focusable {
 		this.addChild(new Spacer(1));
 		this.addChild(new DynamicBorder());
 		this.addChild(new Spacer(1));
-		this.header = new ConfigSelectorHeader(this.writeScope, projectModeAvailable);
+		this.header = new ConfigSelectorHeader(this.writeScope, projectModeAvailable, {
+			global: `${formatBaseDir(agentDir)}settings.json`,
+			project: `${basename(getProjectConfigDir(cwd))}/settings.json`,
+		});
 		this.addChild(this.header);
 		this.addChild(new Spacer(1));
 

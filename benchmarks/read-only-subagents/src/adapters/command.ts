@@ -20,7 +20,7 @@ interface JsonRecord {
 	[key: string]: unknown;
 }
 
-export interface PiCliCommandOptions {
+export interface IceCliCommandOptions {
 	commandPath: (target: PreparedTarget) => string;
 	extensionPath?: (target: PreparedTarget) => string;
 	agentSourcePath?: (target: PreparedTarget) => string;
@@ -34,10 +34,10 @@ function requiredDirectory(path: string): boolean {
 	return existsSync(path) && statSync(path).isDirectory();
 }
 
-export function validatePiCliTarget(
+export function validateIceCliTarget(
 	prepared: PreparedTarget,
 	target: BenchmarkTarget,
-	options: PiCliCommandOptions,
+	options: IceCliCommandOptions,
 ): PreparedTarget {
 	if (!requiredFile(options.commandPath(prepared))) {
 		throw new BenchmarkTargetUnavailableError(target.id, target.source.commit);
@@ -51,12 +51,12 @@ export function validatePiCliTarget(
 	return prepared;
 }
 
-export async function preparePiCliTarget(
+export async function prepareIceCliTarget(
 	context: BenchmarkContext,
 	target: BenchmarkTarget,
-	options: PiCliCommandOptions,
+	options: IceCliCommandOptions,
 ): Promise<PreparedTarget> {
-	return validatePiCliTarget(await prepareTarget(target, context), target, options);
+	return validateIceCliTarget(await prepareTarget(target, context), target, options);
 }
 
 interface ProcessResult {
@@ -242,8 +242,8 @@ function failureCode(processResult: ProcessResult, records: readonly JsonRecord[
 	return undefined;
 }
 
-export async function runPiCli(target: PreparedTarget, scenario: BenchmarkScenario, options: PiCliCommandOptions): Promise<BenchmarkObservation> {
-	const agentDir = await mkdtemp(join(tmpdir(), "piv-b8-agent-"));
+export async function runIceCli(target: PreparedTarget, scenario: BenchmarkScenario, options: IceCliCommandOptions): Promise<BenchmarkObservation> {
+	const agentDir = await mkdtemp(join(tmpdir(), "ice-b8-agent-"));
 	try {
 		if (options.agentSourcePath !== undefined) {
 			await copyAgentDefinitions(options.agentSourcePath(target), join(agentDir, "agents"));
@@ -268,8 +268,8 @@ export async function runPiCli(target: PreparedTarget, scenario: BenchmarkScenar
 		args.push("--print", scenarioPrompt(target, scenario));
 		const env: NodeJS.ProcessEnv = {
 			...process.env,
-			PI_CODING_AGENT_DIR: agentDir,
-			PI_CODING_AGENT_SESSION_DIR: agentDir,
+			ICE_CODING_AGENT_DIR: agentDir,
+			ICE_CODING_AGENT_SESSION_DIR: agentDir,
 		};
 		const processResult = await runProcess(options.commandPath(target), args.filter((arg) => arg.length > 0), "/tmp", env);
 		const records = parseJsonLines(processResult.stdout);

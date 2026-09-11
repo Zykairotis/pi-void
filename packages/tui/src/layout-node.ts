@@ -1,6 +1,6 @@
 import type { Component } from "./tui.ts";
 
-export const LAYOUT_NODE = Symbol.for("@earendil-works/pi-tui/layout-node");
+export const LAYOUT_NODE = Symbol.for("@zykairotis/ice-tui/layout-node");
 
 export interface LayoutViewport {
 	width: number;
@@ -47,5 +47,6 @@ export interface LayoutComponent extends Component {
 
 export function getLayoutNode(component: Component): LayoutNode | undefined {
 	const candidate = component as Partial<LayoutComponent>;
-	return typeof candidate[LAYOUT_NODE] === "function" ? candidate[LAYOUT_NODE]() : undefined;
+	const method = LAYOUT_NODE in candidate ? candidate[LAYOUT_NODE] : undefined;
+	return typeof method === "function" ? method.call(component) : undefined;
 }

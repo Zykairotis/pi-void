@@ -7,7 +7,7 @@ import {
 	createAssistantMessageEventStream,
 	type Model,
 	type SimpleStreamOptions,
-} from "@earendil-works/pi-ai";
+} from "@zykairotis/ice-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
@@ -22,7 +22,7 @@ describe("createAgentSession stream options", () => {
 	let agentDir: string;
 
 	beforeEach(() => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-sdk-stream-options-"));
+		tempDir = mkdtempSync(join(tmpdir(), "ice-sdk-stream-options-"));
 		cwd = join(tempDir, "project");
 		agentDir = join(tempDir, "agent");
 		mkdirSync(cwd, { recursive: true });
@@ -192,8 +192,8 @@ describe("createAgentSession stream options", () => {
 			"openai-completions",
 			{},
 			{ headers: { "x-explicit": "explicit" } },
-			`export default function (pi) {
-				pi.on("before_provider_headers", (event) => {
+			`export default function (ice) {
+				ice.on("before_provider_headers", (event) => {
 					event.headers["x-hook"] = [
 						event.headers["x-provider"],
 						event.headers["x-model"],

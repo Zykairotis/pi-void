@@ -5,13 +5,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const packages = [
-	{ directory: "packages/ai", name: "@earendil-works/pi-ai" },
-	{ directory: "packages/agent", name: "@earendil-works/pi-agent-core" },
-	{ directory: "packages/protocol", name: "@earendil-works/pi-protocol" },
-	{ directory: "packages/client", name: "@earendil-works/pi-client" },
-	{ directory: "packages/storage/sqlite-node", name: "@earendil-works/pi-storage-sqlite-node" },
-	{ directory: "packages/tui", name: "@earendil-works/pi-tui" },
-	{ directory: "packages/coding-agent", name: "@earendil-works/pi-coding-agent" },
+	{ directory: "packages/ai", name: "@zykairotis/ice-ai" },
+	{ directory: "packages/agent", name: "@zykairotis/ice-agent-core" },
+	{ directory: "packages/protocol", name: "@zykairotis/ice-protocol" },
+	{ directory: "packages/client", name: "@zykairotis/ice-client" },
+	{ directory: "packages/storage/sqlite-node", name: "@zykairotis/ice-storage-sqlite-node" },
+	{ directory: "packages/tui", name: "@zykairotis/ice-tui" },
+	{ directory: "packages/coding-agent", name: "@zykairotis/ice-coding-agent" },
 ];
 
 const dryRun = process.argv.includes("--dry-run");
@@ -90,7 +90,7 @@ if (versions.length !== 1) {
 	throw new Error(`Publish packages are not lockstep versioned: ${versions.join(", ")}`);
 }
 
-console.log(`Publishing pi packages at ${versions[0]}${dryRun ? " (dry run)" : ""}\n`);
+console.log(`Publishing ice packages at ${versions[0]}${dryRun ? " (dry run)" : ""}\n`);
 
 const packageStates = packages.map((pkg) => ({
 	...pkg,

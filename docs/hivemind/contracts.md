@@ -152,7 +152,7 @@ interface HiveConsensusPolicy {
 }
 ```
 
-`evidence_quorum` should be the preferred Pi Void mode for consequential recommendations.
+`evidence_quorum` should be the preferred ICE mode for consequential recommendations.
 
 Do not expose a setting named Byzantine fault tolerance unless the implementation can justify the actual fault model. Several correlated LLM calls do not automatically satisfy BFT assumptions.
 

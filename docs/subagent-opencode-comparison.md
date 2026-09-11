@@ -1,17 +1,17 @@
-# Pi Void vs OpenCode Subagents: Detailed Comparison and Audit Findings
+# ICE vs OpenCode Subagents: Detailed Comparison and Audit Findings
 
 Date: 2026-08-11
 
 ## Scope
 
-This document compares the implemented Pi Void subagent system with the OpenCode reference under `agent_references/opencode/`. It records the architecture comparison, capability differences, security audit findings, validation evidence, trade-offs, and overall ratings.
+This document compares the implemented ICE subagent system with the OpenCode reference under `agent_references/opencode/`. It records the architecture comparison, capability differences, security audit findings, validation evidence, trade-offs, and overall ratings.
 
-Compared Pi Void implementation:
+Compared ICE implementation:
 
-- `packages/coding-agent/src/piv-subagents.ts`
-- `packages/coding-agent/src/piv-subagent-jobs.ts`
-- `packages/coding-agent/src/piv-subagent-observatory.ts`
-- `packages/coding-agent/src/piv.ts`
+- `packages/coding-agent/src/ice-subagents.ts`
+- `packages/coding-agent/src/ice-subagent-jobs.ts`
+- `packages/coding-agent/src/ice-subagent-observatory.ts`
+- `packages/coding-agent/src/ice.ts`
 - `idea.md`
 
 Compared OpenCode implementation:
@@ -28,33 +28,33 @@ Compared OpenCode implementation:
 
 OpenCode is the stronger general-purpose subagent platform. It has richer configurable agents, per-agent model routing, composable permissions, persistent child sessions, resumable tasks, recursive depth controls, background promotion, and stronger first-class session UX.
 
-Pi Void is stronger as a safety-oriented delegation layer. It defaults to read-only children, keeps Pi as the single authoritative loop, uses explicit scope and trust gates, validates structured results, bounds output/context/artifacts, isolates writers in worktrees, and requires parent-owned verification and integration.
+ICE is stronger as a safety-oriented delegation layer. It defaults to read-only children, keeps Ice as the single authoritative loop, uses explicit scope and trust gates, validates structured results, bounds output/context/artifacts, isolates writers in worktrees, and requires parent-owned verification and integration.
 
 The practical summary is:
 
 - Choose OpenCode’s design when flexibility, session continuity, and agent specialization are the priority.
-- Choose Pi Void’s design when containment, deterministic execution, provenance, verification, and safe mutation are the priority.
-- Pi Void should borrow OpenCode’s agent registry, permission model, resumable child-session semantics, and lifecycle model without copying OpenCode’s broader default authority.
+- Choose ICE’s design when containment, deterministic execution, provenance, verification, and safe mutation are the priority.
+- ICE should borrow OpenCode’s agent registry, permission model, resumable child-session semantics, and lifecycle model without copying OpenCode’s broader default authority.
 
 ## Overall rating
 
-| Area | OpenCode | Pi Void | Winner |
+| Area | OpenCode | ICE | Winner |
 |---|---:|---:|---|
 | Agent configurability | 9.5/10 | 7.5/10 | OpenCode |
 | Model routing | 9.0/10 | 7.0/10 | OpenCode |
 | Permission flexibility | 9.5/10 | 8.0/10 | OpenCode |
-| Default security | 7.5/10 | 9.0/10 | Pi Void |
-| Filesystem isolation | 7.0/10 | 9.0/10 | Pi Void |
-| Writer safety and integration | 6.5/10 | 9.5/10 | Pi Void |
+| Default security | 7.5/10 | 9.0/10 | ICE |
+| Filesystem isolation | 7.0/10 | 9.0/10 | ICE |
+| Writer safety and integration | 6.5/10 | 9.5/10 | ICE |
 | Session persistence and resume | 9.5/10 | 7.0/10 | OpenCode |
 | Background lifecycle | 9.0/10 | 8.0/10 | OpenCode |
-| Cancellation and recovery safety | 8.0/10 | 8.5/10 | Pi Void |
-| Structured result verification | 6.5/10 | 9.5/10 | Pi Void |
+| Cancellation and recovery safety | 8.0/10 | 8.5/10 | ICE |
+| Structured result verification | 6.5/10 | 9.5/10 | ICE |
 | Observability and UX | 9.0/10 | 8.0/10 | OpenCode |
-| Defensive-boundary testing | 8.0/10 | 9.0/10 | Pi Void |
+| Defensive-boundary testing | 8.0/10 | 9.0/10 | ICE |
 | Architecture maintainability | 9.0/10 | 7.0/10 | OpenCode |
 | **Overall capability** | **8.6/10** | **8.3/10** | **OpenCode** |
-| **Overall safety and correctness** | **7.8/10** | **8.9/10** | **Pi Void** |
+| **Overall safety and correctness** | **7.8/10** | **8.9/10** | **ICE** |
 
 These scores are qualitative engineering ratings based on the inspected source and tests, not benchmark measurements.
 
@@ -80,7 +80,7 @@ Evidence: `agent_references/opencode/packages/opencode/src/agent/agent.ts:35-55`
 
 OpenCode supports built-in agents such as `build`, `plan`, `general`, and `explore`, plus user/project-defined agents. Agent descriptions are exposed to the model for discovery.
 
-Pi Void currently provides:
+ICE currently provides:
 
 - Bundled `explore` and `review` roles
 - User/project profile files
@@ -90,13 +90,13 @@ Pi Void currently provides:
 - Fixed timeout and output limits
 - Current-parent model inheritance
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:213-300` and profile resolution around `:981-1080`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:213-300` and profile resolution around `:981-1080`.
 
 **OpenCode advantage:** new specialized agents can be added through configuration without changing the runner.
 
-**Pi Void trade-off:** its profiles are safer and more constrained, but less expressive. Per-agent temperature, variants, step limits, and model configuration are not currently part of the profile contract.
+**ICE trade-off:** its profiles are safer and more constrained, but less expressive. Per-agent temperature, variants, step limits, and model configuration are not currently part of the profile contract.
 
-### 2. Permission semantics — OpenCode wins flexibility; Pi Void wins conservative enforcement
+### 2. Permission semantics — OpenCode wins flexibility; ICE wins conservative enforcement
 
 OpenCode has a composable permission engine with:
 
@@ -125,15 +125,15 @@ ctx.ask({
 
 Evidence: `agent_references/opencode/packages/opencode/src/tool/task.ts:119-129`.
 
-Pi Void mainly uses capability intersection:
+ICE mainly uses capability intersection:
 
 ```ts
 deriveSubagentTools(parentActiveTools, profile)
 ```
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:2360-2379`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:2360-2379`.
 
-Default Pi Void child capabilities are:
+Default ICE child capabilities are:
 
 - `read`
 - `grep`
@@ -144,7 +144,7 @@ Mutation and Bash require separate explicit workflows and authorization.
 
 **OpenCode advantage:** more expressive allow/ask/deny behavior and better interactive permission UX.
 
-**Pi Void advantage:** a child cannot normally become more capable than the parent. The parent/tool intersection is easier to audit and more fail-closed than inheriting a child agent’s independent permission set.
+**ICE advantage:** a child cannot normally become more capable than the parent. The parent/tool intersection is easier to audit and more fail-closed than inheriting a child agent’s independent permission set.
 
 ### 3. Child session persistence and resume — OpenCode wins
 
@@ -169,7 +169,7 @@ task_id: previousTaskId
 
 Evidence: `agent_references/opencode/packages/opencode/src/tool/task.ts:47-53` and `:136-138`.
 
-Pi Void foreground child sessions are intentionally:
+ICE foreground child sessions are intentionally:
 
 - Fresh
 - In-memory
@@ -177,15 +177,15 @@ Pi Void foreground child sessions are intentionally:
 - Disposed after completion
 - Returned as structured results
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:3250-3273` and `:4080-4086`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:3250-3273` and `:4080-4086`.
 
-Pi Void fork mode preserves only a sanitized bounded context snapshot. It limits messages and bytes and drops thinking, tool calls, tool results, images, and custom parts.
+ICE fork mode preserves only a sanitized bounded context snapshot. It limits messages and bytes and drops thinking, tool calls, tool results, images, and custom parts.
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:335-372` and `:2387-2570`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:335-372` and `:2387-2570`.
 
 **OpenCode advantage:** excellent interactive follow-up and continuity.
 
-**Pi Void advantage:** avoids unbounded history growth, accidental parent-context leakage, and a second authoritative session store.
+**ICE advantage:** avoids unbounded history growth, accidental parent-context leakage, and a second authoritative session store.
 
 ### 4. Background execution and promotion — OpenCode wins lifecycle flexibility
 
@@ -208,7 +208,7 @@ OpenCode can extend an existing job instead of launching a duplicate:
 background.extend({ id: nextSession.id, run: runTask() })
 ```
 
-Pi Void provides:
+ICE provides:
 
 - `delegate_async`
 - FIFO queueing
@@ -220,11 +220,11 @@ Pi Void provides:
 - Restart interruption state
 - Completion inbox metadata
 
-Evidence: `packages/coding-agent/src/piv-subagent-jobs.ts:513-995` and `packages/coding-agent/src/piv-subagents.ts:6612-6758`.
+Evidence: `packages/coding-agent/src/ice-subagent-jobs.ts:513-995` and `packages/coding-agent/src/ice-subagents.ts:6612-6758`.
 
 **OpenCode advantage:** foreground and background are lifecycle states of the same persistent child session.
 
-**Pi Void advantage:** durable state transitions are bounded and fail-closed. Jobs are not silently relaunched after restart, and non-idempotent work is not automatically replayed.
+**ICE advantage:** durable state transitions are bounded and fail-closed. Jobs are not silently relaunched after restart, and non-idempotent work is not automatically replayed.
 
 ### 5. Recursive delegation — OpenCode wins capability
 
@@ -236,7 +236,7 @@ It disables recursive task launching by default through child permission rules, 
 
 Evidence: `agent_references/opencode/packages/opencode/src/tool/task.ts:143-155`.
 
-Pi Void disables recursion entirely:
+ICE disables recursion entirely:
 
 - Child extensions disabled
 - MCP disabled
@@ -244,13 +244,13 @@ Pi Void disables recursion entirely:
 - `delegate_write` unavailable to children
 - No recursive scheduler
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:3171-3181` and `:3245-3267`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:3171-3181` and `:3245-3267`.
 
 **OpenCode advantage:** supports coordinator/investigator/reviewer hierarchies.
 
-**Pi Void rationale:** avoids recursive cost explosion, nested authority confusion, complex cancellation trees, and context multiplication.
+**ICE rationale:** avoids recursive cost explosion, nested authority confusion, complex cancellation trees, and context multiplication.
 
-### 6. Model routing — OpenCode wins flexibility; Pi Void wins determinism
+### 6. Model routing — OpenCode wins flexibility; ICE wins determinism
 
 OpenCode lets an agent specify a model and provider. The task runner uses the child’s configured model or falls back to the parent model.
 
@@ -264,13 +264,13 @@ This supports:
 - Per-agent cost optimization
 - Different reasoning variants
 
-Pi Void explicitly requires the exact current parent `Model` object for delegated children.
+ICE explicitly requires the exact current parent `Model` object for delegated children.
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:6496`, `:6616`, and `:6764`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:6496`, `:6616`, and `:6764`.
 
 **OpenCode advantage:** operational optimization and specialization.
 
-**Pi Void advantage:** exact same-model comparisons, stable provenance, no hidden provider switching, predictable cost accounting, and easier benchmark interpretation.
+**ICE advantage:** exact same-model comparisons, stable provenance, no hidden provider switching, predictable cost accounting, and easier benchmark interpretation.
 
 ### 7. Tool breadth — OpenCode wins capability
 
@@ -286,7 +286,7 @@ OpenCode’s default `explore` agent can use:
 
 Evidence: `agent_references/opencode/packages/opencode/src/agent/agent.ts:196-217`.
 
-Pi Void’s default roles only use:
+ICE’s default roles only use:
 
 - `read`
 - `grep`
@@ -297,15 +297,15 @@ Bash, edit, and write require explicit unsafe or writer paths.
 
 **OpenCode advantage:** broader repository and web investigation without additional parent orchestration.
 
-**Pi Void advantage:** default children cannot execute commands, use the network, access MCP, mutate files, load extensions, or delegate recursively.
+**ICE advantage:** default children cannot execute commands, use the network, access MCP, mutate files, load extensions, or delegate recursively.
 
-### 8. Scope and filesystem policy — Pi Void wins
+### 8. Scope and filesystem policy — ICE wins
 
 OpenCode relies primarily on permission rules and external-directory policy:
 
 Evidence: `agent_references/opencode/packages/opencode/src/agent/agent.ts:108-125`.
 
-Pi Void performs explicit scope normalization and canonicalization:
+ICE performs explicit scope normalization and canonicalization:
 
 - Scope roots must exist
 - Scope roots must be directories
@@ -316,9 +316,9 @@ Pi Void performs explicit scope normalization and canonicalization:
 - Evidence paths are canonicalized
 - Writer paths reject deletes, renames, gitlinks, symlinks, and unsupported statuses
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:2570-2672`, `:2000-2063`, `:1274-1339`, and `:2935-3070`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:2570-2672`, `:2000-2063`, `:1274-1339`, and `:2935-3070`.
 
-Pi Void also includes checks for:
+ICE also includes checks for:
 
 - Profile symlink escapes
 - Resource mutation
@@ -329,11 +329,11 @@ Pi Void also includes checks for:
 
 **Important limitation:** path authorization and filesystem use are still not a kernel-level atomic boundary. The current defense rejects symlink components and revalidates canonical scope immediately before use, but descriptor-relative operations or true isolated execution are still needed to fully eliminate TOCTOU races.
 
-### 9. Mutation and writer workflows — Pi Void wins significantly
+### 9. Mutation and writer workflows — ICE wins significantly
 
 OpenCode’s normal task model lets a permitted child edit directly in the project session.
 
-Pi Void separates writing into a dedicated workflow:
+ICE separates writing into a dedicated workflow:
 
 1. Parent must satisfy Git preconditions.
 2. Writer receives a temporary detached worktree.
@@ -348,13 +348,13 @@ Pi Void separates writing into a dedicated workflow:
 11. Verification runs.
 12. Failure triggers compare-and-swap-style rollback.
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:1115-1195`, `:1470-1550`, `:1907-1998`, and `:6004-6457`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:1115-1195`, `:1470-1550`, `:1907-1998`, and `:6004-6457`.
 
-**Pi Void advantage:** better protection of unrelated parent work, stale-state detection, explicit review, verification, and rollback.
+**ICE advantage:** better protection of unrelated parent work, stale-state detection, explicit review, verification, and rollback.
 
 **OpenCode advantage:** simpler and faster direct editing when the configured permission policy is trusted.
 
-### 10. Result protocol and verification — Pi Void wins
+### 10. Result protocol and verification — ICE wins
 
 OpenCode’s task result is primarily text-oriented:
 
@@ -370,7 +370,7 @@ Evidence: `agent_references/opencode/packages/opencode/src/tool/task.ts:56-78`.
 
 The parent interprets the child’s text.
 
-Pi Void requires structured output containing:
+ICE requires structured output containing:
 
 - Summary
 - Evidence paths
@@ -386,9 +386,9 @@ Pi Void requires structured output containing:
 - Usage
 - Recovery metadata
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:420-700` and `:2830-3070`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:420-700` and `:2830-3070`.
 
-Pi Void verifies:
+ICE verifies:
 
 - Run lineage
 - Parent-session lineage
@@ -401,13 +401,13 @@ Pi Void verifies:
 - Reviewer finding shape
 - Finding evidence scope
 
-Pi Void explicitly does not claim semantic truth. Its verification says semantic claims remain unresolved.
+ICE explicitly does not claim semantic truth. Its verification says semantic claims remain unresolved.
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:3064-3069`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:3064-3069`.
 
-### 11. Output budgets and retry accounting — Pi Void wins
+### 11. Output budgets and retry accounting — ICE wins
 
-Pi Void bounds:
+ICE bounds:
 
 - Task count
 - Concurrency
@@ -421,7 +421,7 @@ Pi Void bounds:
 - Changed file count
 - Retry attempts
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:266-370`, `:4098-4220`, and `:4416-4453`; `packages/coding-agent/src/piv-subagent-jobs.ts:1-20`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:266-370`, `:4098-4220`, and `:4416-4453`; `packages/coding-agent/src/ice-subagent-jobs.ts:1-20`.
 
 Recovery is:
 
@@ -442,7 +442,7 @@ Evidence: `agent_references/opencode/packages/opencode/src/tool/task.txt:15-16`.
 
 OpenCode’s resumable child sessions provide strong continuity.
 
-Pi Void supports:
+ICE supports:
 
 - `fresh` context
 - Sanitized bounded `fork` context
@@ -450,11 +450,11 @@ Pi Void supports:
 - Credential redaction before handoff
 - Explicit combined context budget
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:312-333` and `:2387-2570`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:312-333` and `:2387-2570`.
 
 **OpenCode advantage:** full continuation of an existing child.
 
-**Pi Void advantage:** explicit trust categories, redaction, byte bounds, and no accidental full-transcript inheritance.
+**ICE advantage:** explicit trust categories, redaction, byte bounds, and no accidental full-transcript inheritance.
 
 ### 13. Parent/child cancellation — mixed
 
@@ -462,7 +462,7 @@ OpenCode cancellation follows the persistent session tree and can cancel the par
 
 Evidence: `agent_references/opencode/packages/opencode/src/session/run-state.ts:112-147`.
 
-Pi Void supports:
+ICE supports:
 
 - Foreground abort signals
 - Async job cancellation
@@ -472,11 +472,11 @@ Pi Void supports:
 - Session-shutdown cancellation
 - Bash process-tree termination
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:739-865`, `:4525-4708`; `packages/coding-agent/src/piv-subagent-jobs.ts:665-703`, `:768-789`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:739-865`, `:4525-4708`; `packages/coding-agent/src/ice-subagent-jobs.ts:665-703`, `:768-789`.
 
 **OpenCode advantage:** natural hierarchical cancellation through persistent sessions.
 
-**Pi Void advantage:** explicit bounded job control and no silent relaunch.
+**ICE advantage:** explicit bounded job control and no silent relaunch.
 
 **Shared limitation:** cancellation is best-effort for non-cooperative workers, detached descendants, filesystem effects, network effects, and unsafe host execution.
 
@@ -484,7 +484,7 @@ Evidence: `packages/coding-agent/src/piv-subagents.ts:739-865`, `:4525-4708`; `p
 
 OpenCode persists complete child sessions and message histories in its session database. This is stronger for interactive resume and inspection.
 
-Pi Void persists durable async job snapshots as append-only custom session entries:
+ICE persists durable async job snapshots as append-only custom session entries:
 
 - Job status
 - Queue metadata
@@ -498,13 +498,13 @@ Pi Void persists durable async job snapshots as append-only custom session entri
 
 On restart, active/queued jobs become `interrupted` rather than being silently relaunched.
 
-Evidence: `packages/coding-agent/src/piv-subagent-jobs.ts:705-761`.
+Evidence: `packages/coding-agent/src/ice-subagent-jobs.ts:705-761`.
 
 **OpenCode advantage:** complete child conversation persistence.
 
-**Pi Void advantage:** conservative restart semantics that avoid replaying non-idempotent work, mutations, network operations, or provider requests.
+**ICE advantage:** conservative restart semantics that avoid replaying non-idempotent work, mutations, network operations, or provider requests.
 
-### 15. Observability and UX — OpenCode wins session UX; Pi Void wins bounded operational telemetry
+### 15. Observability and UX — OpenCode wins session UX; ICE wins bounded operational telemetry
 
 OpenCode child sessions participate in the normal session system:
 
@@ -518,7 +518,7 @@ OpenCode child sessions participate in the normal session system:
 
 Evidence: `agent_references/opencode/packages/opencode/src/session/session.ts:451-452`, `:598-619`, and `src/cli/cmd/run/subagent-data.ts`.
 
-Pi Void has a dedicated observatory with:
+ICE has a dedicated observatory with:
 
 - Active child registry
 - Parent/child split view
@@ -529,11 +529,11 @@ Pi Void has a dedicated observatory with:
 - Bounded transcript view
 - Runtime status projections
 
-Evidence: `packages/coding-agent/src/piv-subagent-observatory.ts` and `packages/coding-agent/src/piv-subagents.ts:6994-7029`.
+Evidence: `packages/coding-agent/src/ice-subagent-observatory.ts` and `packages/coding-agent/src/ice-subagents.ts:6994-7029`.
 
 **OpenCode advantage:** natural session navigation, full transcripts, and platform APIs.
 
-**Pi Void advantage:** bounded projections, local-only observability by default, and separation between operational metadata and child result bodies.
+**ICE advantage:** bounded projections, local-only observability by default, and separation between operational metadata and child result bodies.
 
 ### 16. Tool discoverability — OpenCode wins
 
@@ -541,7 +541,7 @@ OpenCode dynamically describes available agents and filters hidden or denied ent
 
 Evidence: `agent_references/opencode/packages/opencode/src/tool/registry.ts:250-330` and `test/tool/task.test.ts`.
 
-Pi Void has `list_subagent_profiles`, which returns:
+ICE has `list_subagent_profiles`, which returns:
 
 - Role name
 - Description
@@ -550,9 +550,9 @@ Pi Void has `list_subagent_profiles`, which returns:
 - Read-only tools
 - Unsafe declaration
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:6459-6490`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:6459-6490`.
 
-OpenCode’s model-facing descriptions are richer because they include agent modes and permission-aware availability. Pi Void should improve its profile listing and delegation prompt descriptions.
+OpenCode’s model-facing descriptions are richer because they include agent modes and permission-aware availability. ICE should improve its profile listing and delegation prompt descriptions.
 
 ### 17. Architecture and maintainability — OpenCode wins
 
@@ -568,7 +568,7 @@ OpenCode separates:
 - CLI rendering
 - HTTP/API session endpoints
 
-Pi Void’s central `piv-subagents.ts` is approximately 7,154 lines and contains:
+ICE’s central `ice-subagents.ts` is approximately 7,154 lines and contains:
 
 - Profile resolution
 - Resource resolution
@@ -588,19 +588,19 @@ Pi Void’s central `piv-subagents.ts` is approximately 7,154 lines and contains
 - Observatory wiring
 - Command registration
 
-Pi Void has extracted jobs and observatory code, but the central runner remains very large.
+ICE has extracted jobs and observatory code, but the central runner remains very large.
 
 **OpenCode advantage:** clearer service boundaries and easier independent evolution.
 
-**Pi Void advantage:** security logic is centralized and the single-loop boundary is visible, but the file is now large enough that this benefit is diminishing.
+**ICE advantage:** security logic is centralized and the single-loop boundary is visible, but the file is now large enough that this benefit is diminishing.
 
-### 18. Security posture — Pi Void wins by default
+### 18. Security posture — ICE wins by default
 
 OpenCode’s default explore agent allows Bash, webfetch, websearch, and repository read/search tools.
 
 Evidence: `agent_references/opencode/packages/opencode/src/agent/agent.ts:196-217`.
 
-Pi Void’s normal child roles cannot:
+ICE’s normal child roles cannot:
 
 - Execute commands
 - Use the network
@@ -620,11 +620,11 @@ Unsafe host execution requires:
 - Parent Bash capability
 - Startup authorization
 
-Evidence: `packages/coding-agent/src/piv-subagents.ts:126-178` and `:5877-5910`.
+Evidence: `packages/coding-agent/src/ice-subagents.ts:126-178` and `:5877-5910`.
 
-Pi Void is safer by default, although explicit unsafe mode remains host execution rather than a sandbox.
+ICE is safer by default, although explicit unsafe mode remains host execution rather than a sandbox.
 
-## Confirmed Pi Void security findings and fixes
+## Confirmed ICE security findings and fixes
 
 ### Finding 1 — unsafe delegated Bash inherited the host environment
 
@@ -633,7 +633,7 @@ Pi Void is safer by default, although explicit unsafe mode remains host executio
 Original problem:
 
 - Unsafe child Bash used `exposeSessionEnvironment: false`.
-- That option only removed Pi session metadata such as `PI_SESSION_ID`.
+- That option only removed Ice session metadata such as `ICE_SESSION_ID`.
 - The shared Bash implementation still called `getShellEnv()`.
 - `getShellEnv()` spread `process.env`, exposing unrelated host variables.
 
@@ -648,14 +648,14 @@ Relevant shared code:
 
 Fix applied:
 
-- Added `createDelegatedShellEnvironment()` in `piv-subagents.ts`.
+- Added `createDelegatedShellEnvironment()` in `ice-subagents.ts`.
 - Unsafe delegated Bash uses a `spawnHook` to replace the inherited environment with an explicit allowlist.
 - Removed home, user, identity, and XDG configuration variables from the delegated environment.
 - Retained only execution-related values such as `PATH`, locale, shell, terminal, and temporary-directory variables.
 
 Regression coverage:
 
-- `piv-subagents-adversarial.test.ts` verifies AWS, GitHub, Pi session, home, and other credential-bearing variables are removed.
+- `ice-subagents-adversarial.test.ts` verifies AWS, GitHub, Ice session, home, and other credential-bearing variables are removed.
 
 ### Finding 2 — scoped filesystem access had a TOCTOU symlink race
 
@@ -687,17 +687,17 @@ Regression coverage:
 - Existing writer tests cover symlink replacement and patch/artifact escapes.
 - Updated writer scope expectations to accept the explicit symlink rejection diagnostic.
 
-## Pi Void strengths
+## ICE strengths
 
-Pi Void is materially stronger in these areas:
+ICE is materially stronger in these areas:
 
 1. **Read-only-by-default delegation**
    - Normal children receive only read/search tools.
    - Bash, network, MCP, extensions, mutation, and recursion are disabled by default.
 
 2. **Parent-owned authority**
-   - Pi remains the single authoritative reasoning and tool loop.
-   - Delegation is a Pi Void extension/tool rather than a competing controller.
+   - Ice remains the single authoritative reasoning and tool loop.
+   - Delegation is a ICE extension/tool rather than a competing controller.
 
 3. **Structured result verification**
    - Child results require lineage, bounded summaries, evidence paths, and valid status.
@@ -721,7 +721,7 @@ Pi Void is materially stronger in these areas:
 8. **Conservative restart behavior**
    - Incomplete durable jobs become `interrupted` rather than being replayed automatically.
 
-## Pi Void weaknesses relative to OpenCode
+## ICE weaknesses relative to OpenCode
 
 1. **Agent profiles are less expressive**
    - No per-agent model, provider, variant, temperature, top-p, or step settings.
@@ -745,7 +745,7 @@ Pi Void is materially stronger in these areas:
    - It projects child state rather than making children first-class persistent sessions.
 
 8. **Central implementation is too large**
-   - `piv-subagents.ts` combines too many responsibilities and should be decomposed over time.
+   - `ice-subagents.ts` combines too many responsibilities and should be decomposed over time.
 
 9. **Filesystem authorization is not fully race-safe**
    - Symlink rejection and revalidation reduce risk but do not replace descriptor-relative operations or isolation.
@@ -771,7 +771,7 @@ Add a dedicated agent/profile registry with typed fields for:
 - Visibility
 - Source/provenance
 
-Keep Pi Void’s trust rules and prohibit project profiles from weakening global safety constraints.
+Keep ICE’s trust rules and prohibit project profiles from weakening global safety constraints.
 
 ### B. Permission-aware model-facing discovery
 
@@ -824,19 +824,19 @@ If recursive delegation is added, require:
 
 Potential boundaries:
 
-- `piv-subagent-profiles.ts`
-- `piv-subagent-resources.ts`
-- `piv-subagent-scope.ts`
-- `piv-subagent-runner.ts`
-- `piv-subagent-recovery.ts`
-- `piv-subagent-batch.ts`
-- `piv-subagent-writer.ts`
-- `piv-subagent-tools.ts`
-- `piv-subagent-policy.ts`
+- `ice-subagent-profiles.ts`
+- `ice-subagent-resources.ts`
+- `ice-subagent-scope.ts`
+- `ice-subagent-runner.ts`
+- `ice-subagent-recovery.ts`
+- `ice-subagent-batch.ts`
+- `ice-subagent-writer.ts`
+- `ice-subagent-tools.ts`
+- `ice-subagent-policy.ts`
 
 This should be done incrementally, with no behavior change and focused tests per boundary.
 
-## OpenCode features Pi Void should not copy directly
+## OpenCode features ICE should not copy directly
 
 1. **Broad default explore authority**
    - Do not enable Bash/web/network by default for repository-derived tasks.
@@ -855,7 +855,7 @@ This should be done incrementally, with no behavior change and focused tests per
 
 ## Validation evidence
 
-Focused Pi Void validation performed during this comparison/fix cycle:
+Focused ICE validation performed during this comparison/fix cycle:
 
 - Focused subagent tests: **225 passed** across 5 test files.
 - Earlier full subagent-focused suite: **243 passed** across 6 test files.
@@ -868,7 +868,7 @@ The focused test results validate the implemented delegation contracts but do no
 
 ## Final recommendation
 
-Pi Void should not try to become a full OpenCode clone. Its strongest differentiator is a controlled, verifiable, safety-first delegation layer around Pi’s existing loop.
+ICE should not try to become a full OpenCode clone. Its strongest differentiator is a controlled, verifiable, safety-first delegation layer around Ice’s existing loop.
 
 The highest-value roadmap is:
 
@@ -878,11 +878,11 @@ The highest-value roadmap is:
 4. Add optional resumable child sessions with bounded parent projections.
 5. Add safe foreground-to-background promotion.
 6. Consider bounded recursion only after lifecycle and cancellation semantics are mature.
-7. Decompose `piv-subagents.ts` without changing behavior.
+7. Decompose `ice-subagents.ts` without changing behavior.
 8. Replace path-check/recheck filesystem access with descriptor-relative or isolated operations before advertising stronger sandbox claims.
 
 Overall judgment:
 
 - **OpenCode:** better general-purpose capability and user workflow.
-- **Pi Void:** better default safety, verification, mutation control, and deterministic delegation.
-- **Best target:** Pi Void’s safety boundary combined with OpenCode’s agent registry, permission UX, session continuity, and lifecycle model.
+- **ICE:** better default safety, verification, mutation control, and deterministic delegation.
+- **Best target:** ICE’s safety boundary combined with OpenCode’s agent registry, permission UX, session continuity, and lifecycle model.

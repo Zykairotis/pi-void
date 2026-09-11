@@ -192,10 +192,10 @@ export async function runCli(args: readonly string[], options: CliRuntimeOptions
 		if (executions.length === 0) throw new Error(`benchmark model route not found: ${parsed.model}`);
 		for (const execution of executions) requireProviderCredential(execution);
 		const workspacePath = options.workspacePath ?? process.cwd();
-		const stockTarget = findTarget(manifest.targets, "pi-stock");
+		const stockTarget = findTarget(manifest.targets, "ice-stock");
 		const hostCheckoutPath = stockTarget.localPath
 			? resolve(workspacePath, stockTarget.localPath)
-			: options.externalCheckouts?.["pi-stock"];
+			: options.externalCheckouts?.["ice-stock"];
 		const runId = randomUUID();
 		const results: BenchmarkResult[] = [];
 		for (const execution of executions) {

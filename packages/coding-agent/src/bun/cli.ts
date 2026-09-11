@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
+import { registerBunOAuthFlows } from "@zykairotis/ice-ai/bun-oauth";
 import { APP_NAME } from "../config.ts";
 
 process.title = APP_NAME;
@@ -12,4 +12,4 @@ import { restoreSandboxEnv } from "./restore-sandbox-env.ts";
 restoreSandboxEnv();
 
 await import("./register-bedrock.ts");
-await import("../cli.ts");
+await import("../ice.ts");

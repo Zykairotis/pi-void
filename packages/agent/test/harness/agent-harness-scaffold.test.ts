@@ -1,5 +1,5 @@
-import { createModels } from "@earendil-works/pi-ai";
-import { getModel } from "@earendil-works/pi-ai/compat";
+import { createModels } from "@zykairotis/ice-ai";
+import { getModel } from "@zykairotis/ice-ai/compat";
 import { describe, expect, it } from "vitest";
 import { AgentHarness, HarnessClosed, HarnessNotImplemented } from "../../src/harness/agent-harness.ts";
 import { InMemorySessionStorage, Session } from "../../src/harness/session/index.ts";

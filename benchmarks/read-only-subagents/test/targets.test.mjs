@@ -8,7 +8,7 @@ import { getTargetAdapter } from "../src/adapters/index.ts";
 import { prepareTarget } from "../src/targets.ts";
 
 async function createCheckout() {
-	const dir = await mkdtemp(join(tmpdir(), "piv-b8-target-"));
+	const dir = await mkdtemp(join(tmpdir(), "ice-b8-target-"));
 	await writeFile(join(dir, "fixture.txt"), "fixture\n");
 	execFileSync("git", ["init", "--quiet", dir]);
 	execFileSync("git", ["-C", dir, "add", "fixture.txt"]);
@@ -16,7 +16,7 @@ async function createCheckout() {
 		"-C",
 		dir,
 		"-c",
-		"user.name=Pi Void Test",
+		"user.name=ICE Test",
 		"-c",
 		"user.email=test@example.invalid",
 		"commit",
@@ -29,16 +29,16 @@ async function createCheckout() {
 }
 
 test("registers all four target adapters", () => {
-	for (const id of ["pi-stock", "pi-native-example", "pi-subagents", "pi-void"]) {
+	for (const id of ["ice-stock", "ice-native-example", "ice-subagents", "ice"]) {
 		assert.equal(getTargetAdapter(id).id, id);
 	}
 });
 
-test("prepares pi-void from the workspace and resolves its commit", async () => {
+test("prepares ice from the workspace and resolves its commit", async () => {
 	const checkout = await createCheckout();
 	try {
 		const prepared = await prepareTarget(
-			{ id: "pi-void", source: { commit: "CURRENT_WORKSPACE" } },
+			{ id: "ice", source: { commit: "CURRENT_WORKSPACE" } },
 			{ workspacePath: checkout.dir },
 		);
 		assert.equal(prepared.resolvedCommit, checkout.commit);
@@ -53,29 +53,29 @@ test("rejects an absent external checkout with the pinned target diagnostic", as
 		() =>
 			prepareTarget(
 				{
-					id: "pi-stock",
+					id: "ice-stock",
 					source: { commit: "0123456789abcdef0123456789abcdef01234567" },
 				},
 				{ workspacePath: "/does/not/exist" },
 			),
-		/benchmark target pi-stock@0123456789abcdef0123456789abcdef01234567 unavailable/,
+		/benchmark target ice-stock@0123456789abcdef0123456789abcdef01234567 unavailable/,
 	);
 });
 
 test("rejects a non-git checkout with the pinned target diagnostic", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "piv-b8-non-git-"));
+	const dir = await mkdtemp(join(tmpdir(), "ice-b8-non-git-"));
 	try {
 		await assert.rejects(
 			() =>
 				prepareTarget(
 					{
-						id: "pi-stock",
+						id: "ice-stock",
 						source: { commit: "0123456789abcdef0123456789abcdef01234567" },
 						localPath: dir,
 					},
 					{ workspacePath: "/unused" },
 				),
-			/benchmark target pi-stock@0123456789abcdef0123456789abcdef01234567 unavailable/,
+			/benchmark target ice-stock@0123456789abcdef0123456789abcdef01234567 unavailable/,
 		);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
@@ -90,13 +90,13 @@ test("rejects an exact SHA mismatch without changing the checkout", async () => 
 			() =>
 				prepareTarget(
 					{
-						id: "pi-stock",
+						id: "ice-stock",
 						source: { commit: "0123456789abcdef0123456789abcdef01234567" },
 						localPath: checkout.dir,
 					},
 					{ workspacePath: "/unused" },
 				),
-			/benchmark target pi-stock@0123456789abcdef0123456789abcdef01234567 unavailable/,
+			/benchmark target ice-stock@0123456789abcdef0123456789abcdef01234567 unavailable/,
 		);
 		assert.equal(await readFile(join(checkout.dir, "fixture.txt"), "utf8"), before);
 	} finally {
@@ -106,7 +106,7 @@ test("rejects an exact SHA mismatch without changing the checkout", async () => 
 
 test("rejects a source subdirectory that escapes through a symlink", async () => {
 	const checkout = await createCheckout();
-	const outside = await mkdtemp(join(tmpdir(), "piv-b8-outside-"));
+	const outside = await mkdtemp(join(tmpdir(), "ice-b8-outside-"));
 	try {
 		await symlink(outside, join(checkout.dir, "source"), "dir");
 		execFileSync("git", ["-C", checkout.dir, "add", "source"]);
@@ -114,7 +114,7 @@ test("rejects a source subdirectory that escapes through a symlink", async () =>
 			"-C",
 			checkout.dir,
 			"-c",
-			"user.name=Pi Void Test",
+			"user.name=ICE Test",
 			"-c",
 			"user.email=test@example.invalid",
 			"commit",
@@ -126,10 +126,10 @@ test("rejects a source subdirectory that escapes through a symlink", async () =>
 		await assert.rejects(
 			() =>
 				prepareTarget(
-					{ id: "pi-stock", source: { commit, subdir: "source" }, localPath: checkout.dir },
+					{ id: "ice-stock", source: { commit, subdir: "source" }, localPath: checkout.dir },
 					{ workspacePath: "/unused" },
 				),
-			/benchmark target pi-stock@.* unavailable/,
+			/benchmark target ice-stock@.* unavailable/,
 		);
 	} finally {
 		await rm(checkout.dir, { recursive: true, force: true });
@@ -142,9 +142,9 @@ test("uses the target adapter to prepare an exact external checkout", async () =
 	try {
 		await mkdir(join(checkout.dir, "dist"));
 		await writeFile(join(checkout.dir, "dist", "cli.js"), "#!/usr/bin/env node\n");
-		const prepared = await getTargetAdapter("pi-stock").prepare(
+		const prepared = await getTargetAdapter("ice-stock").prepare(
 			{ workspacePath: "/unused" },
-			{ id: "pi-stock", source: { commit: checkout.commit }, localPath: checkout.dir },
+			{ id: "ice-stock", source: { commit: checkout.commit }, localPath: checkout.dir },
 		);
 		assert.equal(prepared.resolvedCommit, checkout.commit);
 		assert.equal(prepared.sourcePath, checkout.dir);

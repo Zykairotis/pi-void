@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model } from "@zykairotis/ice-ai";
 import lockfile from "proper-lockfile";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FileAuthStorageBackend } from "../src/core/auth-storage.ts";
@@ -33,7 +33,7 @@ function model(provider: string, id: string): Model<"openai-completions"> {
 
 describe("FileModelsStore", () => {
 	it("persists provider catalogs without replacing unrelated providers", async () => {
-		const dir = join(tmpdir(), `pi-models-store-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		const dir = join(tmpdir(), `ice-models-store-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		tempDirs.push(dir);
 		mkdirSync(dir, { recursive: true });
 		const path = join(dir, "models-store.json");
@@ -53,7 +53,7 @@ describe("FileModelsStore", () => {
 	});
 
 	it("coalesces simultaneous provider reads into one locked snapshot", async () => {
-		const dir = join(tmpdir(), `pi-models-store-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		const dir = join(tmpdir(), `ice-models-store-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		tempDirs.push(dir);
 		mkdirSync(dir, { recursive: true });
 		const path = join(dir, "models-store.json");
@@ -69,7 +69,7 @@ describe("FileModelsStore", () => {
 	});
 
 	it("cancels a catalog write waiting for a held file lock without writing later", async () => {
-		const dir = join(tmpdir(), `pi-models-store-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		const dir = join(tmpdir(), `ice-models-store-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		tempDirs.push(dir);
 		mkdirSync(dir, { recursive: true });
 		const path = join(dir, "models-store.json");

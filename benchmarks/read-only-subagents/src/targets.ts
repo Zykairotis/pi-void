@@ -64,7 +64,7 @@ function targetUnavailable(target: BenchmarkTarget): BenchmarkTargetUnavailableE
 }
 
 function getCheckoutPath(context: BenchmarkContext, target: BenchmarkTarget): string {
-	if (target.id === "pi-void") return resolve(context.workspacePath);
+	if (target.id === "ice") return resolve(context.workspacePath);
 	const candidate = target.localPath ?? context.externalCheckouts?.[target.id];
 	if (candidate === undefined) throw targetUnavailable(target);
 	return resolve(context.workspacePath, candidate);

@@ -32,10 +32,10 @@ import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
 import {
 	type CustomStructuredCommand,
 	findCustomStructuredCommands,
-	getPiSettingsCommandSchemaResult,
-	invokePiSettingsCommand,
+	getIceSettingsCommandSchemaResult,
+	ICE_SETTINGS_SCHEMA_ID,
+	invokeIceSettingsCommand,
 	mergeCustomStructuredCommandInventory,
-	PI_SETTINGS_SCHEMA_ID,
 	type RpcCommandErrorDetails,
 	RpcCommandExecutionError,
 	type RpcCommandSchemaResult,
@@ -770,9 +770,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				// Built-in /settings command
 				commands.push({
 					name: "settings",
-					description: "Configure Pi runtime settings",
+					description: "Configure Ice runtime settings",
 					source: "builtin",
-					interaction: { type: "form", schemaId: "pi.settings" },
+					interaction: { type: "form", schemaId: "ice.settings" },
 				});
 
 				for (const command of session.extensionRunner.getRegisteredCommands()) {
@@ -824,7 +824,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				if (name === "settings" && (!source || source === "builtin")) {
 					structuredCandidates.push({
 						kind: "builtin-settings",
-						schemaId: PI_SETTINGS_SCHEMA_ID,
+						schemaId: ICE_SETTINGS_SCHEMA_ID,
 						source: "builtin",
 					});
 				}
@@ -843,7 +843,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				if (structuredCandidates.length === 1) {
 					const candidate = structuredCandidates[0]!;
 					if (candidate.kind === "builtin-settings") {
-						const schemaResult = getPiSettingsCommandSchemaResult(getSettingsContext());
+						const schemaResult = getIceSettingsCommandSchemaResult(getSettingsContext());
 						if (schemaId && schemaResult.schema && schemaId !== schemaResult.schema.schemaId) {
 							return error(
 								id,
@@ -957,7 +957,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 					if (candidate.kind === "builtin-settings") {
 						try {
 							const isBusy = session.isStreaming || session.isCompacting;
-							const result = await invokePiSettingsCommand(
+							const result = await invokeIceSettingsCommand(
 								getSettingsContext(),
 								{ schemaId, schemaRevision, arguments: args, options },
 								isBusy,

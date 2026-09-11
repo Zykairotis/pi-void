@@ -1,4 +1,4 @@
-# Pi Void Subagent Audit Report
+# ICE Subagent Audit Report
 
 Date: 2026-08-10
 Scope: current workspace, with emphasis on delegated child sessions, unsafe host execution, scoped tools, durable jobs, and related tests.
@@ -15,13 +15,13 @@ No source or test files were modified during this audit.
 
 **Evidence:**
 
-- `packages/coding-agent/src/piv-subagents.ts` creates the unsafe child Bash tool with `exposeSessionEnvironment: false`.
+- `packages/coding-agent/src/ice-subagents.ts` creates the unsafe child Bash tool with `exposeSessionEnvironment: false`.
 - `packages/coding-agent/src/core/tools/bash.ts` delegates environment construction to `getShellEnv()`.
 - `packages/coding-agent/src/utils/shell.ts` implements `getShellEnv()` by spreading `process.env` and only adjusting `PATH`.
 
 **Impact:**
 
-Disabling Pi session metadata does not create a sanitized environment. An unsafe delegated child can read unrelated host credentials and configuration such as cloud tokens, package registry tokens, and service keys, then use them through the authorized shell. This is especially important because the documented `--sub-yolo` path explicitly grants host command execution.
+Disabling Ice session metadata does not create a sanitized environment. An unsafe delegated child can read unrelated host credentials and configuration such as cloud tokens, package registry tokens, and service keys, then use them through the authorized shell. This is especially important because the documented `--sub-yolo` path explicitly grants host command execution.
 
 **Recommended direction:**
 
@@ -31,7 +31,7 @@ Construct an explicit allowlisted environment for delegated Bash, or run the chi
 
 **Evidence:**
 
-- `packages/coding-agent/src/piv-subagents.ts` validates a path in `assertSubagentScopePath()` using `resolveScopeCandidate()` and `isPathWithin()`.
+- `packages/coding-agent/src/ice-subagents.ts` validates a path in `assertSubagentScopePath()` using `resolveScopeCandidate()` and `isPathWithin()`.
 - `withScopedPath()` performs that validation and then calls the underlying tool's `definition.execute()` separately.
 - The underlying file tools resolve/open paths after the wrapper check.
 

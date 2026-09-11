@@ -7,7 +7,7 @@ export type ContinuationRequestContextMode = "full" | "continuation-delta" | "fu
 export interface ContinuationRequestDiag {
 	timestamp: string;
 	requestSequence: number;
-	piSessionIdHash: string | null;
+	iceSessionIdHash: string | null;
 	provider: string;
 	model: string;
 	api: string;
@@ -94,7 +94,7 @@ function isVitest(): boolean {
 }
 
 export function isContinuationDiagEnabled(provider: string, env?: ProviderEnv): boolean {
-	const flag = envFlag("PI_PROVIDER_CONTINUATION_DIAG", env)?.toLowerCase();
+	const flag = envFlag("ICE_PROVIDER_CONTINUATION_DIAG", env)?.toLowerCase();
 	if (flag === "0" || flag === "false" || flag === "off") return false;
 	if (flag === "1" || flag === "true" || flag === "on") return true;
 	if (isVitest()) return false;
@@ -155,12 +155,12 @@ export function classifyRequestContextMode(options: {
 }
 
 function diagLogPath(env?: ProviderEnv): string | null {
-	const override = envFlag("PI_PROVIDER_CONTINUATION_DIAG_FILE", env);
+	const override = envFlag("ICE_PROVIDER_CONTINUATION_DIAG_FILE", env);
 	if (override) return override;
 	const path = loadBuiltin<NodePath>("node:path");
 	const os = loadBuiltin<NodeOs>("node:os");
 	if (!path || !os) return null;
-	return path.join(os.homedir(), ".pi", "agent", "logs", "provider-continuation-diag.jsonl");
+	return path.join(os.homedir(), ".ice", "agent", "logs", "provider-continuation-diag.jsonl");
 }
 
 function writeDiagLine(record: object, env?: ProviderEnv): void {
@@ -176,9 +176,9 @@ function writeDiagLine(record: object, env?: ProviderEnv): void {
 			// Diagnostic logging must never break a provider call.
 		}
 	}
-	if (typeof process !== "undefined" && envFlag("PI_PROVIDER_CONTINUATION_DIAG_STDERR", env) === "1") {
+	if (typeof process !== "undefined" && envFlag("ICE_PROVIDER_CONTINUATION_DIAG_STDERR", env) === "1") {
 		try {
-			process.stderr.write(`[pi-continuation-diag] ${line}`);
+			process.stderr.write(`[ice-continuation-diag] ${line}`);
 		} catch {
 			// ignore
 		}

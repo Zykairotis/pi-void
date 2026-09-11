@@ -31,13 +31,13 @@ agent_references/
 .npm/
 coverage/
 .nyc_output/
-.pi_config/
+.ice_config/
 tui-debug.log
 compaction-results/
 .opencode/
 syntax.jsonl
 out.jsonl
-pi-*.html
+ice-*.html
 out.html
 packages/coding-agent/binaries/
 todo.md
@@ -47,7 +47,10 @@ plans/
 .*
 !.github/
 !.github/**
+# ICE project resources are tracked; only local run state is ignored.
+!.ice/
+!.ice/**
 summary.md
-.pi/hf-sessions/
-.pi/hf-sessions-backup/
+.ice/hf-sessions/
+.ice/hf-sessions-backup/
 collect.sh

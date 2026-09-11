@@ -1,6 +1,6 @@
-# @earendil-works/pi-protocol
+# @zykairotis/ice-protocol
 
-Runtime-neutral schemas, types, CBOR encoding, and byte-stream framing for the experimental pi protocol.
+Runtime-neutral schemas, types, CBOR encoding, and byte-stream framing for the experimental ice protocol.
 
 Protocol version `1` uses binary messages with this wire layout:
 
@@ -19,7 +19,7 @@ import {
   createServerMessageDecoder,
   encodeClientMessage,
   type ClientHello,
-} from "@earendil-works/pi-protocol";
+} from "@zykairotis/ice-protocol";
 
 const hello: ClientHello = {
   type: "hello",

@@ -6,12 +6,12 @@ This directory contains the B8 release-gate inputs and comparative harness for R
 
 `manifest.json` defines four comparison targets:
 
-- `pi-stock`
-- `pi-native-example`
-- `pi-subagents`
-- `pi-void`
+- `ice-stock`
+- `ice-native-example`
+- `ice-subagents`
+- `ice`
 
-External targets are pinned to immutable commits in `manifest.json`; the current local cache paths must resolve to those exact `HEAD` values before a full comparison can run. Pi Void resolves from the current workspace tree.
+External targets are pinned to immutable commits in `manifest.json`; the current local cache paths must resolve to those exact `HEAD` values before a full comparison can run. ICE resolves from the current workspace tree.
 
 A target may use an existing local checkout or cache only when its `HEAD` exactly matches the manifest commit. Preparation is read-only: inspect files and commands, resolve `HEAD`, and validate the SHA. The harness never fetches, pulls, checks out, switches branches, upgrades dependencies, rewrites target configuration, or substitutes a newer revision.
 
@@ -21,18 +21,18 @@ Unavailable or mismatched targets fail closed with:
 benchmark target <id>@<sha> unavailable
 ```
 
-The adapters invoke the targets through their supported CLI interfaces: stock Pi through `pi`, the native example through `pi --extension`, `pi-subagents` through a pinned Pi host plus its extension entry point, and Pi Void through `piv`. Target-specific failures remain result data rather than being converted into passes.
+The adapters invoke the targets through their supported CLI interfaces: stock Ice through `ice`, the native example through `ice --extension`, `ice-subagents` through a pinned Ice host plus its extension entry point, and ICE through `ice`. Target-specific failures remain result data rather than being converted into passes.
 
 Every result records the resolved commit and provider/model route. Portable JSONL must not contain raw prompts, transcripts, credentials, full child output, or absolute checkout paths. Bounded detail artifacts are separate from the result rows.
 
 ## Provider Routes
 
-`manifest.json` versions two endpoint routes using the upstream Pi `openai` provider and the local OpenAI-compatible endpoint:
+`manifest.json` versions two endpoint routes using the upstream Ice `openai` provider and the local OpenAI-compatible endpoint:
 
 - `cx/gpt-5.6-luna`
 - `cmc/deepseek/deepseek-v4-pro`
 
-Each child gets a temporary `models.json` containing only the selected route metadata. The credential is inherited from `PIV_LOCAL_API_KEY`; no key is written to the manifest, result JSONL, temporary model configuration, or an isolated `auth.json`.
+Each child gets a temporary `models.json` containing only the selected route metadata. The credential is inherited from `ICE_LOCAL_API_KEY`; no key is written to the manifest, result JSONL, temporary model configuration, or an isolated `auth.json`.
 
 Run one trivial provider smoke per model before any scenario matrix:
 
@@ -44,7 +44,7 @@ node benchmarks/read-only-subagents/src/cli.ts --smoke --model cmc/deepseek/deep
 The smoke requires completed agent output from all four targets. Missing credentials fail before target preparation or process spawn:
 
 ```text
-benchmark provider credential PIV_LOCAL_API_KEY unavailable
+benchmark provider credential ICE_LOCAL_API_KEY unavailable
 ```
 
 ## Execution
@@ -52,7 +52,7 @@ benchmark provider credential PIV_LOCAL_API_KEY unavailable
 The CLI modes are:
 
 ```text
---target pi-void
+--target ice
     local development and adversarial debugging mode
 
 --matrix --model <model> --class <class>
@@ -70,7 +70,7 @@ The CLI modes are:
 
 Deterministic scenarios reject `--repeat > 1` unless a future scenario explicitly declares repetition support. Model-quality repetitions preserve the repeat index and benchmark provenance.
 
-The benchmark inputs are `manifest.json` and `scenarios.json`. Outputs are local artifacts under `results/`, which is ignored and created on demand. Do not treat a Pi Void-only run or provider smoke as full release evidence.
+The benchmark inputs are `manifest.json` and `scenarios.json`. Outputs are local artifacts under `results/`, which is ignored and created on demand. Do not treat a ICE-only run or provider smoke as full release evidence.
 
 ## B8 boundary
 

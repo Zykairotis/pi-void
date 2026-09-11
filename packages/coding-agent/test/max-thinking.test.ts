@@ -27,7 +27,7 @@ describe("max thinking level", () => {
 	});
 
 	it("falls back to thinkingMax for legacy themes without ultra", () => {
-		const testDir = mkdtempSync(join(tmpdir(), "pi-ultra-theme-"));
+		const testDir = mkdtempSync(join(tmpdir(), "ice-ultra-theme-"));
 		tempDirs.push(testDir);
 		const currentDir = dirname(fileURLToPath(import.meta.url));
 		const darkTheme = JSON.parse(
@@ -45,7 +45,7 @@ describe("max thinking level", () => {
 	});
 
 	it("falls back to thinkingXhigh for legacy themes", () => {
-		const testDir = mkdtempSync(join(tmpdir(), "pi-max-theme-"));
+		const testDir = mkdtempSync(join(tmpdir(), "ice-max-theme-"));
 		tempDirs.push(testDir);
 		const currentDir = dirname(fileURLToPath(import.meta.url));
 		const darkTheme = JSON.parse(

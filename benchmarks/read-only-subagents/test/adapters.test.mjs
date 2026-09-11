@@ -3,10 +3,10 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { runPiCli } from "../src/adapters/command.ts";
+import { runIceCli } from "../src/adapters/command.ts";
 
 test("normalizes an agent error as a failed observation", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "piv-b8-adapter-"));
+	const dir = await mkdtemp(join(tmpdir(), "ice-b8-adapter-"));
 	const command = join(dir, "fake-target.mjs");
 	await writeFile(
 		command,
@@ -20,16 +20,16 @@ test("normalizes an agent error as a failed observation", async () => {
 	);
 	await chmod(command, 0o755);
 	try {
-		const observation = await runPiCli(
+		const observation = await runIceCli(
 			{
-				id: "pi-void",
+				id: "ice",
 				checkoutPath: dir,
 				sourcePath: dir,
 				resolvedCommit: "0123456789abcdef0123456789abcdef01234567",
 				execution: {
 					provider: "openai",
 					model: "cx/gpt-5.6-luna",
-					apiKeyEnv: "PIV_LOCAL_API_KEY",
+					apiKeyEnv: "ICE_LOCAL_API_KEY",
 					baseUrl: "http://127.0.0.1:20128/v1",
 					api: "openai-responses",
 					contextWindow: 272000,

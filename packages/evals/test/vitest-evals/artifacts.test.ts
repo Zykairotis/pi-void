@@ -11,7 +11,7 @@ import {
 it("records session and source artifacts against the explicit test task", async ({ task }) => {
 	const runId = "run-1";
 	await recordEvalSessionArtifact(task, {
-		artifacts: { runId, piSessionJsonl: '{"type":"session"}\n' },
+		artifacts: { runId, iceSessionJsonl: '{"type":"session"}\n' },
 	});
 	await recordEvalSourceArtifact(task, runId, {
 		name: "hello.ts",
@@ -22,7 +22,7 @@ it("records session and source artifacts against the explicit test task", async 
 
 	expect(task.artifacts).toContainEqual(
 		expect.objectContaining({
-			type: "@earendil-works/pi-evals:session",
+			type: "@zykairotis/ice-evals:session",
 			runId,
 			attachments: [
 				expect.objectContaining({
@@ -36,7 +36,7 @@ it("records session and source artifacts against the explicit test task", async 
 	);
 	expect(task.artifacts).toContainEqual(
 		expect.objectContaining({
-			type: "@earendil-works/pi-evals:source",
+			type: "@zykairotis/ice-evals:source",
 			runId,
 			attachments: [
 				expect.objectContaining({
@@ -51,12 +51,12 @@ it("records session and source artifacts against the explicit test task", async 
 });
 
 it("persists and selects attachments belonging to the reported run", async () => {
-	const root = await mkdtemp(join(tmpdir(), "pi-eval-artifact-report-test-"));
+	const root = await mkdtemp(join(tmpdir(), "ice-eval-artifact-report-test-"));
 	try {
 		const references = await persistEvalArtifactReferences(
 			[
 				{
-					type: "@earendil-works/pi-evals:session",
+					type: "@zykairotis/ice-evals:session",
 					runId: "run-1",
 					attachments: [
 						{
@@ -68,12 +68,12 @@ it("persists and selects attachments belonging to the reported run", async () =>
 					],
 				},
 				{
-					type: "@earendil-works/pi-evals:session",
+					type: "@zykairotis/ice-evals:session",
 					runId: "run-2",
 					attachments: [],
 				},
 				{
-					type: "@earendil-works/pi-evals:source",
+					type: "@zykairotis/ice-evals:source",
 					runId: "run-1",
 					attachments: [
 						{

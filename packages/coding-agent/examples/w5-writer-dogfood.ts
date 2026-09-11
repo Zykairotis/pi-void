@@ -4,13 +4,13 @@ import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { Api, Model } from "@earendil-works/pi-ai/compat";
+import type { Api, Model } from "@zykairotis/ice-ai/compat";
 import { getAgentDir } from "../src/config.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
-import pivSubagents, { type WriterPatchArtifact, type WriterResult } from "../src/piv-subagents.ts";
+import iceSubagents, { type WriterPatchArtifact, type WriterResult } from "../src/ice-subagents.ts";
 
 const execFileAsync = promisify(execFile);
 const LIVE_ROUTES = ["cx/gpt-5.6-luna", "cx/deepseek/deepseek-v4-flash"] as const;
@@ -105,7 +105,7 @@ const SCENARIOS: readonly Scenario[] = [
 
 function usage(): never {
 	throw new Error(
-		"W5 live dogfood is opt-in. Set W5_LIVE=1 and W5_LIVE_ROOT=/path/to/a/clean/pi-void, then pass cx/gpt-5.6-luna or cx/deepseek/deepseek-v4-flash.",
+		"W5 live dogfood is opt-in. Set W5_LIVE=1 and W5_LIVE_ROOT=/path/to/a/clean/ice, then pass cx/gpt-5.6-luna or cx/deepseek/deepseek-v4-flash.",
 	);
 }
 
@@ -135,7 +135,7 @@ function toolContext(cwd: string, modelRegistry: ModelRegistry, model: Model<Api
 
 function registerTools(verifierFlag: string): LiveTools {
 	const registered = new Map<string, LiveTool>();
-	pivSubagents({
+	iceSubagents({
 		getActiveTools: () => [
 			"delegate_write",
 			"read",
@@ -148,7 +148,7 @@ function registerTools(verifierFlag: string): LiveTools {
 			"reject_writer_patch",
 			"integrate_writer_patch",
 		],
-		getFlag: (name: string) => (name === "piv-verify" ? verifierFlag : undefined),
+		getFlag: (name: string) => (name === "ice-verify" ? verifierFlag : undefined),
 		registerTool: (tool: ToolDefinition) => registered.set(tool.name, tool as unknown as LiveTool),
 	} as unknown as ExtensionAPI);
 	return {
@@ -193,13 +193,13 @@ async function runScenario(
 	scenario: Scenario,
 ): Promise<DogfoodRecord> {
 	const startedAt = Date.now();
-	const worktree = await mkdtemp(join(tmpdir(), "piv-w5-live-worktree-"));
+	const worktree = await mkdtemp(join(tmpdir(), "ice-w5-live-worktree-"));
 	await rm(worktree, { recursive: true, force: true });
-	const agentDir = await mkdtemp(join(tmpdir(), "piv-w5-live-agent-"));
-	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	const agentDir = await mkdtemp(join(tmpdir(), "ice-w5-live-agent-"));
+	const previousAgentDir = process.env.ICE_CODING_AGENT_DIR;
 	try {
 		await git(sourceRoot, "worktree", "add", "--detach", worktree, head);
-		process.env.PI_CODING_AGENT_DIR = agentDir;
+		process.env.ICE_CODING_AGENT_DIR = agentDir;
 		const tools = registerTools(verifier(scenario.verifierExit));
 		const context = toolContext(worktree, modelRegistry, model);
 		const delegated = await tools
@@ -274,8 +274,8 @@ async function runScenario(
 			errorType: error instanceof Error ? error.name : "unknown_error",
 		});
 	} finally {
-		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		if (previousAgentDir === undefined) delete process.env.ICE_CODING_AGENT_DIR;
+		else process.env.ICE_CODING_AGENT_DIR = previousAgentDir;
 		try {
 			await git(sourceRoot, "worktree", "remove", "--force", worktree);
 		} catch {
@@ -306,7 +306,7 @@ async function main(): Promise<void> {
 		.filter(Boolean);
 	const scenarios = selectedIds ? SCENARIOS.filter((scenario) => selectedIds.includes(scenario.id)) : SCENARIOS;
 	if (scenarios.length === 0) throw new Error("W5_LIVE_SCENARIOS selected no known scenarios.");
-	const outputPath = resolve(process.env.W5_LIVE_OUTPUT ?? join(tmpdir(), `piv-w5-live-${Date.now()}.jsonl`));
+	const outputPath = resolve(process.env.W5_LIVE_OUTPUT ?? join(tmpdir(), `ice-w5-live-${Date.now()}.jsonl`));
 	await appendFile(outputPath, "");
 	const results: DogfoodRecord[] = [];
 	for (const scenario of scenarios) {

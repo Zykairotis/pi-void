@@ -1,16 +1,16 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
-import { type AssistantMessage, type Context, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage, AgentTool } from "@zykairotis/ice-agent-core";
+import { type AssistantMessage, type Context, fauxAssistantMessage, fauxToolCall } from "@zykairotis/ice-ai";
+import type { ExtensionAPI } from "@zykairotis/ice-coding-agent";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import piBlackholeExtension from "../../examples/extensions/pi-blackhole/index.ts";
-import { BLACKHOLE_MINIMAL_KEPT_SENTINEL } from "../../examples/extensions/pi-blackhole/src/core/tail.ts";
-import { loadConfig } from "../../examples/extensions/pi-blackhole/src/core/unified-config.ts";
+import iceBlackholeExtension from "../../examples/extensions/ice-blackhole/index.ts";
+import { BLACKHOLE_MINIMAL_KEPT_SENTINEL } from "../../examples/extensions/ice-blackhole/src/core/tail.ts";
+import { loadConfig } from "../../examples/extensions/ice-blackhole/src/core/unified-config.ts";
 import type { SessionBeforeCompactEvent } from "../../src/core/extensions/types.ts";
-import { createPivCogneeExtension } from "../../src/piv-cognee.ts";
+import { createIceCogneeExtension } from "../../src/ice-cognee.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 const harnesses: Harness[] = [];
@@ -19,18 +19,18 @@ const configDirs: string[] = [];
 afterEach(() => {
 	for (const harness of harnesses.splice(0)) harness.cleanup();
 	for (const directory of configDirs.splice(0)) rmSync(directory, { recursive: true, force: true });
-	delete process.env.PI_CODING_AGENT_DIR;
+	delete process.env.ICE_CODING_AGENT_DIR;
 });
 
 function configureBlackhole(
 	midRunCompaction: "resume" | "pause" = "resume",
-	tailBehavior: "pi-default" | "minimal" = "pi-default",
+	tailBehavior: "ice-default" | "minimal" = "ice-default",
 ): void {
-	const directory = mkdtempSync(join(tmpdir(), "pi-blackhole-suite-"));
+	const directory = mkdtempSync(join(tmpdir(), "ice-blackhole-suite-"));
 	configDirs.push(directory);
-	mkdirSync(join(directory, "pi-blackhole"));
+	mkdirSync(join(directory, "ice-blackhole"));
 	writeFileSync(
-		join(directory, "pi-blackhole", "pi-blackhole-config.json"),
+		join(directory, "ice-blackhole", "ice-blackhole-config.json"),
 		JSON.stringify({
 			compaction: "auto",
 			compactionEngine: "blackhole",
@@ -40,7 +40,7 @@ function configureBlackhole(
 			memory: false,
 		}),
 	);
-	process.env.PI_CODING_AGENT_DIR = directory;
+	process.env.ICE_CODING_AGENT_DIR = directory;
 }
 
 describe("optional Blackhole compaction extension", () => {
@@ -48,7 +48,7 @@ describe("optional Blackhole compaction extension", () => {
 		configureBlackhole();
 		const harness = await createHarness({
 			models: [{ id: "faux-1", contextWindow: 3000, maxTokens: 100 }],
-			extensionFactories: [piBlackholeExtension],
+			extensionFactories: [iceBlackholeExtension],
 		});
 		harnesses.push(harness);
 
@@ -95,7 +95,7 @@ describe("optional Blackhole compaction extension", () => {
 				},
 			},
 			tools: [bulkTool],
-			extensionFactories: [piBlackholeExtension],
+			extensionFactories: [iceBlackholeExtension],
 		});
 		harnesses.push(harness);
 
@@ -148,7 +148,7 @@ describe("optional Blackhole compaction extension", () => {
 				},
 			},
 			tools: [bulkTool],
-			extensionFactories: [piBlackholeExtension],
+			extensionFactories: [iceBlackholeExtension],
 		});
 		harnesses.push(harness);
 		harness.setResponses([
@@ -180,7 +180,7 @@ describe("optional Blackhole compaction extension", () => {
 					keepRecentTokens: 500,
 				},
 			},
-			extensionFactories: [piBlackholeExtension],
+			extensionFactories: [iceBlackholeExtension],
 		});
 		harnesses.push(harness);
 		harness.setResponses([fauxAssistantMessage("done")]);
@@ -192,9 +192,9 @@ describe("optional Blackhole compaction extension", () => {
 		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
 	});
 
-	it("minimal tail summarizes the kept window instead of leaving Pi's recent tokens", async () => {
+	it("minimal tail summarizes the kept window instead of leaving Ice's recent tokens", async () => {
 		configureBlackhole("resume", "minimal");
-		const harness = await createHarness({ extensionFactories: [piBlackholeExtension] });
+		const harness = await createHarness({ extensionFactories: [iceBlackholeExtension] });
 		harnesses.push(harness);
 		const result = await harness.session.extensionRunner.emit({
 			type: "session_before_compact",
@@ -256,8 +256,8 @@ describe("optional Blackhole compaction extension", () => {
 			willRetry: false,
 			signal: new AbortController().signal,
 		});
-		const run = async (extensions: Array<(pi: ExtensionAPI) => void>) => {
-			const storageDir = mkdtempSync(join(tmpdir(), "piv-blackhole-cognee-"));
+		const run = async (extensions: Array<(ice: ExtensionAPI) => void>) => {
+			const storageDir = mkdtempSync(join(tmpdir(), "ice-blackhole-cognee-"));
 			configDirs.push(storageDir);
 			const harness = await createHarness({ extensionFactories: extensions });
 			harnesses.push(harness);
@@ -267,28 +267,28 @@ describe("optional Blackhole compaction extension", () => {
 			return result;
 		};
 		const makeCognee = () => {
-			const storageDir = mkdtempSync(join(tmpdir(), "piv-cognee-hooks-"));
+			const storageDir = mkdtempSync(join(tmpdir(), "ice-cognee-hooks-"));
 			configDirs.push(storageDir);
-			return createPivCogneeExtension({
+			return createIceCogneeExtension({
 				storageDir,
 				apiKey: "test-key",
-				env: { PI_COGNEE_DATASET: "pi-void", PI_COGNEE_IMPROVE: "false" },
+				env: { ICE_COGNEE_DATASET: "ice", ICE_COGNEE_IMPROVE: "false" },
 				fetch: fakeFetch,
 			});
 		};
 
-		const cogneeLast = await run([piBlackholeExtension, makeCognee()]);
+		const cogneeLast = await run([iceBlackholeExtension, makeCognee()]);
 		expect(cogneeLast).toMatchObject({ compaction: { details: { engine: "blackhole" } } });
 
-		const blackholeLast = await run([makeCognee(), piBlackholeExtension]);
+		const blackholeLast = await run([makeCognee(), iceBlackholeExtension]);
 		expect(blackholeLast).toMatchObject({ compaction: { details: { engine: "blackhole" } } });
 	});
 
 	it("suspends retries after a failed compaction and allows one resume turn", async () => {
 		configureBlackhole();
 		let compactionAttempts = 0;
-		const cancelCompaction = (pi: ExtensionAPI): void => {
-			pi.on("session_before_compact", () => {
+		const cancelCompaction = (ice: ExtensionAPI): void => {
+			ice.on("session_before_compact", () => {
 				compactionAttempts++;
 				return { cancel: true };
 			});
@@ -312,7 +312,7 @@ describe("optional Blackhole compaction extension", () => {
 				},
 			},
 			tools: [bulkTool],
-			extensionFactories: [piBlackholeExtension, cancelCompaction],
+			extensionFactories: [iceBlackholeExtension, cancelCompaction],
 		});
 		harnesses.push(harness);
 		harness.setResponses([
@@ -354,7 +354,7 @@ describe("optional Blackhole compaction extension", () => {
 				},
 			},
 			tools: [bulkTool],
-			extensionFactories: [piBlackholeExtension],
+			extensionFactories: [iceBlackholeExtension],
 		});
 		harnesses.push(harness);
 		harness.setResponses([fauxAssistantMessage(fauxToolCall("bulk", {}), { stopReason: "toolUse" })]);

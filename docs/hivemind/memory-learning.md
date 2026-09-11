@@ -2,15 +2,15 @@
 
 **Status:** Target architecture; durable learning is later than read-only coordination.
 
-ActiveLoop Hivemind demonstrates a useful pattern: capture structured agent activity, retrieve relevant prior work, summarize sessions, and convert repeated successful patterns into reusable skills. Pi Void should borrow that learning loop while applying stricter promotion and trust boundaries.
+ActiveLoop Hivemind demonstrates a useful pattern: capture structured agent activity, retrieve relevant prior work, summarize sessions, and convert repeated successful patterns into reusable skills. ICE should borrow that learning loop while applying stricter promotion and trust boundaries.
 
 ## Four distinct memory domains
 
 Do not use one global store for everything.
 
-### 1. Pi session history
+### 1. Ice session history
 
-Owner: Pi.
+Owner: Ice.
 
 Contains the normal parent or child conversation/session history.
 
@@ -41,7 +41,7 @@ This is shared coordination state, not permanent memory.
 
 ### 3. Verified Hivemind knowledge
 
-Owner: Pi Void learning policy.
+Owner: ICE learning policy.
 
 Lifetime: durable when explicitly promoted.
 
@@ -58,7 +58,7 @@ Contains distilled and provenance-bearing:
 
 Examples:
 
-- existing `piv-cognee`;
+- existing `ice-cognee`;
 - a future local SQLite/vector store;
 - a DeepLake-compatible adapter;
 - another user-selected backend.
@@ -184,7 +184,7 @@ Invalidate or lower trust when:
 
 ## Skill learning
 
-ActiveLoop Hivemind codifies repeated patterns into `SKILL.md` files. Pi Void can use the same general idea, but skill promotion must be more conservative because a skill changes future model instructions.
+ActiveLoop Hivemind codifies repeated patterns into `SKILL.md` files. ICE can use the same general idea, but skill promotion must be more conservative because a skill changes future model instructions.
 
 Recommended flow:
 
@@ -211,7 +211,7 @@ Do not auto-install a skill merely because one agent generated convincing prose.
 
 ## Cognee relationship
 
-`piv-cognee` remains an independent derived-memory adapter.
+`ice-cognee` remains an independent derived-memory adapter.
 
 Recommended integration:
 
@@ -233,7 +233,7 @@ Prefer a tiered strategy:
 4. semantic/vector retrieval only when measured recall justifies it;
 5. optional graph associations for proven use cases.
 
-This follows Pi Void's existing principle that embeddings should earn their cost through measured retrieval gains.
+This follows ICE's existing principle that embeddings should earn their cost through measured retrieval gains.
 
 ## Long-term organization scope
 

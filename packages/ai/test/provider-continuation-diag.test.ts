@@ -45,8 +45,8 @@ describe("provider continuation diagnostics", () => {
 
 	it("stays off in vitest unless explicitly enabled", () => {
 		expect(isContinuationDiagEnabled("codexlb")).toBe(false);
-		expect(isContinuationDiagEnabled("codexlb", { PI_PROVIDER_CONTINUATION_DIAG: "1" })).toBe(true);
-		expect(isContinuationDiagEnabled("openai", { PI_PROVIDER_CONTINUATION_DIAG: "1" })).toBe(true);
+		expect(isContinuationDiagEnabled("codexlb", { ICE_PROVIDER_CONTINUATION_DIAG: "1" })).toBe(true);
+		expect(isContinuationDiagEnabled("openai", { ICE_PROVIDER_CONTINUATION_DIAG: "1" })).toBe(true);
 	});
 
 	it("recognizes the CodexLB/ChatGPT invalid previous_response_id envelope", () => {

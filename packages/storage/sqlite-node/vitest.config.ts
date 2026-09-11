@@ -22,10 +22,10 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: [
-			{ find: /^@earendil-works\/pi-agent-core\/session\/testing$/, replacement: agentSessionTesting },
-			{ find: /^@earendil-works\/pi-agent-core\/node$/, replacement: agentNode },
-			{ find: /^@earendil-works\/pi-agent-core$/, replacement: agentIndex },
-			{ find: /^@earendil-works\/pi-ai$/, replacement: aiIndex },
+			{ find: /^@zykairotis\/ice-agent-core\/session\/testing$/, replacement: agentSessionTesting },
+			{ find: /^@zykairotis\/ice-agent-core\/node$/, replacement: agentNode },
+			{ find: /^@zykairotis\/ice-agent-core$/, replacement: agentIndex },
+			{ find: /^@zykairotis\/ice-ai$/, replacement: aiIndex },
 		],
 	},
 });

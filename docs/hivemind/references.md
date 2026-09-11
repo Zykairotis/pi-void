@@ -1,6 +1,6 @@
 # Hivemind References and Provenance
 
-**Status:** Research notes for architecture only. No external source code has been copied into Pi Void by this documentation work.
+**Status:** Research notes for architecture only. No external source code has been copied into ICE by this documentation work.
 
 ## 1. ActiveLoop Hivemind
 
@@ -16,7 +16,7 @@ Primary sources inspected:
 
 ```text
 README.md
-src/cli/install-pi.ts
+src/cli/install-ice.ts
 ```
 
 ### Useful ideas
@@ -28,11 +28,11 @@ The README describes a shared-learning system that:
 - summarizes sessions into wiki-style pages;
 - extracts repeated patterns into reusable `SKILL.md` content;
 - propagates learned capability across sessions/agents;
-- supports Pi as a first-class integration target.
+- supports Ice as a first-class integration target.
 
-The Pi installer source is especially relevant because it uses Pi-native integration surfaces rather than requiring a replacement harness. It installs a Pi extension that subscribes to lifecycle events such as session start/input/tool results/message completion, registers first-class Hivemind recall tools, and runs separate summary/skill workers around session shutdown.
+The Ice installer source is especially relevant because it uses Ice-native integration surfaces rather than requiring a replacement harness. It installs a Ice extension that subscribes to lifecycle events such as session start/input/tool results/message completion, registers first-class Hivemind recall tools, and runs separate summary/skill workers around session shutdown.
 
-### Pi Void adaptation
+### ICE adaptation
 
 Borrow:
 
@@ -45,7 +45,7 @@ Borrow:
 Change:
 
 - do not automatically trust or permanently promote raw child output;
-- durable promotion occurs only after Pi Void redaction and verification policy;
+- durable promotion occurs only after ICE redaction and verification policy;
 - child direct memory access remains off initially;
 - Hivemind must work without cloud storage or one specific backend;
 - organization-wide propagation is later and explicit.
@@ -89,7 +89,7 @@ The MCP tool source provides a more concrete implementation reference:
 - worker spawning is bounded;
 - the tool description explicitly distinguishes a single native task from Hive Mind use for collective multi-worker coordination.
 
-### Pi Void adaptation
+### ICE adaptation
 
 Borrow:
 
@@ -104,23 +104,23 @@ Borrow:
 
 Change:
 
-- parent Pi session is the queen; no mandatory separate queen model;
+- parent Ice session is the queen; no mandatory separate queen model;
 - star topology first;
 - no nested queens or recursive worker trees by default;
 - consensus remains advisory;
 - use `evidence_quorum` terminology instead of claiming BFT without the full distributed fault model;
-- do not import very large agent/tool catalogs into the Pi Void surface;
+- do not import very large agent/tool catalogs into the ICE surface;
 - no automatic shared-tree writer swarm.
 
 ### Claims not used as architecture evidence
 
-Repository/skill benchmark or performance claims are not used to justify Pi Void design decisions unless independently reproduced under controlled same-model evaluation.
+Repository/skill benchmark or performance claims are not used to justify ICE design decisions unless independently reproduced under controlled same-model evaluation.
 
-## 3. Existing Pi Void subagent references
+## 3. Existing ICE subagent references
 
 Hivemind extends, rather than replaces, the earlier reference synthesis.
 
-### Pi native example
+### Ice native example
 
 Use for:
 
@@ -128,7 +128,7 @@ Use for:
 - cancellation patterns;
 - compatibility baseline.
 
-### Oh My Pi
+### Oh My Ice
 
 Use for:
 
@@ -165,12 +165,12 @@ Use for:
 
 Use only as a broad workspace/runtime separation reference from the local checkout.
 
-## 4. Resulting Pi Void synthesis
+## 4. Resulting ICE synthesis
 
 ```text
-Pi native AgentSession runtime
+Ice native AgentSession runtime
         +
-Oh My Pi task/worktree mechanics
+Oh My Ice task/worktree mechanics
         +
 OpenCode permission/lineage model
         +
@@ -182,7 +182,7 @@ Ruflo hive coordination/state ideas
         +
 ActiveLoop shared-learning pipeline
         =
-Pi Void Hivemind over safe subagents
+ICE Hivemind over safe subagents
 ```
 
-The architecture intentionally keeps the authoritative reasoning loop in Pi and treats every added layer as optional, bounded, and evidence-driven.
+The architecture intentionally keeps the authoritative reasoning loop in Ice and treats every added layer as optional, bounded, and evidence-driven.

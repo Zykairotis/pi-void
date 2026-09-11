@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	assertPivSubagentBackendPolicy,
-	PIV_SUBAGENT_BACKEND_POLICY,
-} from "../../../packages/coding-agent/src/piv-subagents.ts";
+	assertIceSubagentBackendPolicy,
+	ICE_SUBAGENT_BACKEND_POLICY,
+} from "../../../packages/coding-agent/src/ice-subagents.ts";
 import { parseVitestSummary } from "../src/cli.ts";
 
 test("freezes native-only policy with no fallback", () => {
-	assert.doesNotThrow(() => assertPivSubagentBackendPolicy());
-	assert.deepEqual(PIV_SUBAGENT_BACKEND_POLICY, {
+	assert.doesNotThrow(() => assertIceSubagentBackendPolicy());
+	assert.deepEqual(ICE_SUBAGENT_BACKEND_POLICY, {
 		decision: "native-only",
 		defaultBackend: "native",
 		fallbackBackend: null,

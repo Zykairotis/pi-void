@@ -1,4 +1,4 @@
-import type { Entry } from "@earendil-works/pi-agent-core";
+import type { Entry } from "@zykairotis/ice-agent-core";
 import type { SqliteDatabase } from "../types.ts";
 
 /** Derived root-to-tip branch cache membership. Canonical parent links remain in entries. */

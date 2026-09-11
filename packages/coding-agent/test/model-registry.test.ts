@@ -1,14 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-	AnthropicMessagesCompat,
-	Api,
-	Context,
-	Model,
-	OpenAICompletionsCompat,
-} from "@earendil-works/pi-ai/compat";
-import { getApiProvider, getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
+import type { AnthropicMessagesCompat, Api, Context, Model, OpenAICompletionsCompat } from "@zykairotis/ice-ai/compat";
+import { getApiProvider, getSupportedThinkingLevels } from "@zykairotis/ice-ai/compat";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { clearApiKeyCache, type ModelRegistry, type ProviderConfigInput } from "../src/core/model-registry.ts";
@@ -21,7 +15,7 @@ describe("ModelRegistry", () => {
 	let authStorage: AuthStorage;
 
 	beforeEach(() => {
-		tempDir = join(tmpdir(), `pi-test-model-registry-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		tempDir = join(tmpdir(), `ice-test-model-registry-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		mkdirSync(tempDir, { recursive: true });
 		modelsJsonPath = join(tempDir, "models.json");
 		authStorage = AuthStorage.create(join(tempDir, "auth.json"));
@@ -1866,7 +1860,7 @@ describe("ModelRegistry", () => {
 					refresh: "github-access-token",
 					access: "tid=test;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;",
 					expires: Date.now() + 60_000,
-					availableModelIds: ["gpt-4.1"],
+					availableModelIds: ["gpt-5.4"],
 				}));
 
 				const registry = await createModelRegistry(authStorage, modelsJsonPath);
@@ -1876,7 +1870,7 @@ describe("ModelRegistry", () => {
 						.getAvailable()
 						.filter((m) => m.provider === "github-copilot")
 						.map((m) => m.id),
-				).toEqual(["gpt-4.1"]);
+				).toEqual(["gpt-5.4"]);
 			});
 
 			test("getApiKeyAndHeaders resolves authHeader on every request", async () => {

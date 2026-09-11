@@ -4,7 +4,7 @@
 		{
 			"provider": "openai",
 			"model": "cx/gpt-5.6-luna",
-			"apiKeyEnv": "PIV_LOCAL_API_KEY",
+			"apiKeyEnv": "ICE_LOCAL_API_KEY",
 			"baseUrl": "http://127.0.0.1:20128/v1",
 			"api": "openai-responses",
 			"contextWindow": 272000,
@@ -15,7 +15,7 @@
 		{
 			"provider": "openai",
 			"model": "cmc/deepseek/deepseek-v4-pro",
-			"apiKeyEnv": "PIV_LOCAL_API_KEY",
+			"apiKeyEnv": "ICE_LOCAL_API_KEY",
 			"baseUrl": "http://127.0.0.1:20128/v1",
 			"api": "openai-completions",
 			"contextWindow": 1000000,
@@ -26,33 +26,33 @@
 	],
 	"targets": [
 		{
-			"id": "pi-stock",
+			"id": "ice-stock",
 			"source": {
-				"repo": "https://github.com/earendil-works/pi.git",
+				"repo": "https://github.com/earendil-works/ice.git",
 				"commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
 				"subdir": "packages/coding-agent"
 			},
-			"localPath": "../../Zykairotis/benchmark-checkouts/pi-upstream"
+			"localPath": "../../Zykairotis/benchmark-checkouts/ice-upstream"
 		},
 		{
-			"id": "pi-native-example",
+			"id": "ice-native-example",
 			"source": {
-				"repo": "https://github.com/earendil-works/pi.git",
+				"repo": "https://github.com/earendil-works/ice.git",
 				"commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
 				"subdir": "packages/coding-agent/examples/extensions/subagent"
 			},
-			"localPath": "../../Zykairotis/benchmark-checkouts/pi-upstream"
+			"localPath": "../../Zykairotis/benchmark-checkouts/ice-upstream"
 		},
 		{
-			"id": "pi-subagents",
+			"id": "ice-subagents",
 			"source": {
-				"repo": "https://github.com/nicobailon/pi-subagents.git",
+				"repo": "https://github.com/nicobailon/ice-subagents.git",
 				"commit": "67cf559acbb4b621b53879e2df3c8bd211c2b44b"
 			},
-			"localPath": "../../Zykairotis/benchmark-checkouts/pi-subagents"
+			"localPath": "../../Zykairotis/benchmark-checkouts/ice-subagents"
 		},
 		{
-			"id": "pi-void",
+			"id": "ice",
 			"source": {
 				"commit": "CURRENT_WORKSPACE",
 				"subdir": "."
@@ -66,6 +66,6 @@
 		"allowFetch": false,
 		"allowBranchChanges": false,
 		"allowSubstitution": false,
-		"piVoidUsesCurrentWorkspace": true
+		"iceVoidUsesCurrentWorkspace": true
 	}
 }

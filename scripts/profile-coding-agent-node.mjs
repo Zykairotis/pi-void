@@ -8,12 +8,12 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 const packageDir = join(repoRoot, "packages", "coding-agent");
-const distCliPath = join(packageDir, "dist", "cli.js");
-const srcCliPath = join(packageDir, "src", "cli.ts");
+const distCliPath = join(packageDir, "dist", "ice.js");
+const srcCliPath = join(packageDir, "src", "ice.ts");
 const defaultNodeProfileDir = join(repoRoot, "profiles-node");
 const defaultBunProfileDir = join(repoRoot, "profiles-bun");
-const agentDirEnvName = "PI_CODING_AGENT_DIR";
-const startupBenchmarkEnvName = "PI_STARTUP_BENCHMARK";
+const agentDirEnvName = "ICE_CODING_AGENT_DIR";
+const startupBenchmarkEnvName = "ICE_STARTUP_BENCHMARK";
 
 function printHelp() {
 	console.log(`Usage:
@@ -22,8 +22,8 @@ function printHelp() {
 Profiles coding-agent startup with the runtime selected below:
 - npm run profile:tui     -> builds packages/coding-agent and profiles TUI startup with Node
 - npm run profile:rpc     -> builds packages/coding-agent and profiles RPC startup with Node
-- bun run profile:tui     -> profiles TUI startup from src/cli.ts directly with Bun
-- bun run profile:rpc     -> profiles RPC startup from src/cli.ts directly with Bun
+- bun run profile:tui     -> profiles TUI startup from src/ice.ts directly with Bun
+- bun run profile:rpc     -> profiles RPC startup from src/ice.ts directly with Bun
 
 Options:
   --mode <name>          tui or rpc (default: tui)
@@ -33,10 +33,10 @@ Options:
                          Default: profiles-node for Node, profiles-bun for Bun
   --label <name>         Profile name prefix (default: <mode>-startup)
   --runtime <name>       node, bun, or auto (default: auto)
-  --agent-dir <dir>      Use a specific PI_CODING_AGENT_DIR for the benchmark run
+  --agent-dir <dir>      Use a specific ICE_CODING_AGENT_DIR for the benchmark run
   --isolated-agent-dir   Use a fresh temporary agent dir instead of the normal one
-  --no-offline           Do not force PI_OFFLINE=1 / PI_SKIP_VERSION_CHECK=1
-  --skip-build           Reuse the current dist/cli.js without rebuilding first (Node only)
+  --no-offline           Do not force ICE_OFFLINE=1 / ICE_SKIP_VERSION_CHECK=1
+  --skip-build           Reuse the current dist/ice.js without rebuilding first (Node only)
   --cpu-profile          Write CPU profiles for benchmark runs
   --help                 Show this help
 
@@ -368,8 +368,8 @@ function createBenchmarkEnv(options, isolatedAgentDir) {
 		env[startupBenchmarkEnvName] = "1";
 	}
 	if (options.offline) {
-		env.PI_OFFLINE = "1";
-		env.PI_SKIP_VERSION_CHECK = "1";
+		env.ICE_OFFLINE = "1";
+		env.ICE_SKIP_VERSION_CHECK = "1";
 	}
 	return env;
 }
@@ -378,7 +378,7 @@ async function runTuiBenchmarkRun({ runtime, runIndex, measuredIndex, options, p
 	const runNumber = runIndex + 1;
 	const suffix = String(runNumber).padStart(3, "0");
 	const profileName = `${options.label}-${suffix}.cpuprofile`;
-	const tempRoot = options.isolatedAgentDir ? mkdtempSync(join(tmpdir(), "pi-startup-benchmark-")) : undefined;
+	const tempRoot = options.isolatedAgentDir ? mkdtempSync(join(tmpdir(), "ice-startup-benchmark-")) : undefined;
 	const isolatedAgentDir = tempRoot ? join(tempRoot, "agent") : undefined;
 	if (isolatedAgentDir) {
 		mkdirSync(isolatedAgentDir, { recursive: true });
@@ -437,7 +437,7 @@ async function runRpcBenchmarkRun({ runtime, runIndex, measuredIndex, options, p
 	const runNumber = runIndex + 1;
 	const suffix = String(runNumber).padStart(3, "0");
 	const profileName = `${options.label}-${suffix}.cpuprofile`;
-	const tempRoot = options.isolatedAgentDir ? mkdtempSync(join(tmpdir(), "pi-startup-benchmark-")) : undefined;
+	const tempRoot = options.isolatedAgentDir ? mkdtempSync(join(tmpdir(), "ice-startup-benchmark-")) : undefined;
 	const isolatedAgentDir = tempRoot ? join(tempRoot, "agent") : undefined;
 	if (isolatedAgentDir) {
 		mkdirSync(isolatedAgentDir, { recursive: true });
@@ -553,7 +553,7 @@ async function main() {
 	}
 	if (runtime === "bun") {
 		process.stdout.write(
-			`Using Bun runtime with ${options.mode === "rpc" ? "packages/coding-agent/src/cli.ts --mode rpc" : "packages/coding-agent/src/cli.ts"}\n`,
+			`Using Bun runtime with ${options.mode === "rpc" ? "packages/coding-agent/src/ice.ts --mode rpc" : "packages/coding-agent/src/ice.ts"}\n`,
 		);
 	}
 

@@ -24,9 +24,9 @@ function io(outputPath) {
 }
 
 test("parses explicit target and scenario options", () => {
-	assert.deepEqual(parseArgs(["--target", "pi-void", "--scenario", "quality.correctness-and-evidence", "--repeat", "2"]), {
+	assert.deepEqual(parseArgs(["--target", "ice", "--scenario", "quality.correctness-and-evidence", "--repeat", "2"]), {
 		mode: "target",
-		targetId: "pi-void",
+		targetId: "ice",
 		model: undefined,
 		scenarioClass: undefined,
 		scenarioId: "quality.correctness-and-evidence",
@@ -56,11 +56,11 @@ test("rejects unknown flags and missing mode", () => {
 });
 
 test("rejects deterministic repetition before target execution", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "piv-b8-cli-"));
+	const dir = await mkdtemp(join(tmpdir(), "ice-b8-cli-"));
 	try {
 		const captured = io(join(dir, "repeat.jsonl"));
 		const exitCode = await runCli(
-			["--target", "pi-void", "--scenario", "scope.symlink-replacement", "--repeat", "2"],
+			["--target", "ice", "--scenario", "scope.symlink-replacement", "--repeat", "2"],
 			captured.options,
 		);
 		assert.equal(exitCode, 2);
@@ -70,16 +70,16 @@ test("rejects deterministic repetition before target execution", async () => {
 	}
 });
 
-test("runs Pi Void-only mode and writes resolved commit provenance", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "piv-b8-cli-"));
+test("runs ICE-only mode and writes resolved commit provenance", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "ice-b8-cli-"));
 	try {
 		const outputPath = join(dir, "run.jsonl");
 		const captured = io(outputPath);
-		const exitCode = await runCli(["--target", "pi-void", "--scenario", "quality.correctness-and-evidence"], captured.options);
+		const exitCode = await runCli(["--target", "ice", "--scenario", "quality.correctness-and-evidence"], captured.options);
 		assert.equal(exitCode, 0);
 		const rows = (await readFile(outputPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
 		assert.equal(rows.length, 2);
-		assert.equal(rows[0].implementation, "pi-void");
+		assert.equal(rows[0].implementation, "ice");
 		assert.match(rows[0].resolvedCommit, /^[0-9a-f]{40}$/);
 		assert.equal(rows[0].provider, "openai");
 		assert.equal(rows[0].success, false);
@@ -92,7 +92,7 @@ test("runs Pi Void-only mode and writes resolved commit provenance", async () =>
 });
 
 test("smoke runs the selected model route across all four targets", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "piv-b8-cli-"));
+	const dir = await mkdtemp(join(tmpdir(), "ice-b8-cli-"));
 	try {
 		const captured = io(join(dir, "smoke.jsonl"));
 		captured.options.runObservation = async () => ({
@@ -111,10 +111,10 @@ test("smoke runs the selected model route across all four targets", async () => 
 });
 
 test("provider preflight fails before target execution when the credential is absent", async () => {
-	const originalCredential = process.env.PIV_LOCAL_API_KEY;
-	delete process.env.PIV_LOCAL_API_KEY;
+	const originalCredential = process.env.ICE_LOCAL_API_KEY;
+	delete process.env.ICE_LOCAL_API_KEY;
 	try {
-		const dir = await mkdtemp(join(tmpdir(), "piv-b8-cli-"));
+		const dir = await mkdtemp(join(tmpdir(), "ice-b8-cli-"));
 		try {
 			const captured = io(join(dir, "preflight.jsonl"));
 			let invoked = false;
@@ -125,18 +125,18 @@ test("provider preflight fails before target execution when the credential is ab
 			const exitCode = await runCli(["--smoke", "--model", "cx/gpt-5.6-luna"], captured.options);
 			assert.equal(exitCode, 2);
 			assert.equal(invoked, false);
-			assert.match(captured.stderr.join("\n"), /benchmark provider credential PIV_LOCAL_API_KEY unavailable/);
+			assert.match(captured.stderr.join("\n"), /benchmark provider credential ICE_LOCAL_API_KEY unavailable/);
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
 	} finally {
-		if (originalCredential === undefined) delete process.env.PIV_LOCAL_API_KEY;
-		else process.env.PIV_LOCAL_API_KEY = originalCredential;
+		if (originalCredential === undefined) delete process.env.ICE_LOCAL_API_KEY;
+		else process.env.ICE_LOCAL_API_KEY = originalCredential;
 	}
 });
 
 test("full matrix fails clearly when an external baseline is unavailable", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "piv-b8-cli-"));
+	const dir = await mkdtemp(join(tmpdir(), "ice-b8-cli-"));
 	try {
 		const manifestPath = join(dir, "manifest.json");
 		await writeFile(
@@ -147,7 +147,7 @@ test("full matrix fails clearly when an external baseline is unavailable", async
 					{
 						provider: "openai",
 						model: "cx/gpt-5.6-luna",
-						apiKeyEnv: "PIV_LOCAL_API_KEY",
+						apiKeyEnv: "ICE_LOCAL_API_KEY",
 						baseUrl: "http://127.0.0.1:20128/v1",
 						api: "openai-responses",
 						contextWindow: 272000,
@@ -158,13 +158,13 @@ test("full matrix fails clearly when an external baseline is unavailable", async
 				],
 				targets: [
 					{
-						id: "pi-stock",
+						id: "ice-stock",
 						source: { commit: "PENDING_EXTERNAL_BASELINE" },
 						status: "unavailable_until_pinned",
 					},
-					{ id: "pi-native-example", source: { commit: "0123456789abcdef0123456789abcdef01234567" } },
-					{ id: "pi-subagents", source: { commit: "0123456789abcdef0123456789abcdef01234567" } },
-					{ id: "pi-void", source: { commit: "CURRENT_WORKSPACE" } },
+					{ id: "ice-native-example", source: { commit: "0123456789abcdef0123456789abcdef01234567" } },
+					{ id: "ice-subagents", source: { commit: "0123456789abcdef0123456789abcdef01234567" } },
+					{ id: "ice", source: { commit: "CURRENT_WORKSPACE" } },
 				],
 			}),
 		);
@@ -172,7 +172,7 @@ test("full matrix fails clearly when an external baseline is unavailable", async
 		captured.options.manifestPath = manifestPath;
 		const exitCode = await runCli(["--matrix", "--model", "cx/gpt-5.6-luna", "--class", "deterministic"], captured.options);
 		assert.equal(exitCode, 2);
-		assert.match(captured.stderr.join("\n"), /benchmark target pi-stock@PENDING_EXTERNAL_BASELINE unavailable/);
+		assert.match(captured.stderr.join("\n"), /benchmark target ice-stock@PENDING_EXTERNAL_BASELINE unavailable/);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

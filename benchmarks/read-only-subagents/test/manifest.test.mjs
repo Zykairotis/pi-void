@@ -15,7 +15,7 @@ import {
 import { resolveGitHead } from "../src/git.ts";
 
 const validSource = {
-	repo: "https://example.test/pi.git",
+	repo: "https://example.test/ice.git",
 	commit: "0123456789abcdef0123456789abcdef01234567",
 };
 
@@ -26,7 +26,7 @@ function validManifest() {
 			{
 				provider: "openai",
 				model: "cx/gpt-5.6-luna",
-				apiKeyEnv: "PIV_LOCAL_API_KEY",
+				apiKeyEnv: "ICE_LOCAL_API_KEY",
 				baseUrl: "http://127.0.0.1:20128/v1",
 				api: "openai-responses",
 				contextWindow: 272000,
@@ -36,10 +36,10 @@ function validManifest() {
 			}
 		],
 		targets: [
-			{ id: "pi-stock", source: { ...validSource } },
-			{ id: "pi-native-example", source: { ...validSource } },
-			{ id: "pi-subagents", source: { ...validSource } },
-			{ id: "pi-void", source: { commit: "CURRENT_WORKSPACE" } },
+			{ id: "ice-stock", source: { ...validSource } },
+			{ id: "ice-native-example", source: { ...validSource } },
+			{ id: "ice-subagents", source: { ...validSource } },
+			{ id: "ice", source: { commit: "CURRENT_WORKSPACE" } },
 		],
 	};
 }
@@ -60,25 +60,25 @@ test("accepts the four target IDs and current-workspace sentinel", () => {
 
 test("rejects duplicate target IDs", () => {
 	const manifest = validManifest();
-	manifest.targets[1].id = "pi-stock";
-	assert.throws(() => validateManifest(manifest), /duplicate target id: pi-stock/);
+	manifest.targets[1].id = "ice-stock";
+	assert.throws(() => validateManifest(manifest), /duplicate target id: ice-stock/);
 });
 
 test("rejects malformed commit values", () => {
 	assert.throws(
-		() => validateTarget({ id: "pi-stock", source: { ...validSource, commit: "not-a-sha" } }),
-		/invalid commit for pi-stock/,
+		() => validateTarget({ id: "ice-stock", source: { ...validSource, commit: "not-a-sha" } }),
+		/invalid commit for ice-stock/,
 	);
 });
 
-test("restricts the current-workspace sentinel to pi-void", () => {
+test("restricts the current-workspace sentinel to ice", () => {
 	assert.throws(
-		() => validateTarget({ id: "pi-stock", source: { commit: "CURRENT_WORKSPACE" } }),
-		/current workspace sentinel is only valid for pi-void/,
+		() => validateTarget({ id: "ice-stock", source: { commit: "CURRENT_WORKSPACE" } }),
+		/current workspace sentinel is only valid for ice/,
 	);
 	assert.throws(
-		() => validateTarget({ id: "pi-void", source: validSource }),
-		/pi-void must use the current workspace sentinel/,
+		() => validateTarget({ id: "ice", source: validSource }),
+		/ice must use the current workspace sentinel/,
 	);
 });
 
@@ -121,7 +121,7 @@ test("rejects repeated deterministic scenarios", () => {
 });
 
 test("resolves an exact git HEAD without mutating the checkout", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "piv-b8-git-"));
+	const dir = await mkdtemp(join(tmpdir(), "ice-b8-git-"));
 	try {
 		await writeFile(join(dir, "fixture.txt"), "fixture\n");
 		execFileSync("git", ["init", "--quiet", dir]);
@@ -130,7 +130,7 @@ test("resolves an exact git HEAD without mutating the checkout", async () => {
 			"-C",
 			dir,
 			"-c",
-			"user.name=Pi Void Test",
+			"user.name=ICE Test",
 			"-c",
 			"user.email=test@example.invalid",
 			"commit",

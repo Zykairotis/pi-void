@@ -1,12 +1,12 @@
-# Pi Void Hivemind
+# ICE Hivemind
 
 **Status:** Target architecture; not implemented.
 
-Pi Void Hivemind is an optional coordination and learning layer built **on top of** the Pi Void subagent system. It does not replace Pi's agent loop, the `delegate` worker primitive, Guarded Build, or parent-side verification.
+ICE Hivemind is an optional coordination and learning layer built **on top of** the ICE subagent system. It does not replace Ice's agent loop, the `delegate` worker primitive, Guarded Build, or parent-side verification.
 
 The core rule is:
 
-> The parent Pi session is the logical queen. Hivemind is deterministic orchestration around sibling subagent runs, not another model-driven controller.
+> The parent Ice session is the logical queen. Hivemind is deterministic orchestration around sibling subagent runs, not another model-driven controller.
 
 ## Why Hivemind exists
 
@@ -35,7 +35,7 @@ Do not use Hivemind for:
 User
   |
   v
-Parent Pi AgentSession                         authoritative reasoner
+Parent Ice AgentSession                         authoritative reasoner
   |
   +-- delegate(task) -----------------------> one SubagentRun
   |
@@ -78,17 +78,17 @@ Parent Pi AgentSession                         authoritative reasoner
 
 - [Architecture](./architecture.md) — components, topology, lifecycle, and parent-as-queen model.
 - [Contracts](./contracts.md) — proposed request/run/task/claim/decision/result interfaces.
-- [Subagent integration](./subagent-integration.md) — how Hivemind composes with `delegate` and Pi Void policy.
+- [Subagent integration](./subagent-integration.md) — how Hivemind composes with `delegate` and ICE policy.
 - [Memory and learning](./memory-learning.md) — run-scoped shared state, durable promotion, Cognee compatibility, and skill learning.
 - [Safety and consensus](./safety-consensus.md) — evidence quorum, permission rules, correlated-failure limits, and failure handling.
 - [Roadmap](./roadmap.md) — staged implementation and acceptance gates.
-- [References](./references.md) — ActiveLoop Hivemind, Ruflo, and existing Pi Void subagent references.
+- [References](./references.md) — ActiveLoop Hivemind, Ruflo, and existing ICE subagent references.
 
 ## External inspiration
 
 Two references contribute different layers:
 
-- **ActiveLoop Hivemind** is most useful for the shared-learning plane: structured trace capture, retrieval, session summaries, reusable skill extraction, and Pi lifecycle integration.
+- **ActiveLoop Hivemind** is most useful for the shared-learning plane: structured trace capture, retrieval, session summaries, reusable skill extraction, and Ice lifecycle integration.
 - **Ruflo Hive Mind** is most useful for the coordination plane: explicit topology, worker membership, shared state, consensus proposals, session lifecycle, and the distinction between one native task and collective multi-worker orchestration.
 
-Pi Void intentionally does not copy either system wholesale. The objective is a smaller architecture that preserves Pi's authoritative loop and Pi Void's verification and capability boundaries.
+ICE intentionally does not copy either system wholesale. The objective is a smaller architecture that preserves Ice's authoritative loop and ICE's verification and capability boundaries.

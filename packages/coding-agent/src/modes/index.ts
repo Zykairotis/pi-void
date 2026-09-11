@@ -7,10 +7,10 @@ export type { JsonAgentSessionEvent } from "./json-event.ts";
 export { type PrintModeOptions, runPrintMode } from "./print-mode.ts";
 export { type ModelInfo, RpcClient, type RpcClientOptions, type RpcEventListener } from "./rpc/rpc-client.ts";
 export {
-	buildPiSettingsCommandSchema,
+	buildIceSettingsCommandSchema,
 	clearCustomStructuredCommands,
-	getPiSettingsCommandSchemaResult,
-	invokePiSettingsCommand,
+	getIceSettingsCommandSchemaResult,
+	invokeIceSettingsCommand,
 	type RpcCommandErrorDetails,
 	RpcCommandExecutionError,
 	type RpcCommandField,

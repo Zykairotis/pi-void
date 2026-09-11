@@ -1,14 +1,14 @@
-# Pi Void Subagent Implementation Plan
+# ICE Subagent Implementation Plan
 
 _Last updated: 2026-08-08_
 
 ## Goal
 
-Add native subagents to Pi Void while preserving Pi's existing agent/session ownership and Pi Void's guarded-build safety model.
+Add native subagents to ICE while preserving Ice's existing agent/session ownership and ICE's guarded-build safety model.
 
 The first release is deliberately narrow:
 
-> one Pi Void-only `delegate` tool that runs one foreground, read-only, non-recursive native child `AgentSession` with fresh in-memory history, no discovered child resources, at most `read`/`grep`/`find`/`ls`, deterministic cancellation, bounded typed output, and parent-side verification.
+> one ICE-only `delegate` tool that runs one foreground, read-only, non-recursive native child `AgentSession` with fresh in-memory history, no discovered child resources, at most `read`/`grep`/`find`/`ls`, deterministic cancellation, bounded typed output, and parent-side verification.
 
 Explicit trusted configurable roles and selective resource inheritance are implemented in Post-MVP Phase A. Read-only parallelism, W1 writer isolation, W2 bounded writer patch artifacts, W3 parent verification/integration, W4 parent-owned proposal decisions, W7.1/W7.2 bounded durable read-only jobs, W8.1 metadata-only durable job observatory visibility, W8.2 explicit terminal-result inspection, and W8.3 frozen persisted completion-inbox metadata are implemented separately. Background writers, remote execution, auto-resume, and recursive agent trees remain later milestones.
 
@@ -17,8 +17,8 @@ Explicit trusted configurable roles and selective resource inheritance are imple
 ## Non-negotiable invariants
 
 - Parent `AgentSession` remains authoritative for task decomposition, policy, integration, verification, and final user response.
-- `delegate` is a Pi Void-owned hidden extension/tool loaded through `piv`; stock `pi` behavior stays unchanged.
-- `piv-safe-verify` remains the parent mode/tool authority. The subagent layer reads the current parent tools through `pi.getActiveTools()` and only narrows them.
+- `delegate` is a ICE-owned hidden extension/tool loaded through `ice`; stock `ice` behavior stays unchanged.
+- `ice-safe-verify` remains the parent mode/tool authority. The subagent layer reads the current parent tools through `ice.getActiveTools()` and only narrows them.
 - Child receives a fresh `SessionManager.inMemory()` history; parent transcript is not cloned by default.
 - V1 accepts only bundled TypeScript `explore` and `review` roles.
 - V1 child loader disables extensions, skills, prompt templates, themes, and context files and injects only the bundled role system prompt.
@@ -30,7 +30,7 @@ Explicit trusted configurable roles and selective resource inheritance are imple
 - Full child output/transcript must not flood parent context.
 - Writer workers must not operate concurrently in the shared checkout.
 - Background execution is not introduced without a durable job contract.
-- Existing PIV provider, Cognee, Blackhole, and guarded-build behavior must continue to work independently of subagents.
+- Existing ICE provider, Cognee, Blackhole, and guarded-build behavior must continue to work independently of subagents.
 
 ---
 
@@ -47,7 +47,7 @@ Status: **complete**
 Acceptance:
 
 - existing unrelated worktree changes are unchanged;
-- implementation is confined to subagent-related source/tests plus minimal PIV loading/docs if required.
+- implementation is confined to subagent-related source/tests plus minimal ICE loading/docs if required.
 
 ---
 
@@ -162,7 +162,7 @@ Same capability floor as `explore`; the distinction is prompt/report contract, n
 
 ## 2.2 Role definition rules
 
-Each bundled role is a static Pi Void-owned TypeScript object containing only reviewed fields such as:
+Each bundled role is a static ICE-owned TypeScript object containing only reviewed fields such as:
 
 ```text
 name
@@ -215,7 +215,7 @@ Status: **complete**
 Implement child capability derivation as a small explicit policy function using the parent extension runtime as the source of truth:
 
 ```text
-parentAllowed = pi.getActiveTools()
+parentAllowed = ice.getActiveTools()
 childEffective = parentAllowed ∩ roleAllowed ∩ runtimePolicyAllowed
 ```
 
@@ -227,9 +227,9 @@ runtimePolicyAllowed = { read, grep, find, ls }
 
 ## V1 rules
 
-- `piv-safe-verify` decides the parent's current active tools; the subagent layer does not parse or duplicate plan/build policy;
+- `ice-safe-verify` decides the parent's current active tools; the subagent layer does not parse or duplicate plan/build policy;
 - add `delegate` to the guarded-build mode tool lists where delegation should be available;
-- hard child tool allowlist uses Pi's existing `createAgentSession({ tools })` / `allowedToolNames` mechanism;
+- hard child tool allowlist uses Ice's existing `createAgentSession({ tools })` / `allowedToolNames` mechanism;
 - `delegate` is never in the child list;
 - no write/edit/apply;
 - no Bash;
@@ -272,7 +272,7 @@ noContextFiles: true
 systemPrompt: <bundled role system prompt>
 ```
 
-Do not pass child `extensionFactories`. Do not inherit `piv-cognee`, `piv-safe-verify`, Blackhole extensions, user extensions, project extensions, or ambient skills, templates, themes, or repository context files. Phase A may pass only explicitly selected, hash-validated resources.
+Do not pass child `extensionFactories`. Do not inherit `ice-cognee`, `ice-safe-verify`, Blackhole extensions, user extensions, project extensions, or ambient skills, templates, themes, or repository context files. Phase A may pass only explicitly selected, hash-validated resources.
 
 Relevant repository instructions needed by a specific task must be included deliberately in the bounded handoff packet rather than discovered implicitly.
 
@@ -280,7 +280,7 @@ The hard `tools` allowlist remains an independent final capability boundary even
 
 Acceptance:
 
-- child `getExtensions()` contains no loaded user/project/Pi Void extension hooks;
+- child `getExtensions()` contains no loaded user/project/ICE extension hooks;
 - child skills/prompts/themes/context-file collections are empty when no resources are selected; selected Phase A resources enter only through explicit validated paths;
 - bundled or resolved trusted role system prompt is the intended worker prompt;
 - a fixture project containing extensions, skills, prompts, themes, `AGENTS.md`, and other local resources cannot alter default child behavior; explicitly selected trusted resources are the only exception;
@@ -300,7 +300,7 @@ Implement a `NativeAgentSessionRunner` or equivalent minimal module.
 
 ## Child construction
 
-Use existing Pi infrastructure:
+Use existing Ice infrastructure:
 
 - `createAgentSession()` or `createAgentSessionFromServices()`;
 - `SessionManager.inMemory()`;
@@ -392,7 +392,7 @@ Tests:
 
 Status: **implemented; consumer adapter coverage remains**
 
-Define Pi Void subagent events without streaming the full child transcript.
+Define ICE subagent events without streaming the full child transcript.
 
 Minimum events:
 
@@ -455,7 +455,7 @@ Create the final `SubagentResult` from observed child state.
 
 If useful full output exceeds the parent-visible budget:
 
-- persist it under a Pi Void-owned artifact location;
+- persist it under a ICE-owned artifact location;
 - return an artifact ID/path;
 - record truncation;
 - never inject the full transcript into parent context automatically.
@@ -476,15 +476,15 @@ Tests:
 
 ---
 
-# Milestone 9 — wire the Pi Void `delegate` tool
+# Milestone 9 — wire the ICE `delegate` tool
 
 Status: **implemented**
 
-Add a hidden Pi Void-owned extension/factory and load it through `packages/coding-agent/src/piv.ts`. Do not add it to stock `pi` built-ins.
+Add a hidden ICE-owned extension/factory and load it through `packages/coding-agent/src/ice.ts`. Do not add it to stock `ice` built-ins.
 
 Use the model-facing name `delegate`.
 
-Wire `delegate` into the appropriate `piv-safe-verify` active-tool lists so existing mode/tool policy decides when the parent can delegate. The subagent extension itself should not maintain a second plan/build mode state.
+Wire `delegate` into the appropriate `ice-safe-verify` active-tool lists so existing mode/tool policy decides when the parent can delegate. The subagent extension itself should not maintain a second plan/build mode state.
 
 Public parameters remain bounded. Phase A adds optional selected role/resource names without exposing raw permission lists or arbitrary system prompts. Example shape:
 
@@ -512,16 +512,16 @@ Tool description must clearly state:
 
 Acceptance:
 
-- `piv` parent model can invoke one child when `delegate` is active;
-- stock `pi` does not gain the Pi Void delegation tool;
+- `ice` parent model can invoke one child when `delegate` is active;
+- stock `ice` does not gain the ICE delegation tool;
 - guarded-build active-tool policy can remove `delegate`;
 - child cannot invoke delegation recursively;
 - errors return structured, actionable tool results.
 
 Tests:
 
-- `piv` extension registration;
-- stock `pi` unchanged;
+- `ice` extension registration;
+- stock `ice` unchanged;
 - happy path tool call;
 - malformed parameters;
 - unknown role;
@@ -537,7 +537,7 @@ Status: **implemented and verified for bounded structured read-only evidence**
 
 The parent now allocates stable logical `runId` values before launch, requires child lineage and `partial === false` for verified completion, applies parent-side evidence bounds, and preserves bounded unresolved review claims. Failed, timed-out, cancelled, malformed, out-of-scope, and partial results remain unverified.
 
-Verification: `piv-subagents.test.ts` plus `piv-safe-verify.test.ts` pass `181/181`; the complete foreground delegation regression shard passes `263/263` across seven test files. Targeted Biome and `git diff --check` pass. Root `npm run check` reaches only the inherited `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` TypeScript error.
+Verification: `ice-subagents.test.ts` plus `ice-safe-verify.test.ts` pass `181/181`; the complete foreground delegation regression shard passes `263/263` across seven test files. Targeted Biome and `git diff --check` pass. Root `npm run check` reaches only the inherited `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` TypeScript error.
 
 Implement a lightweight verifier for child results.
 
@@ -567,7 +567,7 @@ Acceptance:
 
 Status: **implemented for the deterministic foreground delegate path**
 
-`piv-delegate-mvp.test.ts` uses the Faux provider and the real `pivSubagents` factory. Its `9/9` scenarios cover PIV-only registration, fresh/selected context and parent-history isolation, verified completion/provenance, malformed/unknown-role/unavailable-model/inactive-parent gates, unresolved review claims, foreground and durable-async timeout handling, cancellation, explicit build-only `--sub-yolo` gating, and confirmed unsafe review/batch delegation. The inherited focused delegation shard passes `261/261`.
+`ice-delegate-mvp.test.ts` uses the Faux provider and the real `iceSubagents` factory. Its `9/9` scenarios cover ICE-only registration, fresh/selected context and parent-history isolation, verified completion/provenance, malformed/unknown-role/unavailable-model/inactive-parent gates, unresolved review claims, foreground and durable-async timeout handling, cancellation, explicit build-only `--sub-yolo` gating, and confirmed unsafe review/batch delegation. The inherited focused delegation shard passes `261/261`.
 
 The remaining checklist items are covered by the lower-level subagent, safe-verify, adversarial, jobs, observatory, and writer suites where applicable; full end-to-end coverage of every deferred resource/artifact scenario is not claimed here. Root `npm run check` retains only the inherited `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` TypeScript error.
 
@@ -577,11 +577,11 @@ Canonical W1-W11 executable acceptance evidence is recorded in `findings.md` sec
 
 Current acceptance mapping:
 
-- Covered by M11 integration: PIV-only registration, guarded active-tool gating, fresh/selected context, parent-history isolation, normal completion, malformed/unknown role/model/mode gates, cancellation, foreground and durable-async timeouts, unsafe-mode gating, and confirmed unsafe review/batch delegation.
+- Covered by M11 integration: ICE-only registration, guarded active-tool gating, fresh/selected context, parent-history isolation, normal completion, malformed/unknown role/model/mode gates, cancellation, foreground and durable-async timeouts, unsafe-mode gating, and confirmed unsafe review/batch delegation.
 - Covered by lower-level suites: stripped extensions/skills/prompts/themes/context discovery, Cognee/Blackhole/safe-verify exclusion, read-only tool intersection, recursive delegation denial, trusted user/project roles and resources, TOCTOU revalidation, lineage/events, output bounds, and writer boundaries.
 - Superseded by Phase A: “only bundled V1 roles resolve”; trusted user/project role resolution is implemented with provenance and source-hash revalidation.
 - Explicitly deferred: full-output artifact persistence and every end-to-end resource/artifact scenario not covered by the lower-level suites.
-- Existing Pi Void core tests remain a separate repository gate; no M11 claim overrides unrelated failures.
+- Existing ICE core tests remain a separate repository gate; no M11 claim overrides unrelated failures.
 
 MVP exit criteria:
 
@@ -596,7 +596,7 @@ MVP exit criteria:
 
 Status: **COMPLETE / VERIFIED / FROZEN**; the repaired harness records real resource-loader and CLI contract vectors, startup metrics, honest end-RSS availability, memory summaries, and maintenance rationale. Canonical full-budget runs are cold `99f421f8-228b-4137-a44e-092895359713` (30), warm `d6222038-23e7-4ca9-a8ce-1770dc96db37` (5 warmups + 100 measured), safety `67457e73-cd91-452b-b0a0-154ebf94a369` (50), and compatibility `430338fe-ddb8-45f6-a0ee-fdaaee129df9` (3); all reports have `hardGate: true` and decide `native-only`.
 
-Only after the native MVP works, compare against Pi's subprocess implementation.
+Only after the native MVP works, compare against Ice's subprocess implementation.
 
 Execution boundary: deterministic benchmark fixtures only; native and subprocess adapters must share the same fixture/event/result contract. The subprocess adapter is benchmark-only until M12 selects and M13 freezes a production policy. W5B live-provider certification remains separate and pending.
 
@@ -627,7 +627,7 @@ M12 exit record: the four canonical manifests and reports are schema-v2, record 
 
 Status: **COMPLETE / VERIFIED / FROZEN**; the production native-only policy remains implemented, and the final verifier consumed exactly the four canonical M12 runs plus observed C1/C2/C3 results.
 
-M13 freezes one backend policy source of truth, preserves Pi as the sole authoritative loop, verifies event/result/resource/CLI/cancellation parity, exercises decision-specific rollback without state migration, and records acceptance artifacts. `m13:verify` now requires exactly one full-budget cold performance, warm performance, safety, and compatibility run, then executes C1/C2/C3 and records observed counts, exit codes, Git SHA, and dirty-worktree qualification. It must not add automatic backend routing, a planner, a second provider layer, autonomous execution, or W5B status changes.
+M13 freezes one backend policy source of truth, preserves Ice as the sole authoritative loop, verifies event/result/resource/CLI/cancellation parity, exercises decision-specific rollback without state migration, and records acceptance artifacts. `m13:verify` now requires exactly one full-budget cold performance, warm performance, safety, and compatibility run, then executes C1/C2/C3 and records observed counts, exit codes, Git SHA, and dirty-worktree qualification. It must not add automatic backend routing, a planner, a second provider layer, autonomous execution, or W5B status changes.
 
 M13 exit checks:
 
@@ -838,7 +838,7 @@ B7.1 exit checks:
 - parent cancellation, batch timeout, and sibling fail-fast each suppress the second runner/session invocation and reservation;
 - two forked siblings call the parent `buildSessionContext()` exactly once.
 
-Verification: B7.1 FROZEN. `npm run check` passed; `piv-subagents.test.ts` and `piv-safe-verify.test.ts` passed with `115/115` tests; Cognee redaction regression passed; `git diff --check` passed.
+Verification: B7.1 FROZEN. `npm run check` passed; `ice-subagents.test.ts` and `ice-safe-verify.test.ts` passed with `115/115` tests; Cognee redaction regression passed; `git diff --check` passed.
 
 ---
 
@@ -859,28 +859,28 @@ B8 is an implementation-validation gate, not a feature phase. B7.1 remains FROZE
 
 Initial attack coverage includes symlink replacement and scope escape, resource mutation before launch, UTF-8 fork boundaries, credential variants, provider startup and partial-output failures, cancellation and timeout between attempts, concurrent retry-budget contention, invalid evidence in valid JSON, oversized evidence arrays, and context that impersonates system policy.
 
-Verification: `piv-subagents-adversarial.test.ts`, `piv-subagents.test.ts`, and `piv-safe-verify.test.ts` pass with `128/128` tests.
+Verification: `ice-subagents-adversarial.test.ts`, `ice-subagents.test.ts`, and `ice-safe-verify.test.ts` pass with `128/128` tests.
 
 ## B8.2 comparative benchmark harness
 
 - versioned inputs live under `benchmarks/read-only-subagents/`;
-- `manifest.json` pins immutable external commits and uses `CURRENT_WORKSPACE` for Pi Void;
+- `manifest.json` pins immutable external commits and uses `CURRENT_WORKSPACE` for ICE;
 - unresolved external baselines remain explicitly unavailable and never use guessed SHAs;
 - target preparation may inspect an existing checkout/cache only when its `HEAD` exactly matches the manifest SHA;
 - preparation never fetches, switches branches, upgrades dependencies, rewrites target configuration, or substitutes a newer revision;
 - adapters normalize target observations without importing benchmark modules into coding-agent tests;
-- `--target pi-void`, `--matrix`, `--scenario`, and `--repeat` are explicit CLI modes;
+- `--target ice`, `--matrix`, `--scenario`, and `--repeat` are explicit CLI modes;
 - deterministic scenarios reject repeated runs; model-quality scenarios may repeat;
 - JSONL artifacts record schema version, run ID, implementation, resolved commit, scenario, repetition, timing, result, verification, attempts, output bytes, usage, and cost without raw prompts, transcripts, credentials, or absolute checkout paths;
 - `results/*` is ignored and created on demand.
 
-Verification: benchmark-side Node tests pass with `31/31`; `npx tsgo --noEmit -p benchmarks/read-only-subagents/tsconfig.json` passes. Pi Void-only mode writes a redacted result with resolved commit provenance. Provider smoke passes across all four pinned targets for both configured routes. The exhaustive 48 deterministic / 112 model-quality matrix remains optional external certification evidence.
+Verification: benchmark-side Node tests pass with `31/31`; `npx tsgo --noEmit -p benchmarks/read-only-subagents/tsconfig.json` passes. ICE-only mode writes a redacted result with resolved commit provenance. Provider smoke passes across all four pinned targets for both configured routes. The exhaustive 48 deterministic / 112 model-quality matrix remains optional external certification evidence.
 
 ## B8.3 findings and hardening
 
-- pinned upstream Pi at `e47b8e37a6211ebd0b2942fa87059d64f81eec02` and `nicobailon/pi-subagents` at `67cf559acbb4b621b53879e2df3c8bd211c2b44b`;
+- pinned upstream Ice at `e47b8e37a6211ebd0b2942fa87059d64f81eec02` and `nicobailon/ice-subagents` at `67cf559acbb4b621b53879e2df3c8bd211c2b44b`;
 - resolved exact local/cache checkouts without harness fetch, checkout, branch switching, dependency upgrade, or substitution;
-- implemented real CLI adapters: stock Pi through `pi`, the native example through `pi --extension`, `pi-subagents` through its extension entry point on the pinned Pi host, and Pi Void through `piv`;
+- implemented real CLI adapters: stock Ice through `ice`, the native example through `ice --extension`, `ice-subagents` through its extension entry point on the pinned Ice host, and ICE through `ice`;
 - ran deterministic infrastructure/security scenarios separately from repeated model-quality scoring;
 - recorded the abbreviated provider-compatible sanity comparison and its limitations in `benchmarks/read-only-subagents/B8.3-report.md`;
 - no production change is justified unless a B8 finding reproduces a concrete defect, with its regression added first;
@@ -902,7 +902,7 @@ Prerequisites:
 Initial Hivemind shape:
 
 ```text
-Parent Pi AgentSession = logical queen
+Parent Ice AgentSession = logical queen
   -> explicit HiveRequest
       -> HivemindCoordinator
           -> sibling SubagentRuns via the same internal executor as `delegate`
@@ -1036,7 +1036,7 @@ W3 exit checks:
 
 Status: **implemented, verified, and frozen**
 
-W4 wires the frozen W1/W2/W3 writer APIs into the real parent-facing workflow through three stateless build tools. `inspect_writer_patch` validates the complete W2 artifact, requires canonical equality between `patchRef` and `<agentDir>/artifacts/writer/<runId>/proposal.patch`, rejects symlink/non-regular paths, rechecks exact bytes/hash/schema/inventory, and returns complete metadata with a 32 KiB capped preview. `reject_writer_patch` is an explicit non-mutating decision; it does not delete, consume, or tombstone the immutable artifact. `integrate_writer_patch` requires a trusted project and configured `--piv-verify` before calling `integrateWriterPatchArtifact()`; the verifier callback uses the existing bounded `runVerifier()` seam. Parent review and integration remain explicit, never automatic after `delegate_write`.
+W4 wires the frozen W1/W2/W3 writer APIs into the real parent-facing workflow through three stateless build tools. `inspect_writer_patch` validates the complete W2 artifact, requires canonical equality between `patchRef` and `<agentDir>/artifacts/writer/<runId>/proposal.patch`, rejects symlink/non-regular paths, rechecks exact bytes/hash/schema/inventory, and returns complete metadata with a 32 KiB capped preview. `reject_writer_patch` is an explicit non-mutating decision; it does not delete, consume, or tombstone the immutable artifact. `integrate_writer_patch` requires a trusted project and configured `--ice-verify` before calling `integrateWriterPatchArtifact()`; the verifier callback uses the existing bounded `runVerifier()` seam. Parent review and integration remain explicit, never automatic after `delegate_write`.
 
 W4 exit checks:
 
@@ -1055,11 +1055,11 @@ Status: **W5A automated/adversarial PASS / FROZEN; W5B live harness READY; live 
 
 W5 drives the complete production sequence `delegate_write -> inspect_writer_patch -> reject_writer_patch | integrate_writer_patch -> verifier -> parent result` without changing W1-W4 authority. Automated tests use only the existing faux provider and temporary Git fixtures. Coverage includes successful faux writer completion, multi-file integration, repeated rejection/reuse, tampered artifacts, path escape, symlink replacement, patch-limit metadata, stale bases, dirty parents, verifier failure, rollback conflict, capability-denied writers, cancellation, timeout, and parent-state preservation.
 
-The explicit live harness is `packages/coding-agent/examples/w5-writer-dogfood.ts`, exposed as `npm --workspace @earendil-works/pi-coding-agent run w5:live -- <route>`. It refuses to run unless `W5_LIVE=1`, requires a clean `W5_LIVE_ROOT`, accepts only `cx/gpt-5.6-luna` or `cx/deepseek/deepseek-v4-flash`, uses disposable Git worktrees, and writes bounded JSONL operational records without prompts, fork bodies, patch bodies, credentials, or absolute checkout paths. Live results are certification evidence and are not part of `npm test`, `npm run check`, or the automated W5 gate.
+The explicit live harness is `packages/coding-agent/examples/w5-writer-dogfood.ts`, exposed as `npm --workspace @zykairotis/ice-coding-agent run w5:live -- <route>`. It refuses to run unless `W5_LIVE=1`, requires a clean `W5_LIVE_ROOT`, accepts only `cx/gpt-5.6-luna` or `cx/deepseek/deepseek-v4-flash`, uses disposable Git worktrees, and writes bounded JSONL operational records without prompts, fork bodies, patch bodies, credentials, or absolute checkout paths. Live results are certification evidence and are not part of `npm test`, `npm run check`, or the automated W5 gate.
 
 W5 verification:
 
-- `piv-writer-w5.test.ts`, `piv-subagents.test.ts`, `piv-subagents-adversarial.test.ts`, and `piv-safe-verify.test.ts` pass with `170/170` tests;
+- `ice-writer-w5.test.ts`, `ice-subagents.test.ts`, `ice-subagents-adversarial.test.ts`, and `ice-safe-verify.test.ts` pass with `170/170` tests;
 - W5A automated/adversarial layer is PASS / FROZEN;
 - W5B live harness is READY; `cx/gpt-5.6-luna` and `cx/deepseek/deepseek-v4-flash` remain optional external production-certification evidence and are not claimed until both representative runs complete in an available environment;
 - W6 Subagent Observatory/TUI is implemented and frozen; W5B remains optional external production-certification evidence;
@@ -1091,7 +1091,7 @@ Freeze gate:
 
 Status: **IMPLEMENTED / FROZEN**
 
-W7.1 adds exactly one durable asynchronous read-only job per Pi session owner. `delegate_async` captures the normalized request and launch provenance before acceptance, persists an append-only created snapshot, and returns acceptance metadata without awaiting the child. The detached worker reuses the frozen model/trust/resource resolution, bounded recovery, native runner, and parent verification path with an independent job-owned cancellation signal.
+W7.1 adds exactly one durable asynchronous read-only job per Ice session owner. `delegate_async` captures the normalized request and launch provenance before acceptance, persists an append-only created snapshot, and returns acceptance metadata without awaiting the child. The detached worker reuses the frozen model/trust/resource resolution, bounded recovery, native runner, and parent verification path with an independent job-owned cancellation signal.
 
 The extension-owned `SubagentJobRegistry` persists bounded/redacted state through session custom entries, enforces one active owner job, validates canonical terminal snapshots, retains at most 32 terminal jobs, supports owner-only inspection/cancellation, awaits cancellation and shutdown settlement, and restores stale active snapshots as `interrupted` without relaunch. Completion messages contain only job metadata, are emitted after terminal persistence, are deferred until `agent_settled`, use `triggerTurn: false`, and are deduplicated from persisted `custom_message` details.
 
@@ -1099,7 +1099,7 @@ The three tools are `delegate_async`, `inspect_subagent_job`, and `cancel_subage
 
 Exit verification:
 
-- `piv-subagent-jobs.test.ts`: `16/16`;
+- `ice-subagent-jobs.test.ts`: `16/16`;
 - integration plus safe-verify/subagent suite: `172/172`;
 - frozen W7/W6/W5/W4/adversarial suite: `202/202`;
 - `npx tsgo --noEmit` and `npm run check` report only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` error;
@@ -1111,7 +1111,7 @@ Status: **IMPLEMENTED / FROZEN**
 
 W7.2 extends the W7.1 owner-scoped durable job registry without changing the foreground runner or adding a second scheduler. The registry admits up to 2 active jobs by default, caps active concurrency at 4, retains up to 8 FIFO queued jobs, and reserves planned output against a 256 KiB owner aggregate budget before durable admission. It persists queued state before acceptance, promotes only after terminal persistence, exposes queue position and budget metadata, cancels queued jobs without invoking their closures, releases each reservation exactly once, and fails closed on persistence transitions. Shutdown and restore mark both queued and active jobs `interrupted` without relaunch.
 
-The slice excludes priority, steering, recursive delegation, Bash/network/writer privileges, background batch facades, auto-resume, automatic result ingestion, job actions, and Hivemind. Verification is `piv-subagent-jobs.test.ts` `31/31`, `piv-subagents.test.ts` `115/115`, and `piv-safe-verify.test.ts` included in the `189/189` focused run; root `npm run check` reaches only the documented pre-existing `maxTokensField` diagnostic.
+The slice excludes priority, steering, recursive delegation, Bash/network/writer privileges, background batch facades, auto-resume, automatic result ingestion, job actions, and Hivemind. Verification is `ice-subagent-jobs.test.ts` `31/31`, `ice-subagents.test.ts` `115/115`, and `ice-safe-verify.test.ts` included in the `189/189` focused run; root `npm run check` reaches only the documented pre-existing `maxTokensField` diagnostic.
 
 # W8.1 — durable job observatory visibility
 
@@ -1121,7 +1121,7 @@ W8.1 adds metadata-only owner-scoped durable job sections to the existing read-o
 
 Verification:
 
-- `piv-subagent-jobs.test.ts` and `piv-subagent-observatory.test.ts`: `48/48`;
+- `ice-subagent-jobs.test.ts` and `ice-subagent-observatory.test.ts`: `48/48`;
 - `npx tsgo --noEmit` and `npm run check` reach only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` error;
 - `git diff --check` passes.
 
@@ -1135,7 +1135,7 @@ Inspection is UI-only. It does not call `sendMessage`, `appendEntry`, or any age
 
 Verification:
 
-- focused `piv-subagent-observatory.test.ts` and `piv-subagents.test.ts`: `134/134`; registry-inclusive `piv-subagent-jobs.test.ts`, `piv-subagent-observatory.test.ts`, and `piv-subagents.test.ts`: `169/169`;
+- focused `ice-subagent-observatory.test.ts` and `ice-subagents.test.ts`: `134/134`; registry-inclusive `ice-subagent-jobs.test.ts`, `ice-subagent-observatory.test.ts`, and `ice-subagents.test.ts`: `169/169`;
 - final frozen six-file regression surface: `231/231`;
 - `npx tsgo --noEmit` and `npm run check` reach only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` error;
 - `git diff --check` passes.
@@ -1150,8 +1150,8 @@ Inbox rows contain only job ID, terminal status, role/model, optional finished/n
 
 Verification:
 
-- focused `piv-subagent-observatory.test.ts` and `piv-subagents.test.ts`: `139/139`;
-- registry-inclusive `piv-subagent-jobs.test.ts`, `piv-subagent-observatory.test.ts`, and `piv-subagents.test.ts`: `174/174`;
+- focused `ice-subagent-observatory.test.ts` and `ice-subagents.test.ts`: `139/139`;
+- registry-inclusive `ice-subagent-jobs.test.ts`, `ice-subagent-observatory.test.ts`, and `ice-subagents.test.ts`: `174/174`;
 - frozen six-file regression surface: `236/236`;
 - `npx tsgo --noEmit` and `npm run check` reach only the documented pre-existing `packages/ai/test/openai-completions-tool-choice.test.ts:1410` `maxTokensField` error;
 - `git diff --check` passes.
@@ -1193,7 +1193,7 @@ Do not add `background: true` to the foreground runner. Follow-on work must not 
 References:
 
 - OpenCode background job model;
-- Oh My Pi async job/registry lifecycle;
+- Oh My Ice async job/registry lifecycle;
 - II-Agent persistent run state;
 - Claw Code worker health registry.
 
@@ -1211,7 +1211,7 @@ If durable learning is enabled later:
 - make recall parent-selected initially and pass only bounded relevant entries in child handoffs;
 - scope durable knowledge by repository/user before organization-wide propagation;
 - support invalidation/revalidation when source state changes;
-- allow `piv-cognee` or another store only through a backend-neutral adapter contract;
+- allow `ice-cognee` or another store only through a backend-neutral adapter contract;
 - scope any later child recall/write by hive/run/profile/session and parent capability;
 - retrieved memory remains untrusted;
 - never share credentials through handoff;
@@ -1232,8 +1232,8 @@ packages/coding-agent/src/subagents/*
 Likely integration points:
 
 ```text
-packages/coding-agent/src/piv.ts
-packages/coding-agent/src/piv-safe-verify.ts  # expose/gate `delegate` through existing mode tool policy
+packages/coding-agent/src/ice.ts
+packages/coding-agent/src/ice-safe-verify.ts  # expose/gate `delegate` through existing mode tool policy
 packages/coding-agent/src/index.ts            # only if public exports are required
 packages/coding-agent/test/*                  # dedicated subagent tests
 ```
@@ -1250,7 +1250,7 @@ packages/coding-agent/src/core/model-runtime.ts
 packages/coding-agent/src/core/extensions/*
 ```
 
-Do not alter Pi core abstractions unless a test proves the subagent layer cannot be implemented cleanly through existing APIs.
+Do not alter Ice core abstractions unless a test proves the subagent layer cannot be implemented cleanly through existing APIs.
 
 ---
 
@@ -1258,13 +1258,13 @@ Do not alter Pi core abstractions unless a test proves the subagent layer cannot
 
 Use references for ideas/contracts, not direct code copying.
 
-## Pi
+## Ice
 
 - `packages/coding-agent/examples/extensions/subagent/index.ts`
 - `packages/coding-agent/examples/extensions/subagent/agents.ts`
 - `packages/coding-agent/examples/extensions/subagent/README.md`
 
-## Oh My Pi
+## Oh My Ice
 
 - task types/executor/discovery/parallel/worktree;
 - async job manager and agent registry for later background phase.
@@ -1291,10 +1291,10 @@ Use references for ideas/contracts, not direct code copying.
 
 ## ActiveLoop Hivemind
 
-- Pi lifecycle integration for capture/recall;
+- Ice lifecycle integration for capture/recall;
 - structured trace/session summarization;
 - reusable skill-learning pipeline;
-- shared-memory concepts, adapted behind Pi Void verification/promotion policy.
+- shared-memory concepts, adapted behind ICE verification/promotion policy.
 
 ## Ruflo Hive Mind
 
@@ -1312,13 +1312,13 @@ See `docs/hivemind/references.md` for source-level notes and adaptation boundari
 
 Pause implementation and reassess architecture if any of these become true:
 
-- native child `ResourceLoader` cannot be constrained without invasive Pi core changes;
-- Pi's `tools` allowlist can be bypassed by an extension/custom tool path;
+- native child `ResourceLoader` cannot be constrained without invasive Ice core changes;
+- Ice's `tools` allowlist can be bypassed by an extension/custom tool path;
 - child cancellation cannot guarantee settlement;
 - parent and child histories cannot be separated cleanly;
 - required session identity cannot be represented without breaking existing session semantics;
 - MVP requires worktree/background infrastructure merely to support a read-only worker;
-- implementation begins duplicating Pi's model/session/tool runtime instead of composing with it.
+- implementation begins duplicating Ice's model/session/tool runtime instead of composing with it.
 
 In those cases, prefer the subprocess backend or a smaller seam rather than expanding the core architecture prematurely.
 
@@ -1326,14 +1326,14 @@ In those cases, prefer the subprocess backend or a smaller seam rather than expa
 
 # Cognee contract repair (2026-08-12)
 
-Status: **implemented 2026-08-13** (items 1–4, 5 except split circuits, project datasets, Blackhole minimal tail). Report: `agent_docs/piv-cognee-compaction-benchmark-2026-08-13.md`.
+Status: **implemented 2026-08-13** (items 1–4, 5 except split circuits, project datasets, Blackhole minimal tail). Report: `agent_docs/ice-cognee-compaction-benchmark-2026-08-13.md`.
 
-Full findings: `agent_docs/piv-cognee-findings-2026-08-12.md`. Summary: `findings.md` §22.
+Full findings: `agent_docs/ice-cognee-findings-2026-08-12.md`. Summary: `findings.md` §22.
 
 Highest-value Cognee work, in order. Do not start with dead env keys, jsonl rotation, or doctor latency.
 
 1. Keep recall transient (system-prompt append or equivalent; no durable `custom_message`). **done**
-2. Change `auto` so Cognee never owns the Pi compact summary; rewrite `own` to summarize `messagesToSummarize` if the mode stays. **done**
+2. Change `auto` so Cognee never owns the Ice compact summary; rewrite `own` to summarize `messagesToSummarize` if the mode stays. **done**
 3. Feed the just-written compact summary into the next recall without waiting for Cognee. **done**
 4. Wait for in-flight capture before idle improve; stamp cooldown on completion. **done**
 5. Set `lastRecallKey` only after a successful recall, with TTL; split recall/write circuits if still coupled. **done (TTL + success-only; circuits still shared)**
@@ -1345,4 +1345,4 @@ See `findings.md` §22.
 
 # Definition of done for the first release
 
-A `piv` session can call `delegate` to run one bundled `explore` or `review` worker. The worker is a fresh native in-memory `AgentSession` whose extensions, skills, prompt templates, themes, and context-file discovery are disabled; whose effective tools are only the intersection of the parent's active tools with `read`/`grep`/`find`/`ls`; and which cannot recursively delegate, mutate, use Bash, or inherit Cognee/Blackhole/guard hooks. It respects parent cancellation and timeout, returns a typed bounded result with stable lineage/evidence, and the parent verifies and integrates that result without importing the child's transcript or authority. Stock `pi` remains unchanged.
+A `ice` session can call `delegate` to run one bundled `explore` or `review` worker. The worker is a fresh native in-memory `AgentSession` whose extensions, skills, prompt templates, themes, and context-file discovery are disabled; whose effective tools are only the intersection of the parent's active tools with `read`/`grep`/`find`/`ls`; and which cannot recursively delegate, mutate, use Bash, or inherit Cognee/Blackhole/guard hooks. It respects parent cancellation and timeout, returns a typed bounded result with stable lineage/evidence, and the parent verifies and integrates that result without importing the child's transcript or authority. Stock `ice` remains unchanged.

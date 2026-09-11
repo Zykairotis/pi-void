@@ -4,9 +4,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-	assertPivSubagentBackendPolicy,
-	PIV_SUBAGENT_BACKEND_POLICY,
-} from "../../../packages/coding-agent/src/piv-subagents.ts";
+	assertIceSubagentBackendPolicy,
+	ICE_SUBAGENT_BACKEND_POLICY,
+} from "../../../packages/coding-agent/src/ice-subagents.ts";
 import {
 	artifactRoot,
 	KNOWN_CHECK,
@@ -129,16 +129,16 @@ export function parseVitestSummary(
 
 const acceptanceCommands = {
 	c1: [
-		"test/piv-subagents.test.ts",
-		"test/piv-subagents-adversarial.test.ts",
-		"test/piv-safe-verify.test.ts",
-		"test/piv-writer-w5.test.ts",
-		"test/piv-subagent-jobs.test.ts",
-		"test/piv-subagent-observatory.test.ts",
-		"test/piv-delegate-mvp.test.ts",
+		"test/ice-subagents.test.ts",
+		"test/ice-subagents-adversarial.test.ts",
+		"test/ice-safe-verify.test.ts",
+		"test/ice-writer-w5.test.ts",
+		"test/ice-subagent-jobs.test.ts",
+		"test/ice-subagent-observatory.test.ts",
+		"test/ice-delegate-mvp.test.ts",
 	],
-	c2: ["test/piv-subagents.test.ts", "test/piv-safe-verify.test.ts"],
-	c3: ["test/piv-delegate-mvp.test.ts"],
+	c2: ["test/ice-subagents.test.ts", "test/ice-safe-verify.test.ts"],
+	c3: ["test/ice-delegate-mvp.test.ts"],
 } as const;
 
 export function collectAcceptanceEvidence(): Record<
@@ -481,7 +481,7 @@ async function m13Verify(args: readonly string[]): Promise<void> {
 			"M13 requires four unique M12 run IDs: cold, warm, safety, and compatibility evidence",
 		);
 	}
-	assertPivSubagentBackendPolicy();
+	assertIceSubagentBackendPolicy();
 	const sources = await Promise.all(
 		runIds.map(async (runId) => {
 			const evidence = await readLatestRecords(runId);
@@ -568,7 +568,7 @@ async function m13Verify(args: readonly string[]): Promise<void> {
 	await mkdir(dir, { recursive: true });
 	await writeFile(
 		join(dir, "policy.json"),
-		`${JSON.stringify({ schemaVersion: 2, ...PIV_SUBAGENT_BACKEND_POLICY }, null, 2)}\n`,
+		`${JSON.stringify({ schemaVersion: 2, ...ICE_SUBAGENT_BACKEND_POLICY }, null, 2)}\n`,
 		"utf8",
 	);
 	await writeFile(
@@ -578,7 +578,7 @@ async function m13Verify(args: readonly string[]): Promise<void> {
 	);
 	await writeFile(
 		join(dir, "rollback.json"),
-		`${JSON.stringify({ schemaVersion: 2, strategy: PIV_SUBAGENT_BACKEND_POLICY.rollback }, null, 2)}\n`,
+		`${JSON.stringify({ schemaVersion: 2, strategy: ICE_SUBAGENT_BACKEND_POLICY.rollback }, null, 2)}\n`,
 		"utf8",
 	);
 	console.log(`M13 native-only policy verified: ${dir}`);

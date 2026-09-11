@@ -14,7 +14,7 @@ function validResult(overrides = {}) {
 	return {
 		schemaVersion: 1,
 		runId: "run-1",
-		implementation: "pi-void",
+		implementation: "ice",
 		resolvedCommit,
 		provider: "openai",
 		model: "cx/gpt-5.6-luna",
@@ -58,7 +58,7 @@ test("rejects malformed numeric and provenance fields", () => {
 });
 
 test("writes one normalized JSONL row per result", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "piv-b8-results-"));
+	const dir = await mkdtemp(join(tmpdir(), "ice-b8-results-"));
 	try {
 		const outputPath = join(dir, "nested", "run.jsonl");
 		await writeJsonl(outputPath, [validResult(), validResult({ runId: "run-2", success: false, failureCode: "timeout" })]);

@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { experimentalCli } from "../src/cli/experimental/cli.ts";
 
 describe("experimental CLI commands", () => {
-	test("selects pi mode and parses existing CLI arguments", () => {
+	test("selects ice mode and parses existing CLI arguments", () => {
 		expect(
 			experimentalCli.parse([
 				"--provider",
@@ -17,7 +17,7 @@ describe("experimental CLI commands", () => {
 		).toMatchObject({
 			ok: true,
 			command: {
-				command: "pi",
+				command: "ice",
 				options: {
 					provider: "anthropic",
 					model: "claude-sonnet",
@@ -29,21 +29,21 @@ describe("experimental CLI commands", () => {
 	});
 
 	test("parses a server listener", () => {
-		expect(experimentalCli.parse(["server", "--listen", "unix:///tmp/pi.sock"])).toEqual({
+		expect(experimentalCli.parse(["server", "--listen", "unix:///tmp/ice.sock"])).toEqual({
 			ok: true,
 			command: {
 				command: "server",
-				listen: [{ transport: "unix", path: "/tmp/pi.sock" }],
+				listen: [{ transport: "unix", path: "/tmp/ice.sock" }],
 			},
 		});
 	});
 
 	test("leaves experimental-looking existing option values with the existing parser", () => {
-		expect(experimentalCli.parse(["--system-prompt", "--listen", "unix:///tmp/pi.sock"])).toMatchObject({
+		expect(experimentalCli.parse(["--system-prompt", "--listen", "unix:///tmp/ice.sock"])).toMatchObject({
 			ok: true,
 			command: {
-				command: "pi",
-				options: { systemPrompt: "--listen", messages: ["unix:///tmp/pi.sock"] },
+				command: "ice",
+				options: { systemPrompt: "--listen", messages: ["unix:///tmp/ice.sock"] },
 			},
 		});
 	});
@@ -52,19 +52,19 @@ describe("experimental CLI commands", () => {
 		const result = experimentalCli.parse(["--model", "claude-sonnet", "--listen=unix:///tmp/second.sock"]);
 		expect(result).toMatchObject({
 			ok: true,
-			command: { command: "pi", options: { model: "claude-sonnet" } },
+			command: { command: "ice", options: { model: "claude-sonnet" } },
 		});
-		if (!result.ok || result.command.command !== "pi") return;
+		if (!result.ok || result.command.command !== "ice") return;
 		expect(result.command.listen).toBeUndefined();
 		expect(result.command.options.unknownFlags.get("listen")).toBe("unix:///tmp/second.sock");
 	});
 
 	test("parses a client transport address", () => {
-		expect(experimentalCli.parse(["client", "--connect", "unix:///tmp/pi.sock"])).toEqual({
+		expect(experimentalCli.parse(["client", "--connect", "unix:///tmp/ice.sock"])).toEqual({
 			ok: true,
 			command: {
 				command: "client",
-				connect: { transport: "unix", path: "/tmp/pi.sock" },
+				connect: { transport: "unix", path: "/tmp/ice.sock" },
 			},
 		});
 	});
@@ -75,7 +75,7 @@ describe("experimental CLI commands", () => {
 	] as const)("parses authentication source %j", (argv, auth) => {
 		expect(experimentalCli.parse(argv)).toMatchObject({
 			ok: true,
-			command: { command: "pi", auth },
+			command: { command: "ice", auth },
 		});
 	});
 
@@ -83,25 +83,25 @@ describe("experimental CLI commands", () => {
 		"permits omitted authentication for later environment/default resolution",
 		(argv) => {
 			const result = experimentalCli.parse(argv);
-			expect(result).toMatchObject({ ok: true, command: { command: argv[0] ?? "pi" } });
+			expect(result).toMatchObject({ ok: true, command: { command: argv[0] ?? "ice" } });
 			if (result.ok) expect(result.command.auth).toBeUndefined();
 		},
 	);
 
 	test("passes unknown options, file arguments, and the positional separator to the existing parser", () => {
-		const result = experimentalCli.parse(["--unknown", "@prompt.md", "--", "--listen", "unix:///tmp/pi.sock"]);
+		const result = experimentalCli.parse(["--unknown", "@prompt.md", "--", "--listen", "unix:///tmp/ice.sock"]);
 		expect(result).toMatchObject({
 			ok: true,
-			command: { command: "pi", options: { fileArgs: ["prompt.md"] } },
+			command: { command: "ice", options: { fileArgs: ["prompt.md"] } },
 		});
-		if (!result.ok || result.command.command !== "pi") return;
+		if (!result.ok || result.command.command !== "ice") return;
 		expect(result.command.options.unknownFlags.get("unknown")).toBe(true);
-		expect(result.command.options.unknownFlags.get("listen")).toBe("unix:///tmp/pi.sock");
+		expect(result.command.options.unknownFlags.get("listen")).toBe("unix:///tmp/ice.sock");
 	});
 
 	test.each([
 		[
-			["--listen", "unix:///tmp/pi.sock", "--listen", "unix:///tmp/pi-admin.sock"],
+			["--listen", "unix:///tmp/ice.sock", "--listen", "unix:///tmp/ice-admin.sock"],
 			"--listen may only be specified once",
 		],
 		[
@@ -113,19 +113,19 @@ describe("experimental CLI commands", () => {
 			["--auth-token-file", "/tmp/first", "--auth-token-file=/tmp/second"],
 			"--auth-token-file may only be specified once",
 		],
-		[["--listen", "/tmp/pi.sock"], 'Invalid --listen address "/tmp/pi.sock"'],
+		[["--listen", "/tmp/ice.sock"], 'Invalid --listen address "/tmp/ice.sock"'],
 		[["--listen", "ws://localhost:8080"], 'Unsupported --listen transport "ws:"'],
 		[["--listen", "unix://relative.sock"], "Unix transport address must not include an authority"],
-		[["--listen", "unix:///tmp/pi.sock?wrong=value"], 'Invalid --listen address "unix:///tmp/pi.sock?wrong=value"'],
-		[["--listen", "unix:///tmp/pi.sock#fragment"], 'Invalid --listen address "unix:///tmp/pi.sock#fragment"'],
-		[["--listen", "unix:/tmp/pi.sock"], 'Invalid --listen address "unix:/tmp/pi.sock"'],
-		[["--listen", "unix:///tmp/%00pi.sock"], 'Invalid --listen address "unix:///tmp/%00pi.sock"'],
+		[["--listen", "unix:///tmp/ice.sock?wrong=value"], 'Invalid --listen address "unix:///tmp/ice.sock?wrong=value"'],
+		[["--listen", "unix:///tmp/ice.sock#fragment"], 'Invalid --listen address "unix:///tmp/ice.sock#fragment"'],
+		[["--listen", "unix:/tmp/ice.sock"], 'Invalid --listen address "unix:/tmp/ice.sock"'],
+		[["--listen", "unix:///tmp/%00ice.sock"], 'Invalid --listen address "unix:///tmp/%00ice.sock"'],
 		[
-			["client", "--listen", "unix:///tmp/pi.sock"],
+			["client", "--listen", "unix:///tmp/ice.sock"],
 			"The experimental client command does not support existing CLI options yet",
 		],
 		[
-			["server", "--connect", "unix:///tmp/pi.sock"],
+			["server", "--connect", "unix:///tmp/ice.sock"],
 			"The experimental server command does not support existing CLI options yet",
 		],
 		[["client", "--connect", "ws://localhost:8080"], 'Unsupported --connect transport "ws:"'],
@@ -157,7 +157,7 @@ describe("experimental CLI commands", () => {
 	test("treats command names after the first argument as existing CLI arguments", () => {
 		expect(experimentalCli.parse(["--cwd", "/workspace", "server"])).toMatchObject({
 			ok: true,
-			command: { command: "pi", options: { messages: ["server"] } },
+			command: { command: "ice", options: { messages: ["server"] } },
 		});
 	});
 });

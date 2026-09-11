@@ -4,7 +4,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@zykairotis/ice-coding-agent";
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -23,7 +23,7 @@ export interface AgentDiscoveryResult {
 	projectAgentsDir: string | null;
 }
 
-/** Legacy names remain accepted while the canonical Pi Void roles are explored/review. */
+/** Legacy names remain accepted while the canonical ICE roles are explored/review. */
 export const AGENT_ALIASES: Readonly<Record<string, string>> = Object.freeze({
 	scout: "explore",
 	reviewer: "review",

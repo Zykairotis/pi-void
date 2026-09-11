@@ -1,12 +1,12 @@
-import { type Component, Key, matchesKey, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, Key, matchesKey, type TUI, truncateToWidth, visibleWidth } from "@zykairotis/ice-tui";
 import type { KeybindingsManager } from "../../../core/keybindings.ts";
-import type { PivAgentViewBridge, PivAgentViewDescriptor } from "../../../piv-agent-view-bridge.ts";
+import type { IceAgentViewBridge, IceAgentViewDescriptor } from "../../../ice-agent-view-bridge.ts";
 import type { Theme } from "../theme/theme.ts";
 
 const MAX_VISIBLE_ROWS = 4;
 const NARROW_TERMINAL_WIDTH = 72;
 
-export function agentSwitcherStatus(view: PivAgentViewDescriptor): string {
+export function agentSwitcherStatus(view: IceAgentViewDescriptor): string {
 	if (view.kind === "parent") return "MAIN";
 	if (!view.live) return (view.status ?? "history").toUpperCase();
 	if (view.controlState && view.controlState !== "working")
@@ -15,7 +15,7 @@ export function agentSwitcherStatus(view: PivAgentViewDescriptor): string {
 	return (view.status ?? "LIVE").toUpperCase();
 }
 
-export function formatAgentSwitcherLabel(view: PivAgentViewDescriptor): string {
+export function formatAgentSwitcherLabel(view: IceAgentViewDescriptor): string {
 	if (view.kind === "parent") return "Main agent";
 	const identity = view.taskId ?? view.runId?.slice(0, 8);
 	return [view.role ?? view.label, identity ? `· ${identity}` : undefined].filter(Boolean).join(" ");
@@ -29,12 +29,12 @@ function padVisible(text: string, width: number): string {
 /** Compact selector mounted in InteractiveMode's bottom dock. */
 export class SubagentFooterSwitcher implements Component {
 	private selectedIndex = 0;
-	private views: readonly PivAgentViewDescriptor[] = [];
+	private views: readonly IceAgentViewDescriptor[] = [];
 	private readonly unsubscribe: () => void;
 	private readonly tui: TUI;
 	private readonly theme: Theme;
 	private readonly keybindings: KeybindingsManager;
-	private readonly bridge: PivAgentViewBridge;
+	private readonly bridge: IceAgentViewBridge;
 	private readonly done: () => void;
 	private expanded: boolean;
 	private disposed = false;
@@ -44,7 +44,7 @@ export class SubagentFooterSwitcher implements Component {
 		tui: TUI,
 		theme: Theme,
 		keybindings: KeybindingsManager,
-		bridge: PivAgentViewBridge,
+		bridge: IceAgentViewBridge,
 		done: () => void,
 		expanded = true,
 	) {

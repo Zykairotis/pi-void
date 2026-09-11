@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-export const BENCHMARK_TARGET_IDS = ["pi-stock", "pi-native-example", "pi-subagents", "pi-void"] as const;
+export const BENCHMARK_TARGET_IDS = ["ice-stock", "ice-native-example", "ice-subagents", "ice"] as const;
 export type BenchmarkTargetId = (typeof BENCHMARK_TARGET_IDS)[number];
 
 export const PENDING_EXTERNAL_BASELINE = "PENDING_EXTERNAL_BASELINE";
@@ -115,11 +115,11 @@ export function validateTarget(value: unknown): BenchmarkTarget {
 	const status = value.status;
 	if (status !== undefined && !isStatus(status)) throw new Error(`invalid status for ${value.id}`);
 	const commit = validateCommit(value.id, value.source.commit, status);
-	if (commit === CURRENT_WORKSPACE && value.id !== "pi-void") {
-		throw new Error(`current workspace sentinel is only valid for pi-void`);
+	if (commit === CURRENT_WORKSPACE && value.id !== "ice") {
+		throw new Error(`current workspace sentinel is only valid for ice`);
 	}
-	if (value.id === "pi-void" && commit !== CURRENT_WORKSPACE) {
-		throw new Error("pi-void must use the current workspace sentinel");
+	if (value.id === "ice" && commit !== CURRENT_WORKSPACE) {
+		throw new Error("ice must use the current workspace sentinel");
 	}
 	if (value.source.repo !== undefined && typeof value.source.repo !== "string") {
 		throw new Error(`invalid repository for ${value.id}`);

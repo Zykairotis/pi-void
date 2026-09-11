@@ -9,7 +9,7 @@ Hivemind should make several bounded subagents behave like one evidence-producin
 The architecture therefore separates three responsibilities:
 
 ```text
-reasoning/authority       Parent Pi AgentSession
+reasoning/authority       Parent Ice AgentSession
 worker execution          existing SubagentManager / native AgentSession runner
 coordination/learning     Hivemind services
 ```
@@ -18,7 +18,7 @@ The parent remains responsible for decomposition, permissions, user-facing decis
 
 ## Parent-as-queen
 
-Ruflo uses queen-led terminology. Pi Void adopts the useful coordination concept but maps the queen role to the existing parent Pi session.
+Ruflo uses queen-led terminology. ICE adopts the useful coordination concept but maps the queen role to the existing parent Ice session.
 
 There is no mandatory `QueenAgent` model.
 
@@ -130,7 +130,7 @@ observed run data
   -> durable knowledge or skill candidate
 ```
 
-This borrows the useful capture/summarize/skillify pattern from ActiveLoop Hivemind while preserving Pi Void's rule that unverified model output is not authoritative memory.
+This borrows the useful capture/summarize/skillify pattern from ActiveLoop Hivemind while preserving ICE's rule that unverified model output is not authoritative memory.
 
 ## Coordination plane and learning plane
 
@@ -196,7 +196,7 @@ This gives most of the useful information-sharing behavior of a mesh without per
 
 ### Not a target: recursive hierarchy
 
-Nested queens, managers that spawn managers, and unrestricted recursive delegation are not the default Pi Void architecture. If a future use case justifies hierarchy, it requires a separate depth, budget, ownership, and isolation design.
+Nested queens, managers that spawn managers, and unrestricted recursive delegation are not the default ICE architecture. If a future use case justifies hierarchy, it requires a separate depth, budget, ownership, and isolation design.
 
 ## Hive lifecycle
 

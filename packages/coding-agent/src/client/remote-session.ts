@@ -1,10 +1,10 @@
 import type {
 	ConnectionState,
 	ConnectionStateChange,
-	PiClient,
+	IceClient,
 	SessionLease,
 	Unsubscribe,
-} from "@earendil-works/pi-client";
+} from "@zykairotis/ice-client";
 import type {
 	ModelMetadata,
 	ModelRef,
@@ -14,7 +14,7 @@ import type {
 	SessionSummary,
 	ThinkingLevel,
 	TranscriptItem,
-} from "@earendil-works/pi-protocol";
+} from "@zykairotis/ice-protocol";
 import {
 	applyTranscriptProgress,
 	applyTranscriptSnapshot,
@@ -64,7 +64,7 @@ async function settleRemoteSessionDisposal(cleanup: readonly Promise<void>[]): P
 }
 
 export class RemoteSession {
-	readonly #client: PiClient;
+	readonly #client: IceClient;
 	readonly #onListenerError: ((error: Error) => void) | undefined;
 	#lifecycle: RemoteSessionLifecycle = { status: "unbound" };
 	#handle: SessionLease | undefined;
@@ -80,7 +80,7 @@ export class RemoteSession {
 		this.#resolveDisposeSignal = resolve;
 	});
 
-	private constructor(client: PiClient, options: RemoteSessionOptions = {}) {
+	private constructor(client: IceClient, options: RemoteSessionOptions = {}) {
 		this.#client = client;
 		this.#onListenerError = options.onListenerError;
 	}
@@ -137,7 +137,7 @@ export class RemoteSession {
 		return this.#client.onConnectionStateChange(listener);
 	}
 
-	static async open(client: PiClient, sessionId: string, options: RemoteSessionOptions = {}): Promise<RemoteSession> {
+	static async open(client: IceClient, sessionId: string, options: RemoteSessionOptions = {}): Promise<RemoteSession> {
 		const session = new RemoteSession(client, options);
 		try {
 			await session.open(sessionId);
@@ -154,7 +154,7 @@ export class RemoteSession {
 	}
 
 	static async create(
-		client: PiClient,
+		client: IceClient,
 		createOptions: CreateRemoteSessionOptions,
 		options: RemoteSessionOptions = {},
 	): Promise<RemoteSession> {

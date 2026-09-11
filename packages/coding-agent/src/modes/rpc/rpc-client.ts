@@ -5,8 +5,8 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { ImageContent } from "@earendil-works/pi-ai";
+import type { AgentMessage, ThinkingLevel } from "@zykairotis/ice-agent-core";
+import type { ImageContent } from "@zykairotis/ice-ai";
 import type { SessionStats } from "../../core/agent-session.ts";
 import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
@@ -28,7 +28,7 @@ type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : n
 type RpcCommandBody = DistributiveOmit<RpcCommand, "id">;
 
 export interface RpcClientOptions {
-	/** Path to the CLI entry point (default: searches for dist/cli.js) */
+	/** Path to the ICE CLI entry point (default: searches for dist/ice.js) */
 	cliPath?: string;
 	/** Working directory for the agent */
 	cwd?: string;
@@ -96,7 +96,7 @@ export class RpcClient {
 
 		this.exitError = null;
 
-		const cliPath = this.options.cliPath ?? "dist/cli.js";
+		const cliPath = this.options.cliPath ?? "dist/ice.js";
 		const args = ["--mode", "rpc"];
 
 		if (this.options.provider) {

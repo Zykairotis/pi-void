@@ -10,7 +10,7 @@ import {
 
 const root = process.cwd();
 const catalog = loadScenarioCatalog(join(root, "benchmarks/read-only-subagents/scenarios.json"));
-const testSource = await readFile(join(root, "packages/coding-agent/test/piv-subagents-adversarial.test.ts"), "utf8");
+const testSource = await readFile(join(root, "packages/coding-agent/test/ice-subagents-adversarial.test.ts"), "utf8");
 
 test("all deterministic benchmark scenarios have adversarial regression IDs", () => {
 	assert.deepEqual(findMissingAdversarialScenarioIds(catalog, testSource), []);

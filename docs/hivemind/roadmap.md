@@ -97,7 +97,7 @@ Add:
 - distillation into knowledge candidates;
 - promotion/invalidation state;
 - parent-selected recall;
-- optional adapter to `piv-cognee` or another backend;
+- optional adapter to `ice-cognee` or another backend;
 - skill candidate generation behind explicit promotion policy.
 
 Initial default:
@@ -159,7 +159,7 @@ Do not implement background as a boolean on the foreground coordinator.
 
 ## H7 — federation/remote workers, only if justified
 
-Ruflo includes federation and broader swarm topologies. Pi Void should consider remote hives only after local semantics are mature.
+Ruflo includes federation and broader swarm topologies. ICE should consider remote hives only after local semantics are mature.
 
 Required first:
 

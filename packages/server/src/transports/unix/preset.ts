@@ -1,10 +1,10 @@
-import { PiServer } from "../../server.ts";
-import type { PiSessionBackend } from "../../types.ts";
+import { IceServer } from "../../server.ts";
+import type { IceSessionBackend } from "../../types.ts";
 import { createUnixListener } from "./listener.ts";
 import type { UnixServerOptions } from "./types.ts";
 
-/** Compose PiServer with one Unix-domain socket listener. */
-export function createUnixServer(backend: PiSessionBackend, options: UnixServerOptions): PiServer {
+/** Compose IceServer with one Unix-domain socket listener. */
+export function createUnixServer(backend: IceSessionBackend, options: UnixServerOptions): IceServer {
 	const listener = createUnixListener({
 		path: options.path,
 		mode: options.mode,
@@ -13,7 +13,7 @@ export function createUnixServer(backend: PiSessionBackend, options: UnixServerO
 		gracefulCloseTimeoutMs: options.gracefulCloseTimeoutMs,
 		onError: options.onError,
 	});
-	return new PiServer(backend, {
+	return new IceServer(backend, {
 		listeners: [listener],
 		maxFrameLength: options.maxFrameLength,
 		handshakeTimeoutMs: options.handshakeTimeoutMs,

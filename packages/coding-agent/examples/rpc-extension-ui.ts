@@ -27,7 +27,7 @@ import {
 	SelectList,
 	type TUI,
 	TuiMainScreen,
-} from "@earendil-works/pi-tui";
+} from "@zykairotis/ice-tui";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -254,7 +254,7 @@ class InputDialog implements Component {
 
 async function main() {
 	const extensionPath = join(__dirname, "extensions/rpc-demo.ts");
-	const cliPath = join(__dirname, "../dist/cli.js");
+	const cliPath = join(__dirname, "../dist/ice.js");
 
 	const agent = spawn(
 		"node",

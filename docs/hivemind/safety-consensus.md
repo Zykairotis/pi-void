@@ -10,7 +10,7 @@ Hivemind improves coverage by spending independent context and compute on separa
 
 ## Consensus is advisory
 
-Ruflo exposes majority/weighted/Byzantine-style consensus concepts. Pi Void should adopt explicit decision records and disagreement tracking, but not assume distributed-systems guarantees apply directly to correlated LLM workers.
+Ruflo exposes majority/weighted/Byzantine-style consensus concepts. ICE should adopt explicit decision records and disagreement tracking, but not assume distributed-systems guarantees apply directly to correlated LLM workers.
 
 Reasons:
 
@@ -48,7 +48,7 @@ Still not proof of correctness.
 
 ### `evidence_quorum`
 
-Preferred Pi Void policy.
+Preferred ICE policy.
 
 A recommendation needs:
 
@@ -71,7 +71,7 @@ Example:
 
 A BFT algorithm has assumptions about node independence, identities, message delivery, and bounded faulty participants. Multiple LLM calls inside one process do not automatically satisfy those assumptions.
 
-Pi Void may later implement quorum mathematics or tamper-resistant remote worker identity, but it should use precise names such as `evidence_quorum` unless the complete fault model is actually implemented and tested.
+ICE may later implement quorum mathematics or tamper-resistant remote worker identity, but it should use precise names such as `evidence_quorum` unless the complete fault model is actually implemented and tested.
 
 ## Permission safety
 
