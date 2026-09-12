@@ -1,3 +1,4 @@
+import { applyChromeBorder, type ChromeBorderStyle, chromeBorderGlyphs } from "../chrome-border.ts";
 import { getKeybindings } from "../keybindings.ts";
 import type { Component } from "../tui.ts";
 import { truncateToWidth, visibleWidth } from "../utils.ts";
@@ -21,6 +22,9 @@ export interface SelectListTheme {
 	description: (text: string) => string;
 	scrollInfo: (text: string) => string;
 	noMatch: (text: string) => string;
+	/** Optional shared chrome border (appearance plan 6.10); absent = no border. */
+	borderStyle?: ChromeBorderStyle;
+	borderColor?: (text: string) => string;
 }
 
 export interface SelectListTruncatePrimaryContext {
@@ -74,38 +78,46 @@ export class SelectList implements Component {
 	render(width: number): string[] {
 		const lines: string[] = [];
 
-		// If no items match filter, show message
+		// Side-bearing borders reserve two columns; render items at the inner
+		// width so the border wrapper never truncates labels or descriptions.
+		const glyphs = this.theme.borderStyle ? chromeBorderGlyphs(this.theme.borderStyle) : null;
+		const contentWidth = glyphs?.sides ? Math.max(1, width - 2) : width;
+
+		// If no items match filter, show message; still bordered like populated
+		// results so the selector chrome does not disappear while filtering.
 		if (this.filteredItems.length === 0) {
 			lines.push(this.theme.noMatch("  No matching commands"));
-			return lines;
+		} else {
+			const primaryColumnWidth = this.getPrimaryColumnWidth();
+
+			// Calculate visible range with scrolling
+			const startIndex = Math.max(
+				0,
+				Math.min(this.selectedIndex - Math.floor(this.maxVisible / 2), this.filteredItems.length - this.maxVisible),
+			);
+			const endIndex = Math.min(startIndex + this.maxVisible, this.filteredItems.length);
+
+			// Render visible items
+			for (let i = startIndex; i < endIndex; i++) {
+				const item = this.filteredItems[i];
+				if (!item) continue;
+
+				const isSelected = i === this.selectedIndex;
+				const descriptionSingleLine = item.description ? normalizeToSingleLine(item.description) : undefined;
+				lines.push(this.renderItem(item, isSelected, contentWidth, descriptionSingleLine, primaryColumnWidth));
+			}
+
+			// Add scroll indicators if needed
+			if (startIndex > 0 || endIndex < this.filteredItems.length) {
+				const scrollText = `  (${this.selectedIndex + 1}/${this.filteredItems.length})`;
+				// Truncate if too long for terminal
+				lines.push(this.theme.scrollInfo(truncateToWidth(scrollText, contentWidth - 2, "")));
+			}
 		}
 
-		const primaryColumnWidth = this.getPrimaryColumnWidth();
-
-		// Calculate visible range with scrolling
-		const startIndex = Math.max(
-			0,
-			Math.min(this.selectedIndex - Math.floor(this.maxVisible / 2), this.filteredItems.length - this.maxVisible),
-		);
-		const endIndex = Math.min(startIndex + this.maxVisible, this.filteredItems.length);
-
-		// Render visible items
-		for (let i = startIndex; i < endIndex; i++) {
-			const item = this.filteredItems[i];
-			if (!item) continue;
-
-			const isSelected = i === this.selectedIndex;
-			const descriptionSingleLine = item.description ? normalizeToSingleLine(item.description) : undefined;
-			lines.push(this.renderItem(item, isSelected, width, descriptionSingleLine, primaryColumnWidth));
+		if (glyphs && this.theme.borderStyle) {
+			return applyChromeBorder(lines, width, this.theme.borderStyle, this.theme.borderColor ?? ((text) => text));
 		}
-
-		// Add scroll indicators if needed
-		if (startIndex > 0 || endIndex < this.filteredItems.length) {
-			const scrollText = `  (${this.selectedIndex + 1}/${this.filteredItems.length})`;
-			// Truncate if too long for terminal
-			lines.push(this.theme.scrollInfo(truncateToWidth(scrollText, width - 2, "")));
-		}
-
 		return lines;
 	}
 

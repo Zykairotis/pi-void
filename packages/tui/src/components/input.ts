@@ -45,6 +45,12 @@ export class Input implements Component, Focusable {
 		this.cursor = Math.min(this.cursor, value.length);
 	}
 
+	/** Replace the value and place the caret at the end (for prefilled editors). */
+	setValueAndMoveCursorToEnd(value: string): void {
+		this.value = value;
+		this.cursor = value.length;
+	}
+
 	handleInput(data: string): void {
 		// Handle bracketed paste mode
 		// Start of paste: \x1b[200~

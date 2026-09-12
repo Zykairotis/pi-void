@@ -113,4 +113,38 @@ describe("SelectList", () => {
 		assert.ok(rendered[0].includes("…"));
 		assert.equal(visibleIndexOf(rendered[0], "first"), visibleIndexOf(rendered[1], "second"));
 	});
+
+	it("side-bearing borders render items at the border's inner width", () => {
+		// 44-char label without a description: it must fit the 48-column inner
+		// width of a "single" border at width 50 in full.
+		const label = "c".repeat(44);
+		const items = [{ value: "cmd", label }];
+		const list = new SelectList(items, 5, {
+			...testTheme,
+			borderStyle: "single",
+			borderColor: (text) => text,
+		});
+		const rendered = list.render(50);
+
+		assert.ok(rendered[0].startsWith("┌"));
+		assert.ok(rendered.at(-1)?.startsWith("└"));
+		assert.ok(rendered.some((line) => line.includes(label)));
+		for (const line of rendered) {
+			assert.ok(visibleWidth(line) <= 50, `line exceeds width: ${JSON.stringify(line)}`);
+		}
+	});
+
+	it("keeps the configured border on the empty-result state", () => {
+		const list = new SelectList([{ value: "cmd", label: "cmd" }], 5, {
+			...testTheme,
+			borderStyle: "single",
+			borderColor: (text) => text,
+		});
+		list.setFilter("no-match");
+		const rendered = list.render(50);
+
+		assert.ok(rendered[0].startsWith("┌"));
+		assert.ok(rendered.at(-1)?.startsWith("└"));
+		assert.ok(rendered.some((line) => line.includes("No matching commands")));
+	});
 });

@@ -9,15 +9,34 @@ export {
 	CombinedAutocompleteProvider,
 	type SlashCommand,
 } from "./autocomplete.ts";
+export {
+	applyChromeBorder,
+	type ChromeBorderStyle,
+	chromeBorderGlyphs,
+} from "./chrome-border.ts";
 // Components
 export { Box } from "./components/box.ts";
 export { CancellableLoader } from "./components/cancellable-loader.ts";
-export { Editor, type EditorOptions, type EditorTheme } from "./components/editor.ts";
+export {
+	Editor,
+	type EditorOptions,
+	type EditorTheme,
+	type TextDecoration,
+	type TextDecorationProvider,
+} from "./components/editor.ts";
 export { HStack } from "./components/h-stack.ts";
 export { Image, type ImageOptions, type ImageTheme } from "./components/image.ts";
 export { Input } from "./components/input.ts";
 export { Loader, type LoaderIndicatorOptions } from "./components/loader.ts";
-export { type DefaultTextStyle, Markdown, type MarkdownOptions, type MarkdownTheme } from "./components/markdown.ts";
+export {
+	type DefaultTextStyle,
+	getDefaultTableStyle,
+	Markdown,
+	type MarkdownOptions,
+	type MarkdownTableStyle,
+	type MarkdownTheme,
+	setDefaultTableStyle,
+} from "./components/markdown.ts";
 export { ScrollView, type ScrollViewOptions, type ScrollViewScrollbar } from "./components/scroll-view.ts";
 export {
 	type SelectItem,

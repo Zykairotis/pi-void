@@ -246,6 +246,30 @@ describe("SettingsManager", () => {
 			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
 			expect(savedSettings.theme).toBe("solarized-light/tokyo-night");
 		});
+
+		it("persists the appearance theme setting to the scope that supplies the effective theme", async () => {
+			const globalSettingsPath = join(agentDir, "settings.json");
+			const projectSettingsPath = join(projectDir, ".ice", "settings.json");
+			writeFileSync(projectSettingsPath, JSON.stringify({ theme: "dark" }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getAppearanceThemeSetting()).toEqual({ mode: "fixed", theme: "dark" });
+
+			manager.setAppearanceThemeSetting({ mode: "fixed", theme: "tokyo-night" });
+			await manager.flush();
+
+			// The project override supplied the effective value, so the save lands there.
+			expect(manager.getAppearanceThemeSetting()).toEqual({ mode: "fixed", theme: "tokyo-night" });
+			expect(JSON.parse(readFileSync(projectSettingsPath, "utf-8")).theme).toBe("tokyo-night");
+			expect(existsSync(globalSettingsPath)).toBe(false);
+
+			// Without any explicit theme the write falls through to global scope.
+			rmSync(projectSettingsPath);
+			const fresh = SettingsManager.create(projectDir, agentDir);
+			fresh.setAppearanceThemeSetting({ mode: "automatic", light: "light", dark: "dark" });
+			await fresh.flush();
+			expect(JSON.parse(readFileSync(globalSettingsPath, "utf-8")).theme).toBe("light/dark");
+		});
 	});
 
 	describe("error tracking", () => {

@@ -1,3 +1,4 @@
+import { applyChromeBorder, type ChromeBorderStyle, chromeBorderGlyphs } from "../chrome-border.ts";
 import { fuzzyFilter } from "../fuzzy.ts";
 import { getKeybindings } from "../keybindings.ts";
 import type { Component } from "../tui.ts";
@@ -13,7 +14,7 @@ export interface SettingItem {
 	description?: string;
 	/** Current value to display (right side) */
 	currentValue: string;
-	/** If provided, Enter/Space cycles through these values */
+	/** If provided, Left/Right and Enter/Space cycle through these values */
 	values?: string[];
 	/** If provided, Enter opens this submenu. Receives current value and done callback. */
 	submenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
@@ -25,6 +26,9 @@ export interface SettingsListTheme {
 	description: (text: string) => string;
 	cursor: string;
 	hint: (text: string) => string;
+	/** Optional shared chrome border (appearance plan 6.10); absent = no border. */
+	borderStyle?: ChromeBorderStyle;
+	borderColor?: (text: string) => string;
 }
 
 export interface SettingsListOptions {
@@ -74,6 +78,31 @@ export class SettingsList implements Component {
 		}
 	}
 
+	/** Adjust how many rows are visible (e.g. when the available height changes). */
+	setMaxVisible(maxVisible: number): void {
+		this.maxVisible = Math.max(1, maxVisible);
+	}
+
+	/** Number of settings in the list (unfiltered). */
+	getItemCount(): number {
+		return this.items.length;
+	}
+
+	/** Patch an item's label/description/currentValue in place (e.g. dirty markers). */
+	updateItem(id: string, patch: Partial<Pick<SettingItem, "label" | "description" | "currentValue">>): void {
+		const item = this.items.find((i) => i.id === id);
+		if (!item) return;
+		if (patch.label !== undefined) item.label = patch.label;
+		if (patch.description !== undefined) item.description = patch.description;
+		if (patch.currentValue !== undefined) item.currentValue = patch.currentValue;
+		if (this.searchEnabled) {
+			this.filteredItems = fuzzyFilter(this.items, this.searchInput?.getValue() ?? "", (item) => item.label);
+			if (this.selectedIndex >= this.filteredItems.length) {
+				this.selectedIndex = Math.max(0, this.filteredItems.length - 1);
+			}
+		}
+	}
+
 	invalidate(): void {
 		this.submenuComponent?.invalidate?.();
 	}
@@ -84,7 +113,15 @@ export class SettingsList implements Component {
 			return this.submenuComponent.render(width);
 		}
 
-		return this.renderMainList(width);
+		// Side-bearing borders reserve two columns; render content at the inner
+		// width so the border wrapper never truncates right-edge content.
+		const glyphs = this.theme.borderStyle ? chromeBorderGlyphs(this.theme.borderStyle) : null;
+		const contentWidth = glyphs?.sides ? Math.max(1, width - 2) : width;
+		const lines = this.renderMainList(contentWidth);
+		if (glyphs && this.theme.borderStyle) {
+			return applyChromeBorder(lines, width, this.theme.borderStyle, this.theme.borderColor ?? ((text) => text));
+		}
+		return lines;
 	}
 
 	private renderMainList(width: number): string[] {
@@ -183,6 +220,13 @@ export class SettingsList implements Component {
 			if (displayItems.length === 0) return;
 			this.selectedIndex = this.selectedIndex === displayItems.length - 1 ? 0 : this.selectedIndex + 1;
 		} else if (
+			(!this.searchEnabled || this.searchInput?.getValue().length === 0) &&
+			(kb.matches(data, "tui.select.left") || kb.matches(data, "tui.select.right"))
+		) {
+			// Slider-style adjustment: Left/Right moves one value without opening
+			// the row. Search text keeps the arrows for its own cursor.
+			this.cycleValue(kb.matches(data, "tui.select.right") ? 1 : -1);
+		} else if (
 			kb.matches(data, "tui.select.confirm") ||
 			(data === " " && (!this.searchEnabled || this.searchInput?.getValue().length === 0))
 		) {
@@ -210,13 +254,21 @@ export class SettingsList implements Component {
 				this.closeSubmenu();
 			});
 		} else if (item.values && item.values.length > 0) {
-			// Cycle through values
-			const currentIndex = item.values.indexOf(item.currentValue);
-			const nextIndex = (currentIndex + 1) % item.values.length;
-			const newValue = item.values[nextIndex];
-			item.currentValue = newValue;
-			this.onChange(item.id, newValue);
+			// Enter/Space cycles forward; Left/Right adjust in either direction.
+			this.cycleValue(1);
 		}
+	}
+
+	/** Adjust the selected row one value left or right, wrapping like Enter. */
+	private cycleValue(direction: 1 | -1): void {
+		const item = this.searchEnabled ? this.filteredItems[this.selectedIndex] : this.items[this.selectedIndex];
+		if (!item?.values || item.values.length === 0) return;
+		const currentIndex = item.values.indexOf(item.currentValue);
+		const base = currentIndex === -1 ? (direction > 0 ? -1 : 0) : currentIndex;
+		const newValue = item.values[(base + direction + item.values.length) % item.values.length];
+		if (newValue === undefined) return;
+		item.currentValue = newValue;
+		this.onChange(item.id, newValue);
 	}
 
 	private closeSubmenu(): void {
@@ -239,8 +291,8 @@ export class SettingsList implements Component {
 			truncateToWidth(
 				this.theme.hint(
 					this.searchEnabled
-						? "  Type to search · Enter/Space to change · Esc to cancel"
-						: "  Enter/Space to change · Esc to cancel",
+						? "  Type to search · ←/→ adjust · Enter/Space change · Esc to cancel"
+						: "  ←/→ adjust · Enter/Space change · Esc to cancel",
 				),
 				width,
 			),

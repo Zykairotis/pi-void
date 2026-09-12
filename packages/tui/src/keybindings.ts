@@ -35,6 +35,8 @@ export interface Keybindings {
 	// Generic selection actions
 	"tui.select.up": true;
 	"tui.select.down": true;
+	"tui.select.left": true;
+	"tui.select.right": true;
 	"tui.select.pageUp": true;
 	"tui.select.pageDown": true;
 	"tui.select.confirm": true;
@@ -128,6 +130,8 @@ export const TUI_KEYBINDINGS = {
 	"tui.input.copy": { defaultKeys: "ctrl+c", description: "Copy selection" },
 	"tui.select.up": { defaultKeys: "up", description: "Move selection up" },
 	"tui.select.down": { defaultKeys: "down", description: "Move selection down" },
+	"tui.select.left": { defaultKeys: "left", description: "Decrease the selected value" },
+	"tui.select.right": { defaultKeys: "right", description: "Increase the selected value" },
 	"tui.select.pageUp": { defaultKeys: "pageUp", description: "Selection page up" },
 	"tui.select.pageDown": {
 		defaultKeys: "pageDown",

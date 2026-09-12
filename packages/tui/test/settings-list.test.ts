@@ -1,8 +1,9 @@
-import assert from "node:assert";
-import { describe, it } from "node:test";
-import { SettingsList, type SettingsListTheme } from "../src/components/settings-list.ts";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { type SettingItem, SettingsList, type SettingsListTheme } from "../src/components/settings-list.ts";
+import { visibleWidth } from "../src/utils.ts";
 
-const testTheme: SettingsListTheme = {
+const theme: SettingsListTheme = {
 	label: (text) => text,
 	value: (text) => text,
 	description: (text) => text,
@@ -10,49 +11,107 @@ const testTheme: SettingsListTheme = {
 	hint: (text) => text,
 };
 
-const items = [
-	{
-		id: "ui-mode",
-		label: "UI mode",
-		currentValue: "regular",
-		values: ["regular", "fullscreen"],
-	},
-];
+const LEFT = "\x1b[D";
+const RIGHT = "\x1b[C";
 
-describe("SettingsList", () => {
-	it("includes spaces in an active search instead of changing the selected setting", () => {
-		const changes: Array<{ id: string; value: string }> = [];
-		const list = new SettingsList(
-			items.map((item) => ({ ...item })),
-			10,
-			testTheme,
-			(id, value) => changes.push({ id, value }),
-			() => {},
-			{ enableSearch: true },
-		);
+function createList(items: SettingItem[], options?: { enableSearch?: boolean }) {
+	const changes: Array<{ id: string; value: string }> = [];
+	const list = new SettingsList(
+		items,
+		10,
+		theme,
+		(id, value) => changes.push({ id, value }),
+		() => {},
+		options,
+	);
+	return { list, changes };
+}
 
-		for (const character of "UI mode") list.handleInput(character);
+test("Left/Right adjust the selected value and wrap like Enter", () => {
+	const items: SettingItem[] = [
+		{ id: "theme", label: "Theme", currentValue: "dark", values: ["dark", "light", "auto"] },
+	];
+	const { list, changes } = createList(items);
 
-		assert.deepStrictEqual(changes, []);
-		assert.match(list.render(80)[0] ?? "", /UI mode/);
+	list.handleInput(RIGHT);
+	assert.deepEqual(changes.at(-1), { id: "theme", value: "light" });
+	list.handleInput(RIGHT);
+	assert.deepEqual(changes.at(-1), { id: "theme", value: "auto" });
+	list.handleInput(RIGHT);
+	assert.deepEqual(changes.at(-1), { id: "theme", value: "dark" });
+	list.handleInput(LEFT);
+	assert.deepEqual(changes.at(-1), { id: "theme", value: "auto" });
+	list.handleInput(LEFT);
+	assert.deepEqual(changes.at(-1), { id: "theme", value: "light" });
 
-		list.handleInput("\r");
-		assert.deepStrictEqual(changes, [{ id: "ui-mode", value: "fullscreen" }]);
-	});
+	// Enter still cycles forward for compatibility.
+	list.handleInput("\r");
+	assert.deepEqual(changes.at(-1), { id: "theme", value: "auto" });
+});
 
-	it("keeps Space as a change shortcut before a search query is entered", () => {
-		const changes: Array<{ id: string; value: string }> = [];
-		const list = new SettingsList(
-			items.map((item) => ({ ...item })),
-			10,
-			testTheme,
-			(id, value) => changes.push({ id, value }),
-			() => {},
-			{ enableSearch: true },
-		);
+test("Left/Right leave rows without values untouched", () => {
+	const items: SettingItem[] = [
+		{ id: "plain", label: "Plain", currentValue: "read only" },
+		{
+			id: "nested",
+			label: "Nested",
+			currentValue: "open",
+			submenu: () => ({ render: () => [""], invalidate: () => {} }),
+		},
+	];
+	const { list, changes } = createList(items);
+	list.handleInput(RIGHT);
+	list.handleInput(LEFT);
+	list.handleInput("\x1b[B");
+	list.handleInput(RIGHT);
+	assert.equal(changes.length, 0);
+});
 
-		list.handleInput(" ");
+test("typed search keeps Left/Right for the search cursor", () => {
+	const items: SettingItem[] = [{ id: "a", label: "Alpha", currentValue: "1", values: ["1", "2"] }];
+	const { list, changes } = createList(items, { enableSearch: true });
+	list.handleInput("a");
+	list.handleInput(RIGHT);
+	list.handleInput(LEFT);
+	assert.equal(changes.length, 0);
+});
 
-		assert.deepStrictEqual(changes, [{ id: "ui-mode", value: "fullscreen" }]);
-	});
+test("updateItem clamps the selection when a filtered result disappears", () => {
+	const items: SettingItem[] = [
+		{ id: "a", label: "Alpha", currentValue: "1", values: ["1", "2"] },
+		{ id: "b", label: "Zeta", currentValue: "2", values: ["1", "2"] },
+		{ id: "c", label: "Beta", currentValue: "3", values: ["1", "2"] },
+	];
+	const { list, changes } = createList(items, { enableSearch: true });
+	// "ta" fuzzy-matches Zeta and Beta only.
+	list.handleInput("ta");
+	list.handleInput("\x1b[B");
+	// Relabel Beta so it drops out of the "ta" result set; the selection index
+	// must clamp instead of pointing past the end.
+	list.updateItem("c", { label: "Box" });
+	list.handleInput("\r");
+	assert.deepEqual(changes.at(-1), { id: "b", value: "1" });
+});
+
+test("side-bearing borders render content at the border's inner width", () => {
+	const items: SettingItem[] = [{ id: "a", label: "A", currentValue: "v".repeat(41), values: ["x"] }];
+	const list = new SettingsList(
+		items,
+		10,
+		{ ...theme, borderStyle: "single", borderColor: (text) => text },
+		() => {},
+		() => {},
+	);
+	const lines = list.render(50);
+	const joined = lines.join("\n");
+
+	assert.ok(lines[0]?.startsWith("┌"));
+	assert.ok(lines.at(-1)?.startsWith("└"));
+	// The value fits the 48-column inner width, so the border must not
+	// ellipsize or truncate it away.
+	assert.ok(joined.includes("v".repeat(41)));
+	assert.ok(!joined.includes("…"));
+	for (const line of lines) {
+		assert.ok(visibleWidth(line) <= 50, `line exceeds width: ${JSON.stringify(line)}`);
+	}
 });

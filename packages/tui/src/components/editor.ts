@@ -225,14 +225,27 @@ interface LayoutLine {
 	cursorPos?: number;
 }
 
+export type EditorBorderStyle = "none" | "single" | "double" | "round" | "bold";
+
 export interface EditorTheme {
 	borderColor: (str: string) => string;
 	selectList: SelectListTheme;
 }
 
+export interface TextDecoration {
+	start: number;
+	end: number;
+	prefix: string;
+	suffix: string;
+}
+
+export type TextDecorationProvider = (line: string) => TextDecoration[];
+
 export interface EditorOptions {
 	paddingX?: number;
 	autocompleteMaxVisible?: number;
+	borderStyle?: EditorBorderStyle;
+	decorations?: TextDecorationProvider;
 }
 
 const SLASH_COMMAND_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
@@ -255,6 +268,19 @@ function buildDebouncePattern(triggerCharacters: string[]): RegExp {
 	const escapedWithoutAt = triggerCharacters.filter((character) => character !== "@").map(escapeCharacterClass);
 	return new RegExp(`(?:^|[ \\t])(?:@(?:"[^"]*|[^\\s]*)|[${escapedWithoutAt.join("")}][^\\s]*)$`);
 }
+
+function createBorderLine(glyph: string, width: number): string {
+	if (width <= 0) return "";
+	return glyph.repeat(width);
+}
+
+const EDITOR_BORDER_GLYPHS: Record<EditorBorderStyle, string> = {
+	none: "",
+	single: "─",
+	double: "═",
+	round: "─",
+	bold: "━",
+};
 
 function createScrollBorder(direction: "↑" | "↓", hiddenLineCount: number, width: number): string {
 	const availableWidth = Math.max(0, width);
@@ -280,6 +306,7 @@ export class Editor implements Component, Focusable {
 	protected tui: TUI;
 	private theme: EditorTheme;
 	private paddingX: number = 0;
+	private borderStyle: EditorBorderStyle = "single";
 
 	// Store last render width for cursor navigation
 	private lastWidth: number = 80;
@@ -342,12 +369,16 @@ export class Editor implements Component, Focusable {
 	public onChange?: (text: string) => void;
 	public disableSubmit: boolean = false;
 
+	private decorations: TextDecorationProvider | undefined;
+
 	constructor(tui: TUI, theme: EditorTheme, options: EditorOptions = {}) {
 		this.tui = tui;
 		this.theme = theme;
 		this.borderColor = theme.borderColor;
+		this.decorations = options.decorations;
 		const paddingX = options.paddingX ?? 0;
 		this.paddingX = Number.isFinite(paddingX) ? Math.max(0, Math.floor(paddingX)) : 0;
+		this.borderStyle = options.borderStyle ?? "single";
 		const maxVisible = options.autocompleteMaxVisible ?? 5;
 		this.autocompleteMaxVisible = Number.isFinite(maxVisible) ? Math.max(3, Math.min(20, Math.floor(maxVisible))) : 5;
 	}
@@ -364,6 +395,22 @@ export class Editor implements Component, Focusable {
 
 	getPaddingX(): number {
 		return this.paddingX;
+	}
+
+	getBorderStyle(): EditorBorderStyle {
+		return this.borderStyle;
+	}
+
+	setBorderStyle(style: EditorBorderStyle): void {
+		if (this.borderStyle !== style) {
+			this.borderStyle = style;
+			this.tui.requestRender();
+		}
+	}
+
+	setDecorations(decorations: TextDecorationProvider | undefined): void {
+		this.decorations = decorations;
+		this.tui.requestRender();
 	}
 
 	setPaddingX(padding: number): void {
@@ -479,6 +526,54 @@ export class Editor implements Component, Focusable {
 		// No cached state to invalidate currently
 	}
 
+	private getLineDecorations(text: string): TextDecoration[] {
+		if (!this.decorations || text.length === 0) return [];
+		let spans: TextDecoration[] = [];
+		try {
+			spans = this.decorations(text).filter(
+				(span) =>
+					Number.isInteger(span.start) &&
+					Number.isInteger(span.end) &&
+					span.start >= 0 &&
+					span.end <= text.length &&
+					span.start < span.end,
+			);
+		} catch {
+			return [];
+		}
+		if (spans.length === 0) return [];
+		const sorted = [...spans].sort((a, b) => a.start - b.start);
+		const normalized: TextDecoration[] = [];
+		let cursor = 0;
+		for (const span of sorted) {
+			if (span.start < cursor) continue;
+			normalized.push(span);
+			cursor = span.end;
+		}
+		return normalized;
+	}
+
+	private decorateRange(text: string, start: number, end: number, spans: TextDecoration[]): string {
+		const safeStart = Math.max(0, Math.min(text.length, start));
+		const safeEnd = Math.max(safeStart, Math.min(text.length, end));
+		if (safeStart === safeEnd) return "";
+		if (spans.length === 0) return text.slice(safeStart, safeEnd);
+		let result = "";
+		let cursor = safeStart;
+		for (const span of spans) {
+			if (span.end <= safeStart) continue;
+			if (span.start >= safeEnd) break;
+			const overlapStart = Math.max(span.start, safeStart);
+			const overlapEnd = Math.min(span.end, safeEnd);
+			if (overlapStart >= overlapEnd) continue;
+			if (cursor < overlapStart) result += text.slice(cursor, overlapStart);
+			result += span.prefix + text.slice(overlapStart, overlapEnd) + span.suffix;
+			cursor = overlapEnd;
+		}
+		if (cursor < safeEnd) result += text.slice(cursor, safeEnd);
+		return result;
+	}
+
 	render(width: number): string[] {
 		const maxPadding = Math.max(0, Math.floor((width - 1) / 2));
 		const paddingX = Math.min(this.paddingX, maxPadding);
@@ -491,7 +586,9 @@ export class Editor implements Component, Focusable {
 		// Store for cursor navigation (must match wrapping width)
 		this.lastWidth = layoutWidth;
 
-		const horizontal = this.borderColor("─");
+		const borderGlyph = EDITOR_BORDER_GLYPHS[this.borderStyle];
+		const showBorder = this.borderStyle !== "none";
+		const horizontal = showBorder ? this.borderColor(createBorderLine(borderGlyph, 1)) : "";
 
 		// Layout the text
 		const layoutLines = this.layoutText(layoutWidth);
@@ -523,11 +620,14 @@ export class Editor implements Component, Focusable {
 		const rightPadding = leftPadding;
 
 		// Render top border (with scroll indicator if scrolled down)
-		if (this.scrollOffset > 0) {
-			const border = createScrollBorder("↑", this.scrollOffset, width);
-			result.push(this.borderColor(border));
-		} else {
-			result.push(horizontal.repeat(width));
+		// Border-off mode emits no structural row so no phantom rows remain.
+		if (showBorder) {
+			if (this.scrollOffset > 0) {
+				const border = createScrollBorder("↑", this.scrollOffset, width);
+				result.push(this.borderColor(border));
+			} else {
+				result.push(horizontal.repeat(width));
+			}
 		}
 
 		// Render each visible layout line
@@ -537,25 +637,32 @@ export class Editor implements Component, Focusable {
 		const emitCursorMarker = this.focused;
 
 		for (const layoutLine of visibleLines) {
-			let displayText = layoutLine.text;
-			let lineVisibleWidth = visibleWidth(layoutLine.text);
+			const sourceText = layoutLine.text;
+			const decorations = this.getLineDecorations(sourceText);
+			let displayText = this.decorateRange(sourceText, 0, sourceText.length, decorations);
+			let lineVisibleWidth = visibleWidth(sourceText);
 			let cursorInPadding = false;
 
 			// Add cursor if this line has it
 			if (layoutLine.hasCursor && layoutLine.cursorPos !== undefined) {
-				const before = displayText.slice(0, layoutLine.cursorPos);
-				const after = displayText.slice(layoutLine.cursorPos);
+				// Cursor positions are source-text offsets. Resolve the source grapheme
+				// first, then decorate each source range independently so ANSI prefixes
+				// never shift cursor/index semantics.
+				const cursorPos = Math.max(0, Math.min(sourceText.length, layoutLine.cursorPos));
+				const before = this.decorateRange(sourceText, 0, cursorPos, decorations);
+				const afterSource = sourceText.slice(cursorPos);
 
 				// Hardware cursor marker (zero-width, emitted before fake cursor for IME positioning)
 				const marker = emitCursorMarker ? CURSOR_MARKER : "";
 
-				if (after.length > 0) {
-					// Cursor is on a character (grapheme) - replace it with highlighted version
-					// Get the first grapheme from 'after'
-					const afterGraphemes = [...this.segment(after, "grapheme")];
+				if (afterSource.length > 0) {
+					// Cursor is on a character (grapheme) - replace it with highlighted version.
+					const afterGraphemes = [...this.segment(afterSource, "grapheme")];
 					const firstGrapheme = afterGraphemes[0]?.segment || "";
-					const restAfter = after.slice(firstGrapheme.length);
-					const cursor = `\x1b[7m${firstGrapheme}\x1b[0m`;
+					const graphemeEnd = cursorPos + firstGrapheme.length;
+					const decoratedGrapheme = this.decorateRange(sourceText, cursorPos, graphemeEnd, decorations);
+					const restAfter = this.decorateRange(sourceText, graphemeEnd, sourceText.length, decorations);
+					const cursor = `\x1b[7m${decoratedGrapheme}\x1b[0m`;
 					displayText = before + marker + cursor + restAfter;
 					// lineVisibleWidth stays the same - we're replacing, not adding
 				} else {
@@ -579,12 +686,16 @@ export class Editor implements Component, Focusable {
 		}
 
 		// Render bottom border (with scroll indicator if more content below)
+		// When the border is disabled, scroll state is still tracked internally
+		// through scrollOffset; only the decorative border rows are omitted.
 		const linesBelow = layoutLines.length - (this.scrollOffset + visibleLines.length);
-		if (linesBelow > 0) {
-			const border = createScrollBorder("↓", linesBelow, width);
-			result.push(this.borderColor(border));
-		} else {
-			result.push(horizontal.repeat(width));
+		if (showBorder) {
+			if (linesBelow > 0) {
+				const border = createScrollBorder("↓", linesBelow, width);
+				result.push(this.borderColor(border));
+			} else {
+				result.push(horizontal.repeat(width));
+			}
 		}
 
 		// Add autocomplete list if active

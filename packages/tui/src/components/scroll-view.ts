@@ -10,6 +10,7 @@ export interface ScrollViewOptions {
 	overscroll?: "chain" | "contain";
 	scrollbar?: ScrollViewScrollbar;
 	scrollbarStyle?: (text: string) => string;
+	scrollbarTrackStyle?: (text: string) => string;
 	scrollbarHideDelayMs?: number;
 }
 
@@ -19,6 +20,7 @@ export class ScrollView extends Container {
 	readonly primary: boolean;
 	readonly overscroll: "chain" | "contain";
 	readonly scrollbarStyle: (text: string) => string;
+	private scrollbarTrackStyle: ((text: string) => string) | undefined;
 	private currentScrollbar: ScrollViewScrollbar;
 	private readonly scrollbarHideDelayMs: number;
 	private currentScrollTop = 0;
@@ -43,7 +45,17 @@ export class ScrollView extends Container {
 		this.overscroll = options.overscroll ?? "chain";
 		this.currentScrollbar = options.scrollbar ?? "hidden";
 		this.scrollbarStyle = options.scrollbarStyle ?? ((text) => `\x1b[100m${text}\x1b[49m`);
+		this.scrollbarTrackStyle = options.scrollbarTrackStyle;
 		this.scrollbarHideDelayMs = Math.max(0, Math.floor(options.scrollbarHideDelayMs ?? 1000));
+	}
+
+	/** Replace the track style (thumb/track closures resolve dynamically). */
+	setScrollbarTrackStyle(style: ((text: string) => string) | undefined): void {
+		this.scrollbarTrackStyle = style;
+	}
+
+	getScrollbarTrackStyle(): ((text: string) => string) | undefined {
+		return this.scrollbarTrackStyle;
 	}
 
 	get scrollTop(): number {

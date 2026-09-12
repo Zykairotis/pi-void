@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { getTuiEnv } from "./legacy-compat.ts";
 import { deleteKittyImage, isImageLine } from "./terminal-image.ts";
 import { type TUI, TuiBase, type TuiStopOptions } from "./tui.ts";
-import { visibleWidth } from "./utils.ts";
+import { truncateToWidth, visibleWidth } from "./utils.ts";
 
 const KITTY_SEQUENCE_PREFIX = "\x1b_G";
 
@@ -230,7 +230,11 @@ export class TuiMainScreen extends TuiBase implements TUI {
 					i += imageReservedRows - 1;
 					continue;
 				}
-				buffer += line;
+				// An over-wide line would wrap in the terminal and desync the
+				// logical-vs-actual cursor tracking, stacking later frames. The
+				// differential path throws a loud diagnostic; here a wrap would be
+				// silent, so truncate instead.
+				buffer += !isImage && visibleWidth(line) > width ? truncateToWidth(line, width, "") : line;
 			}
 			buffer += "\x1b[?2026l"; // End synchronized output
 			this.terminal.write(buffer);
@@ -320,6 +324,14 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			lastChanged = expandedRange.lastChanged;
 		}
 		const appendStart = appendedLines && firstChanged === this.previousLines.length && firstChanged > 0;
+		// Overlays address the visible screen, not the scrollback document. Use
+		// explicit rows for in-viewport updates: relative motion can drift on
+		// direct terminals (notably WezTerm) after full-width modal paints.
+		const screenRelativeOverlay =
+			this.hasOverlayEntries &&
+			!appendedLines &&
+			firstChanged >= prevViewportTop &&
+			lastChanged < prevViewportTop + height;
 
 		// No changes - but still need to update hardware cursor position if it moved
 		if (firstChanged === -1) {
@@ -414,12 +426,17 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		}
 
 		buffer += appendStart ? "\r\n" : "\r"; // Move to column 0
+		if (screenRelativeOverlay) {
+			buffer += `\x1b[${firstChanged - viewportTop + 1};1H`;
+		}
 
 		// Only render changed lines (firstChanged to lastChanged), not all lines to end
 		// This reduces flicker when only a single line changes (e.g., spinner animation)
 		const renderEnd = Math.min(lastChanged, newLines.length - 1);
 		for (let i = firstChanged; i <= renderEnd; i++) {
-			if (i > firstChanged) buffer += "\r\n";
+			if (i > firstChanged) {
+				buffer += screenRelativeOverlay ? `\x1b[${i - viewportTop + 1};1H` : "\r\n";
+			}
 			const line = newLines[i];
 			const isImage = isImageLine(line);
 			const imageReservedRows = isImage ? this.getKittyImageReservedRows(newLines, i, renderEnd) : 1;

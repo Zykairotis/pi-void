@@ -2,7 +2,7 @@ import assert from "node:assert";
 import { afterEach, describe, it } from "node:test";
 import type { Terminal as XtermTerminalType } from "@xterm/headless";
 import { Chalk } from "chalk";
-import { Markdown } from "../src/components/markdown.ts";
+import { getDefaultTableStyle, Markdown, setDefaultTableStyle } from "../src/components/markdown.ts";
 import { resetCapabilitiesCache, setCapabilities } from "../src/terminal-image.ts";
 import type { Component, TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
@@ -362,6 +362,41 @@ describe("Markdown component", () => {
 			assert.ok(plainLines.some((line) => line.includes("─")));
 		});
 
+		it("should support ascii, clean, and raw table styles from one layout", () => {
+			const source = `| Name | Age |
+| --- | --- |
+| Alice | 30 |
+| Bob | 25 |`;
+			const ascii = new Markdown(source, 0, 0, defaultMarkdownTheme, undefined, { tableStyle: "ascii" });
+			const asciiLines = ascii.render(80).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+			assert.ok(asciiLines.some((line) => line.includes("+")));
+			assert.ok(asciiLines.some((line) => line.includes("|")));
+			assert.ok(!asciiLines.some((line) => line.includes("┌")));
+			const clean = new Markdown(source, 0, 0, defaultMarkdownTheme, undefined, { tableStyle: "clean" });
+			const cleanLines = clean.render(80).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+			assert.ok(!cleanLines.some((line) => line.includes("┌")));
+			assert.ok(cleanLines.some((line) => line.includes("Alice")));
+			const raw = new Markdown(source, 0, 0, defaultMarkdownTheme, undefined, { tableStyle: "raw" });
+			const rawLines = raw.render(80).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+			assert.ok(rawLines.some((line) => line.includes("| Name | Age |")));
+		});
+		it("explicit table style wins over the process default", () => {
+			const source = `| Name | Age |
+| --- | --- |
+| Alice | 30 |`;
+			const previous = getDefaultTableStyle();
+			try {
+				setDefaultTableStyle("ascii");
+				const explicit = new Markdown(source, 0, 0, defaultMarkdownTheme, undefined, { tableStyle: "unicode" });
+				const lines = explicit.render(80).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+				assert.ok(lines.some((line) => line.includes("┌")));
+				const inherited = new Markdown(source, 0, 0, defaultMarkdownTheme);
+				const inheritedLines = inherited.render(80).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+				assert.ok(inheritedLines.some((line) => line.includes("+")));
+			} finally {
+				setDefaultTableStyle(previous);
+			}
+		});
 		it("should render row dividers between data rows", () => {
 			const markdown = new Markdown(
 				`| Name | Age |

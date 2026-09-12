@@ -1,8 +1,21 @@
-import { type Component, Key, matchesKey, type TUI, truncateToWidth, visibleWidth } from "@zykairotis/ice-tui";
+import {
+	applyChromeBorder,
+	type Component,
+	Key,
+	matchesKey,
+	type TUI,
+	truncateToWidth,
+	visibleWidth,
+} from "@zykairotis/ice-tui";
 import type { KeybindingsManager } from "../../../core/keybindings.ts";
 import type { IceAgentViewBridge, IceAgentViewDescriptor } from "../../../ice-agent-view-bridge.ts";
+import { createDefaultAppearance } from "../appearance/appearance-defaults.ts";
+import { resolveAppearanceColorFn } from "../appearance/appearance-resolve.ts";
+import type { SubagentChromeAppearance } from "../appearance/appearance-types.ts";
+import { applyTextPresentation } from "../appearance/text-presentation.ts";
 import type { Theme } from "../theme/theme.ts";
 
+const DEFAULT_AGENT_CHROME = createDefaultAppearance().subagentChrome;
 const MAX_VISIBLE_ROWS = 4;
 const NARROW_TERMINAL_WIDTH = 72;
 
@@ -39,6 +52,7 @@ export class SubagentFooterSwitcher implements Component {
 	private expanded: boolean;
 	private disposed = false;
 	private actionMessage: string | undefined;
+	private appearance: SubagentChromeAppearance | null = null;
 
 	constructor(
 		tui: TUI,
@@ -61,11 +75,52 @@ export class SubagentFooterSwitcher implements Component {
 		});
 	}
 
+	setAppearance(appearance: SubagentChromeAppearance | null): void {
+		this.appearance = appearance ? structuredClone(appearance) : null;
+		this.tui.requestRender();
+	}
+
+	private isCustomized(): boolean {
+		return Boolean(this.appearance && JSON.stringify(this.appearance) !== JSON.stringify(DEFAULT_AGENT_CHROME));
+	}
+
+	private styleSelected(text: string): string {
+		if (!this.appearance || !this.isCustomized()) return this.theme.bg("selectedBg", this.theme.fg("text", text));
+		return applyTextPresentation(
+			{
+				foreground: this.appearance.selectedForeground,
+				background: this.appearance.selectedBackground,
+				styles: this.appearance.selectedStyles,
+			},
+			text,
+		);
+	}
+
+	private styleView(view: IceAgentViewDescriptor, text: string, viewing: boolean): string {
+		if (!this.appearance || !this.isCustomized())
+			return viewing ? this.theme.fg("accent", text) : this.theme.fg("muted", text);
+		if (view.kind === "subagent" && view.live && view.controlState === "awaiting-extension")
+			return applyTextPresentation(this.appearance.attention, text);
+		const status = String(view.status ?? "").toLowerCase();
+		if (status.includes("fail") || status.includes("error"))
+			return applyTextPresentation(this.appearance.failed, text);
+		if (view.live) return applyTextPresentation(this.appearance.running, text);
+		if (view.kind === "subagent") return applyTextPresentation(this.appearance.completed, text);
+		return applyTextPresentation(this.appearance.muted, text);
+	}
+
 	render(width: number): string[] {
 		this.refreshViews(false);
 		if (this.views.length === 0) return [];
 		if (!this.expanded) return this.renderCollapsed(width);
-		return width < NARROW_TERMINAL_WIDTH ? this.renderNarrow(width) : this.renderWide(width);
+		const rows = width < NARROW_TERMINAL_WIDTH ? this.renderNarrow(width) : this.renderWide(width);
+		if (!this.appearance || this.appearance.borderStyle === "none" || width < 8) return rows;
+		return applyChromeBorder(
+			rows,
+			width,
+			this.appearance.borderStyle,
+			resolveAppearanceColorFn(this.appearance.borderColor, "fg"),
+		);
 	}
 
 	setExpanded(expanded: boolean): void {
@@ -190,7 +245,15 @@ export class SubagentFooterSwitcher implements Component {
 		]
 			.filter((part): part is string => part !== undefined)
 			.join(" · ");
-		return [this.theme.fg("accent", padVisible(`${identity} · ${counts}`, width))];
+		const text = padVisible(`${identity} · ${counts}`, width);
+		return [
+			this.isCustomized() && this.appearance
+				? applyTextPresentation(
+						displayed.kind === "subagent" && displayed.live ? this.appearance.running : this.appearance.muted,
+						text,
+					)
+				: this.theme.fg("accent", text),
+		];
 	}
 
 	private renderWide(width: number): string[] {
@@ -222,10 +285,8 @@ export class SubagentFooterSwitcher implements Component {
 			const labelWidth = Math.max(1, width - visibleWidth(prefix) - statusWidth - 2);
 			const row = `${prefix}${padVisible(formatAgentSwitcherLabel(view), labelWidth)}  ${padVisible(status, statusWidth)}`;
 			const styled = selected
-				? this.theme.bg("selectedBg", this.theme.fg("text", padVisible(row, width)))
-				: viewing
-					? this.theme.fg("accent", padVisible(row, width))
-					: this.theme.fg("muted", padVisible(row, width));
+				? this.styleSelected(padVisible(row, width))
+				: this.styleView(view, padVisible(row, width), viewing);
 			lines.push(styled);
 		}
 		const hiddenBefore = windowStart;
@@ -241,8 +302,9 @@ export class SubagentFooterSwitcher implements Component {
 				: "";
 		const actionHint = this.actionMessage ? ` · ${this.actionMessage}` : "";
 		lines.push(
-			this.theme.fg(
-				"dim",
+			(this.isCustomized() && this.appearance
+				? (text: string) => applyTextPresentation(this.appearance!.muted, text)
+				: (text: string) => this.theme.fg("dim", text))(
 				padVisible(
 					`  ↑↓/←→ browse · Enter open${attentionHint} · Esc close · /agents split details${hidden}${actionHint}`,
 					width,
@@ -266,7 +328,12 @@ export class SubagentFooterSwitcher implements Component {
 				: "";
 		return [
 			padVisible(row, width),
-			this.theme.fg("dim", padVisible(`        ↑↓/←→ browse · Enter open${attentionHint} · Esc close`, width)),
+			this.isCustomized() && this.appearance
+				? applyTextPresentation(
+						this.appearance.muted,
+						padVisible(`        ↑↓/←→ browse · Enter open${attentionHint} · Esc close`, width),
+					)
+				: this.theme.fg("dim", padVisible(`        ↑↓/←→ browse · Enter open${attentionHint} · Esc close`, width)),
 		];
 	}
 }

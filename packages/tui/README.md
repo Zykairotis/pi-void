@@ -528,7 +528,7 @@ interface SettingItem {
   label: string;
   description?: string;
   currentValue: string;
-  values?: string[];  // If provided, Enter/Space cycles through these
+  values?: string[];  // If provided, Left/Right adjust and Enter/Space cycles these
   submenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 }
 
@@ -554,7 +554,8 @@ settings.updateValue("theme", "light");
 ```
 
 **Controls:**
-- Arrow keys: Navigate
+- Up/Down: Navigate
+- Left/Right: Adjust the selected value (slider-style)
 - Enter/Space: Activate (cycle value or open submenu)
 - Escape: Cancel
 

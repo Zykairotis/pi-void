@@ -30,11 +30,13 @@ import {
 	Container,
 	fuzzyFilter,
 	getCapabilities,
+	getDefaultTableStyle,
 	hyperlink,
 	Markdown,
 	matchesKey,
 	ProcessTerminal,
 	Spacer,
+	setDefaultTableStyle,
 	setKeybindings,
 	Text,
 	TruncatedText,
@@ -114,6 +116,15 @@ import { getCwdRelativePath } from "../../utils/paths.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { checkForNewIceVersion, type LatestIceRelease } from "../../utils/version-check.ts";
+import { InteractiveAppearanceController } from "./appearance/appearance-controller.ts";
+import { createDefaultAppearance } from "./appearance/appearance-defaults.ts";
+import { resolveAppearanceColorFn } from "./appearance/appearance-resolve.ts";
+import { type AppearanceSettingsV2, parseAppearanceThemeSetting } from "./appearance/appearance-types.ts";
+import { CustomizationDraftSession } from "./appearance/customization-draft-session.ts";
+import { computeHighlightSpans, spanToDecoration } from "./appearance/input-highlighters.ts";
+import { applyTextPresentation, markdownThemeWithAppearance } from "./appearance/text-presentation.ts";
+import { applyThinkingVerbFormat, getThinkingIndicatorFrames } from "./appearance/thinking-presentation.ts";
+import { AppearanceCustomizerComponent } from "./components/appearance-customizer.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -124,6 +135,7 @@ import { CustomEditor } from "./components/custom-editor.ts";
 import { CustomEntryComponent } from "./components/custom-entry.ts";
 import { CustomMessageComponent } from "./components/custom-message.ts";
 import { DaxnutsComponent } from "./components/daxnuts.ts";
+import { setDiffAppearance } from "./components/diff.ts";
 import { DynamicBorder } from "./components/dynamic-border.ts";
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
@@ -161,9 +173,13 @@ import {
 	getAvailableThemes,
 	getAvailableThemesWithPaths,
 	getEditorTheme,
+	getInteractiveScrollbarThumbStyle,
+	getInteractiveScrollbarTrackStyle,
 	getMarkdownTheme,
 	getThemeByName,
 	onThemeChange,
+	resolveThemeSetting,
+	setInteractiveChromeThemeOverride,
 	setRegisteredThemes,
 	stopThemeWatcher,
 	Theme,
@@ -377,6 +393,7 @@ export function createInteractiveTuiReference(getTui: () => TUI): TUI {
 }
 
 export class InteractiveMode {
+	private readonly previousDefaultTableStyle = getDefaultTableStyle();
 	private runtimeHost: AgentSessionRuntime;
 	private renderer: TuiMainScreen | TuiAltScreen;
 	private ui: TUI;
@@ -502,6 +519,9 @@ export class InteractiveMode {
 	private options: InteractiveModeOptions;
 	private autoTrustOnReloadCwd: string | undefined;
 	private themeController: InteractiveThemeController;
+	private appearanceController: InteractiveAppearanceController;
+	private settingsCustomizationSession: CustomizationDraftSession | undefined;
+	private thinkingVerbIndex = 0;
 	private readonly agentViewBridge?: IceAgentViewBridge;
 	private agentViewUnsubscribe?: () => void;
 	private displayedSessionUnsubscribe?: () => void;
@@ -597,10 +617,14 @@ export class InteractiveMode {
 		setKeybindings(this.keybindings);
 		const editorPaddingX = this.settingsManager.getEditorPaddingX();
 		const autocompleteMaxVisible = this.settingsManager.getAutocompleteMaxVisible();
+		this.appearanceController = new InteractiveAppearanceController(this.settingsManager, () =>
+			this.applyAppearanceToRuntime(),
+		);
 		this.defaultEditor = new CustomEditor(this.ui, getEditorTheme(), this.keybindings, {
 			paddingX: editorPaddingX,
 			autocompleteMaxVisible,
 		});
+		this.applyAppearanceToRuntime();
 		this.editor = this.defaultEditor;
 		this.editorContainer = new TuiLayouts.VStack();
 		this.editorContainer.addChild(this.editor as Component);
@@ -609,6 +633,7 @@ export class InteractiveMode {
 		this.footerDataProviders.set("parent", this.footerDataProvider);
 		this.footer = new FooterComponent(this.session, this.displayFooterDataProvider);
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
+		this.footer.setAppearance(this.effectiveAppearance().footer);
 		this.footerContainer = new Container();
 		this.footerContainer.addChild(this.footer);
 
@@ -911,7 +936,8 @@ export class InteractiveMode {
 			primary: true,
 			overscroll: "chain",
 			scrollbar: this.settingsManager.getFullscreenScrollbar(),
-			scrollbarStyle: (text) => theme.bg("scrollbarThumb", text),
+			scrollbarStyle: getInteractiveScrollbarThumbStyle(),
+			scrollbarTrackStyle: getInteractiveScrollbarTrackStyle(),
 		});
 		if (this.agentViewBridge && !this.agentSwitcher) {
 			this.agentSwitcher = new SubagentFooterSwitcher(
@@ -922,6 +948,7 @@ export class InteractiveMode {
 				() => this.closeAgentSwitcherDock(),
 				false,
 			);
+			this.agentSwitcher.setAppearance(this.effectiveAppearance().subagentChrome);
 			this.agentSwitcherContainer.addChild(this.agentSwitcher);
 		}
 		const dock = new TuiLayouts.VStack([
@@ -1269,10 +1296,11 @@ export class InteractiveMode {
 	}
 
 	private getMarkdownThemeWithSettings(): MarkdownTheme {
-		return {
+		const base = {
 			...getMarkdownTheme(),
 			codeBlockIndent: this.settingsManager.getCodeBlockIndent(),
 		};
+		return markdownThemeWithAppearance(base, this.effectiveAppearance().markdown);
 	}
 
 	// =========================================================================
@@ -2292,6 +2320,7 @@ export class InteractiveMode {
 			() => this.closeAgentSwitcherDock(),
 			true,
 		);
+		switcher.setAppearance(this.effectiveAppearance().subagentChrome);
 		this.agentSwitcher = switcher;
 		this.agentSwitcherContainer.addChild(switcher);
 		this.ui.setFocus(switcher);
@@ -2508,8 +2537,9 @@ export class InteractiveMode {
 			this.showStatusIndicator(
 				new WorkingStatusIndicator(
 					this.ui,
-					this.workingMessage ?? this.defaultWorkingMessage,
-					this.workingIndicatorOptions,
+					this.getWorkingMessage(),
+					this.getEffectiveWorkingIndicator(),
+					this.effectiveAppearance().statusIndicators.working,
 				),
 			);
 		}
@@ -3318,6 +3348,11 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
+			if (text === "/customize" || text.startsWith("/customize ")) {
+				this.showAppearanceCustomizer();
+				this.editor.setText("");
+				return;
+			}
 			if (text === "/scoped-models") {
 				this.editor.setText("");
 				await this.showModelsSelector();
@@ -3570,8 +3605,9 @@ export class InteractiveMode {
 					this.showStatusIndicator(
 						new WorkingStatusIndicator(
 							this.ui,
-							this.workingMessage ?? this.defaultWorkingMessage,
-							this.workingIndicatorOptions,
+							this.getWorkingMessage(),
+							this.getEffectiveWorkingIndicator(),
+							this.effectiveAppearance().statusIndicators.working,
 						),
 					);
 				} else {
@@ -3629,6 +3665,7 @@ export class InteractiveMode {
 						this.outputPad,
 						this.getMarkdownTransformers(),
 					);
+					this.stampMessageAppearance(this.streamingComponent);
 					this.streamingMessage = event.message;
 					this.chatContainer.addChild(this.streamingComponent);
 					this.streamingComponent.updateContent(this.streamingMessage, true);
@@ -3658,6 +3695,7 @@ export class InteractiveMode {
 									{
 										showImages: this.settingsManager.getShowImages(),
 										imageWidthCells: this.settingsManager.getImageWidthCells(),
+										toolsAppearance: this.effectiveAppearance().tools,
 									},
 									this.getRegisteredToolDefinition(content.name),
 									this.ui,
@@ -3742,6 +3780,7 @@ export class InteractiveMode {
 						{
 							showImages: this.settingsManager.getShowImages(),
 							imageWidthCells: this.settingsManager.getImageWidthCells(),
+							toolsAppearance: this.effectiveAppearance().tools,
 						},
 						this.getRegisteredToolDefinition(event.toolName),
 						this.ui,
@@ -3803,7 +3842,13 @@ export class InteractiveMode {
 				this.defaultEditor.onEscape = () => {
 					eventSession.abortCompaction();
 				};
-				this.showStatusIndicator(new CompactionStatusIndicator(this.ui, event.reason));
+				this.showStatusIndicator(
+					new CompactionStatusIndicator(
+						this.ui,
+						event.reason,
+						this.effectiveAppearance().statusIndicators.compaction,
+					),
+				);
 				this.ui.requestRender();
 				break;
 			}
@@ -3858,7 +3903,13 @@ export class InteractiveMode {
 				// The failed attempt's error line is transient while retrying.
 				this.discardPendingRetryError();
 				this.showStatusIndicator(
-					new RetryStatusIndicator(this.ui, event.attempt, event.maxAttempts, event.delayMs),
+					new RetryStatusIndicator(
+						this.ui,
+						event.attempt,
+						event.maxAttempts,
+						event.delayMs,
+						this.effectiveAppearance().statusIndicators.retry,
+					),
 				);
 				this.ui.requestRender();
 				break;
@@ -3885,7 +3936,13 @@ export class InteractiveMode {
 			case "summarization_retry_scheduled": {
 				this.showError(event.errorMessage);
 				this.showStatusIndicator(
-					new RetryStatusIndicator(this.ui, event.attempt, event.maxAttempts, event.delayMs),
+					new RetryStatusIndicator(
+						this.ui,
+						event.attempt,
+						event.maxAttempts,
+						event.delayMs,
+						this.effectiveAppearance().statusIndicators.retry,
+					),
 				);
 				this.ui.requestRender();
 				break;
@@ -3894,9 +3951,17 @@ export class InteractiveMode {
 			case "summarization_retry_attempt_start": {
 				this.clearStatusIndicator("retry");
 				if (event.source === "branchSummary") {
-					this.showStatusIndicator(new BranchSummaryStatusIndicator(this.ui));
+					this.showStatusIndicator(
+						new BranchSummaryStatusIndicator(this.ui, this.effectiveAppearance().statusIndicators.branchSummary),
+					);
 				} else {
-					this.showStatusIndicator(new CompactionStatusIndicator(this.ui, event.reason));
+					this.showStatusIndicator(
+						new CompactionStatusIndicator(
+							this.ui,
+							event.reason,
+							this.effectiveAppearance().statusIndicators.compaction,
+						),
+					);
 				}
 				this.ui.requestRender();
 				break;
@@ -3971,7 +4036,12 @@ export class InteractiveMode {
 	private addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void {
 		switch (message.role) {
 			case "bashExecution": {
-				const component = new BashExecutionComponent(message.command, this.ui, message.excludeFromContext);
+				const component = new BashExecutionComponent(
+					message.command,
+					this.ui,
+					message.excludeFromContext,
+					this.effectiveAppearance().bash,
+				);
 				if (message.output) {
 					component.appendOutput(message.output);
 				}
@@ -3992,6 +4062,7 @@ export class InteractiveMode {
 						renderer,
 						this.getMarkdownThemeWithSettings(),
 						this.outputPad,
+						this.effectiveAppearance().systemCards,
 					);
 					component.setExpanded(this.toolOutputExpanded);
 					this.chatContainer.addChild(component);
@@ -4036,6 +4107,7 @@ export class InteractiveMode {
 								this.outputPad,
 								this.getMarkdownTransformers(),
 							);
+							this.stampMessageAppearance(userComponent);
 							this.chatContainer.addChild(userComponent);
 						}
 					} else {
@@ -4045,6 +4117,7 @@ export class InteractiveMode {
 							this.outputPad,
 							this.getMarkdownTransformers(),
 						);
+						this.stampMessageAppearance(userComponent);
 						this.chatContainer.addChild(userComponent);
 					}
 					if (options?.populateHistory) {
@@ -4062,6 +4135,7 @@ export class InteractiveMode {
 					this.outputPad,
 					this.getMarkdownTransformers(),
 				);
+				this.stampMessageAppearance(assistantComponent);
 				this.chatContainer.addChild(assistantComponent);
 				break;
 			}
@@ -4113,6 +4187,7 @@ export class InteractiveMode {
 							{
 								showImages: this.settingsManager.getShowImages(),
 								imageWidthCells: this.settingsManager.getImageWidthCells(),
+								toolsAppearance: this.effectiveAppearance().tools,
 							},
 							this.getRegisteredToolDefinition(content.name),
 							this.ui,
@@ -4538,14 +4613,274 @@ export class InteractiveMode {
 		}
 	}
 
-	private updateEditorBorderColor(): void {
-		if (this.isBashMode) {
-			this.editor.borderColor = theme.getBashModeBorderColor();
-		} else {
-			const level = this.session.thinkingLevel || "off";
-			this.editor.borderColor = theme.getThinkingBorderColor(level);
+	/**
+	 * Effective appearance with a safe default. Runtime paths can run before
+	 * the controller exists (partially constructed instances, early startup);
+	 * they fall back to built-in defaults instead of crashing.
+	 */
+	private effectiveAppearance(): AppearanceSettingsV2 {
+		return this.appearanceController?.getEffective() ?? createDefaultAppearance();
+	}
+
+	private applyAppearanceToRuntime(): void {
+		if (!this.appearanceController) return;
+		const appearance = this.effectiveAppearance();
+		const chrome = appearance.chrome;
+		const chromeSelected = {
+			foreground: chrome.selectedForeground,
+			background: chrome.selectedBackground,
+			styles: chrome.selectedStyles,
+		};
+		const selectedText = (text: string) => applyTextPresentation(chromeSelected, text);
+		setInteractiveChromeThemeOverride({
+			selectedPrefix: selectedText,
+			selectedText,
+			description: (text) => applyTextPresentation(chrome.description, text),
+			hint: (text) => applyTextPresentation(chrome.hint, text),
+			settingsLabel: (text, selected) => (selected ? selectedText(text) : text),
+			settingsValue: (text, selected) =>
+				selected ? selectedText(text) : applyTextPresentation(chrome.description, text),
+			settingsCursor: selectedText("→ "),
+			editorBorder: resolveAppearanceColorFn(chrome.borderColor, "fg"),
+			scrollbarTrack: resolveAppearanceColorFn(chrome.scrollbarTrack, "bg"),
+			scrollbarThumb: resolveAppearanceColorFn(chrome.scrollbarThumb, "bg"),
+			chromeBorder: chrome.borderStyle,
+			chromeBorderColor: resolveAppearanceColorFn(chrome.borderColor, "fg"),
+		});
+		if (this.defaultEditor && typeof this.defaultEditor.setBorderStyle === "function") {
+			this.defaultEditor.setBorderStyle(appearance.inputBox.borderStyle);
+			this.defaultEditor.setPaddingX(appearance.inputBox.paddingX);
+		}
+		if (this.defaultEditor && typeof this.defaultEditor.setDecorations === "function") {
+			const rules = appearance.inputHighlighters;
+			this.defaultEditor.setDecorations(
+				rules.length === 0 ? undefined : (line: string) => computeHighlightSpans(line, rules).map(spanToDecoration),
+			);
+		}
+		setDiffAppearance(appearance.diff);
+		setDefaultTableStyle(appearance.markdown.tableStyle);
+		this.footer?.setAppearance(appearance.footer);
+		this.agentSwitcher?.setAppearance?.(appearance.subagentChrome);
+		const statusIndicator = this.activeStatusIndicator;
+		if (statusIndicator) {
+			statusIndicator.setAppearance(appearance.statusIndicators[statusIndicator.kind]);
+			if (statusIndicator.kind === "working") {
+				statusIndicator.setIndicator(this.getEffectiveWorkingIndicator());
+			}
+		}
+		// Bash commands started while streaming mount in the pending container,
+		// so both message containers carry live appearance.
+		for (const container of [this.chatContainer, this.pendingMessagesContainer]) {
+			for (const child of container?.children ?? []) {
+				const withAppearance = child as unknown as {
+					setAppearance?: (value: typeof appearance.userMessage) => void;
+					setAssistantAppearance?: (value: typeof appearance.assistantMessage) => void;
+					setThinkingAppearance?: (value: typeof appearance.thinking.block) => void;
+					setToolsAppearance?: (value: typeof appearance.tools) => void;
+					setBashAppearance?: (value: typeof appearance.bash) => void;
+					setCardAppearance?: (value: typeof appearance.systemCards) => void;
+				};
+				withAppearance.setAppearance?.(appearance.userMessage);
+				withAppearance.setAssistantAppearance?.(appearance.assistantMessage);
+				withAppearance.setThinkingAppearance?.(appearance.thinking.block);
+				withAppearance.setToolsAppearance?.(appearance.tools);
+				withAppearance.setBashAppearance?.(appearance.bash);
+				withAppearance.setCardAppearance?.(appearance.systemCards);
+			}
 		}
 		this.ui.requestRender();
+	}
+
+	private previewAppearanceSection(
+		section: "markdown" | "inputBox" | "thinking-indicator",
+		patch: Record<string, unknown>,
+	): void {
+		this.getOrCreateCustomizationDraftSession();
+		const next = this.patchedAppearance(section, patch);
+		if (!next) return;
+		const result = this.appearanceController.preview(next);
+		if (!result.valid) {
+			this.showError(
+				`Invalid appearance value: ${result.issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`,
+			);
+			return;
+		}
+		this.applyAppearanceToRuntime();
+	}
+
+	private commitAppearanceSection(
+		section: "markdown" | "inputBox" | "thinking-indicator",
+		patch: Record<string, unknown>,
+	): void {
+		const next = this.patchedAppearance(section, patch);
+		if (!next) return;
+		this.commitAppearance(next);
+	}
+
+	private getOrCreateCustomizationDraftSession(): CustomizationDraftSession {
+		if (this.settingsCustomizationSession) return this.settingsCustomizationSession;
+		this.appearanceController.beginPreview();
+		const themeBaseline = this.settingsManager.getThemeSetting() || "dark";
+		this.settingsCustomizationSession = new CustomizationDraftSession(
+			this.settingsManager,
+			this.appearanceController,
+			resolveThemeSetting(themeBaseline, this.themeController.getTerminalTheme()) ?? "dark",
+			this.themeController.getTerminalTheme(),
+		);
+		return this.settingsCustomizationSession;
+	}
+
+	private stageSettingsTheme(themeSetting: string): boolean {
+		const parsed = parseAppearanceThemeSetting(themeSetting);
+		if (!parsed) {
+			this.showError(`Invalid theme setting: ${themeSetting}`);
+			return false;
+		}
+		const session = this.getOrCreateCustomizationDraftSession();
+		if (parsed.mode === "fixed") {
+			session.setThemeMode("fixed");
+			session.setFixedTheme(parsed.theme);
+		} else {
+			session.setThemeMode("automatic");
+			session.setAutomaticMember("light", parsed.light);
+			session.setAutomaticMember("dark", parsed.dark);
+		}
+		this.themeController.preview(themeSetting);
+		return true;
+	}
+
+	private applyCustomizationDraftSession(session: CustomizationDraftSession): boolean {
+		const result = session.apply();
+		if (!result.success) {
+			this.showError(result.error ?? "failed to apply customization");
+			return false;
+		}
+		if (this.settingsCustomizationSession === session) this.settingsCustomizationSession = undefined;
+		void this.themeController.applyFromSettings();
+		this.applyAppearanceToRuntime();
+		return true;
+	}
+
+	private cancelCustomizationDraftSession(): void {
+		if (this.settingsCustomizationSession) {
+			this.settingsCustomizationSession.cancel();
+			this.settingsCustomizationSession = undefined;
+		} else {
+			this.appearanceController.rollback();
+		}
+		void this.themeController.applyFromSettings();
+		this.applyAppearanceToRuntime();
+	}
+	private commitAppearancePreview(): void {
+		if (this.settingsCustomizationSession) {
+			this.applyCustomizationDraftSession(this.settingsCustomizationSession);
+			return;
+		}
+		this.commitAppearance(this.effectiveAppearance());
+	}
+
+	private commitAppearance(next: ReturnType<InteractiveAppearanceController["getEffective"]>): void {
+		const result = this.appearanceController.commit(next);
+		if (!result.valid) {
+			this.showError(
+				`Invalid appearance value: ${result.issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`,
+			);
+			return;
+		}
+		this.applyAppearanceToRuntime();
+	}
+
+	private patchedAppearance(
+		section: "markdown" | "inputBox" | "thinking-indicator",
+		patch: Record<string, unknown>,
+	): ReturnType<InteractiveAppearanceController["getEffective"]> | null {
+		const current = this.effectiveAppearance();
+		const next = structuredClone(current);
+		if (section === "markdown") {
+			next.markdown = { ...next.markdown, ...(patch as Partial<typeof next.markdown>) };
+		} else if (section === "inputBox") {
+			next.inputBox = { ...next.inputBox, ...(patch as Partial<typeof next.inputBox>) };
+		} else {
+			next.thinking = {
+				...next.thinking,
+				indicator: { ...next.thinking.indicator, ...(patch as Partial<typeof next.thinking.indicator>) },
+			};
+		}
+		return next;
+	}
+
+	private effectiveHideThinkingBlock(): boolean {
+		// F6.2 precedence: explicit hide-thinking setting > appearance
+		// showByDefault > built-in baseline (visible).
+		if (this.settingsManager.getHideThinkingBlock()) return true;
+		if (this.settingsManager.isHideThinkingBlockSet()) return false;
+		return !this.effectiveAppearance().thinking.block.showByDefault;
+	}
+
+	private stampMessageAppearance(component: UserMessageComponent | AssistantMessageComponent): void {
+		const appearance = this.effectiveAppearance();
+		if (component instanceof UserMessageComponent) {
+			component.setAppearance(appearance.userMessage);
+		} else {
+			component.setThinkingAppearance(appearance.thinking.block);
+			component.setAssistantAppearance(appearance.assistantMessage);
+			component.setHideThinkingBlock(this.effectiveHideThinkingBlock());
+		}
+	}
+
+	private getEffectiveWorkingIndicator(): WorkingIndicatorOptions | undefined {
+		if (this.workingIndicatorOptions) return this.workingIndicatorOptions;
+		const appearance = this.effectiveAppearance();
+		const colorize = resolveAppearanceColorFn(appearance.thinking.indicator.color, "fg");
+		return {
+			frames: getThinkingIndicatorFrames(appearance.thinking.indicator).map((frame) => colorize(frame)),
+			intervalMs: appearance.thinking.indicator.intervalMs,
+		};
+	}
+
+	private getThinkingVerbLabel(): string {
+		const appearance = this.effectiveAppearance();
+		const verbs = appearance.thinking.label.verbs;
+		if (verbs.length === 0) return "Thinking...";
+		const verb =
+			appearance.thinking.label.selection === "random"
+				? verbs[Math.floor(Math.random() * verbs.length)]
+				: verbs[this.thinkingVerbIndex++ % verbs.length];
+		return applyThinkingVerbFormat(appearance.thinking.label.format, verb ?? "Thinking");
+	}
+
+	private getWorkingMessage(): string {
+		if (this.workingMessage) return this.workingMessage;
+		return this.getThinkingVerbLabel();
+	}
+
+	private updateEditorBorderColor(): void {
+		// Precedence: bash-mode override > thinking-level signal > appearance
+		// active/idle border colors (F4.2). Appearance colors are the default
+		// path; runtime signals overlay them without persisting.
+		if (this.isBashMode) {
+			this.editor.borderColor = theme.getBashModeBorderColor();
+		} else if ((this.session.thinkingLevel || "off") !== "off") {
+			const level = this.session.thinkingLevel || "off";
+			this.editor.borderColor = theme.getThinkingBorderColor(level);
+		} else {
+			this.editor.borderColor = this.getAppearanceBorderColor(this.isEditorFocused());
+		}
+		this.ui.requestRender();
+	}
+
+	// F4.2 active definition: the editor holds TUI focus. Precedence:
+	// extension/runtime override > bash signal > thinking-level signal >
+	// active appearance color (focused) > idle appearance color.
+	private isEditorFocused(): boolean {
+		return (this.editor as unknown as { focused?: boolean }).focused === true;
+	}
+
+	private getAppearanceBorderColor(active: boolean): (text: string) => string {
+		const appearance = this.appearanceController?.getEffective();
+		const color = active ? appearance?.inputBox.activeBorderColor : appearance?.inputBox.idleBorderColor;
+		if (color) return resolveAppearanceColorFn(color, "fg");
+		return theme.getThinkingBorderColor("off");
 	}
 
 	private cycleThinkingLevel(): void {
@@ -4915,27 +5250,75 @@ export class InteractiveMode {
 	 */
 	private showSelector(
 		create: (done: () => void) => { component: Component; focus: Component; dispose?: () => void },
+		options: { overlay?: OverlayOptions } = {},
 	): void {
 		const token = {};
 		let dispose: (() => void) | undefined;
+		let overlayHandle: OverlayHandle | undefined;
 		const done = () => {
 			dispose?.();
+			overlayHandle?.hide();
 			if (this.activeSelectorToken !== token) return;
 			this.activeSelectorToken = undefined;
 			this.activeSelectorDispose = undefined;
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
+			if (!options.overlay) {
+				this.editorContainer.clear();
+				this.editorContainer.addChild(this.editor);
+			}
 			this.ui.setFocus(this.editor);
 		};
 		const created = create(done);
 		dispose = created.dispose;
 		this.disposeActiveSelector();
 		this.activeSelectorToken = token;
-		this.activeSelectorDispose = dispose;
-		this.editorContainer.clear();
-		this.editorContainer.addChild(created.component);
-		this.ui.setFocus(created.focus);
+		this.activeSelectorDispose = () => {
+			overlayHandle?.hide();
+			dispose?.();
+		};
+		if (options.overlay) {
+			// Keep the base editor mounted while the modal is visible. This also
+			// prevents an existing selector (for example /settings) from being
+			// left mounted underneath the customizer and gives the overlay a valid
+			// focus target when it closes.
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			overlayHandle = this.ui.showOverlay(created.component, options.overlay);
+		} else {
+			this.editorContainer.clear();
+			this.editorContainer.addChild(created.component);
+			this.ui.setFocus(created.focus);
+		}
 		this.ui.requestRender();
+	}
+
+	private showAppearanceCustomizer(): void {
+		const draftSession = this.getOrCreateCustomizationDraftSession();
+		this.showSelector(
+			(done) => {
+				const customizer = new AppearanceCustomizerComponent(
+					draftSession,
+					{
+						onDraftChange: () => {
+							this.applyAppearanceToRuntime();
+						},
+						onApply: () => {
+							if (!this.applyCustomizationDraftSession(draftSession)) return;
+							done();
+						},
+						onCancel: () => {
+							this.cancelCustomizationDraftSession();
+							done();
+						},
+						onThemePreview: (themeInstance) => {
+							this.themeController.setThemeInstance(themeInstance);
+						},
+					},
+					this.ui,
+				);
+				return { component: customizer, focus: customizer, dispose: () => customizer.dispose() };
+			},
+			{ overlay: { width: "100%", anchor: "top-left", maxHeight: "100%" } },
+		);
 	}
 
 	private showSettingsSelector(): void {
@@ -4979,6 +5362,9 @@ export class InteractiveMode {
 					uiMode: this.ui.mode,
 					fullscreenScrollbar: this.settingsManager.getFullscreenScrollbar(),
 					warnings: this.settingsManager.getWarnings(),
+					tableStyle: this.effectiveAppearance().markdown.tableStyle,
+					inputBorderStyle: this.effectiveAppearance().inputBox.borderStyle,
+					thinkingIntervalMs: this.effectiveAppearance().thinking.indicator.intervalMs,
 					extensionSettings: this.session.extensionRunner.getRegisteredSettings(),
 				},
 				{
@@ -5042,10 +5428,39 @@ export class InteractiveMode {
 						this.session.setFastMode(enabled);
 					},
 					onThemeChange: (themeSetting) => {
-						this.settingsManager.setTheme(themeSetting);
-						void this.themeController.applyFromSettings();
+						if (!this.stageSettingsTheme(themeSetting)) return;
+						this.applyCustomizationDraftSession(this.getOrCreateCustomizationDraftSession());
 					},
-					onThemePreview: (themeName) => this.themeController.preview(themeName),
+					onThemePreview: (themeSetting) => {
+						this.stageSettingsTheme(themeSetting);
+					},
+					onTableStyleChange: (style) => {
+						this.commitAppearanceSection("markdown", { tableStyle: style });
+					},
+					onTableStylePreview: (style) => {
+						this.previewAppearanceSection("markdown", { tableStyle: style });
+					},
+					onInputBorderStyleChange: (style) => {
+						this.commitAppearanceSection("inputBox", { borderStyle: style });
+					},
+					onInputBorderStylePreview: (style) => {
+						this.previewAppearanceSection("inputBox", { borderStyle: style });
+					},
+					onThinkingIntervalChange: (intervalMs) => {
+						this.commitAppearanceSection("thinking-indicator", { intervalMs });
+					},
+					onThinkingIntervalPreview: (intervalMs) => {
+						this.previewAppearanceSection("thinking-indicator", { intervalMs });
+					},
+					onAppearanceApply: () => {
+						this.commitAppearancePreview();
+					},
+					onAppearanceCancel: () => {
+						this.cancelCustomizationDraftSession();
+					},
+					onOpenAppearance: () => {
+						this.showAppearanceCustomizer();
+					},
 					onHideThinkingBlockChange: (hidden) => {
 						this.hideThinkingBlock = hidden;
 						this.settingsManager.setHideThinkingBlock(hidden);
@@ -5146,6 +5561,9 @@ export class InteractiveMode {
 						this.settingsManager.setWarnings(warnings);
 					},
 					onCancel: () => {
+						if (this.settingsCustomizationSession || this.appearanceController.isPreviewing()) {
+							this.cancelCustomizationDraftSession();
+						}
 						done();
 						this.ui.requestRender();
 					},
@@ -5620,7 +6038,12 @@ export class InteractiveMode {
 							this.session.abortBranchSummary();
 						};
 						this.chatContainer.addChild(new Spacer(1));
-						this.showStatusIndicator(new BranchSummaryStatusIndicator(this.ui));
+						this.showStatusIndicator(
+							new BranchSummaryStatusIndicator(
+								this.ui,
+								this.effectiveAppearance().statusIndicators.branchSummary,
+							),
+						);
 						showingSummaryIndicator = true;
 						this.ui.requestRender();
 					}
@@ -6336,6 +6759,11 @@ export class InteractiveMode {
 			setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
 			await this.themeController.applyFromSettings();
 			this.applyRuntimeSettings();
+			// SettingsManager.reload() replaced the persisted appearance; the
+			// controller must re-read its baseline so external changes reach the
+			// runtime instead of surviving only until restart.
+			this.appearanceController?.refreshBaseline();
+			this.applyAppearanceToRuntime();
 			this.setupAutocompleteProvider();
 			const runner = this.session.extensionRunner;
 			this.setupExtensionShortcuts(runner);
@@ -6886,7 +7314,12 @@ export class InteractiveMode {
 			const result = eventResult.result;
 
 			// Create UI component for display
-			this.bashComponent = new BashExecutionComponent(command, this.ui, excludeFromContext);
+			this.bashComponent = new BashExecutionComponent(
+				command,
+				this.ui,
+				excludeFromContext,
+				this.effectiveAppearance().bash,
+			);
 			if (this.session.isStreaming) {
 				this.pendingMessagesContainer.addChild(this.bashComponent);
 				this.pendingBashComponents.push(this.bashComponent);
@@ -6914,7 +7347,12 @@ export class InteractiveMode {
 
 		// Normal execution path (possibly with custom operations)
 		const isDeferred = this.session.isStreaming;
-		this.bashComponent = new BashExecutionComponent(command, this.ui, excludeFromContext);
+		this.bashComponent = new BashExecutionComponent(
+			command,
+			this.ui,
+			excludeFromContext,
+			this.effectiveAppearance().bash,
+		);
 
 		if (isDeferred) {
 			// Show in pending area when agent is streaming
@@ -6968,6 +7406,12 @@ export class InteractiveMode {
 	}
 
 	stop(): void {
+		// ICE currently permits one interactive runtime per process. Restore the
+		// TUI process default so tests/embedded consumers never inherit this
+		// session's appearance table style after teardown.
+		setDefaultTableStyle(this.previousDefaultTableStyle);
+		setDiffAppearance(undefined);
+		setInteractiveChromeThemeOverride(undefined);
 		this.closeAgentSwitcherDock();
 		this.agentSwitcher?.dispose();
 		this.agentSwitcher = undefined;

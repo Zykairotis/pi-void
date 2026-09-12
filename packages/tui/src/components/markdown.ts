@@ -52,6 +52,60 @@ markdownParser.setOptions({
 	tokenizer: new StrictStrikethroughTokenizer(),
 });
 
+interface TableGlyphSet {
+	horizontal: string;
+	vertical: string;
+	padding: string;
+	top: [string, string, string] | null;
+	separator: [string, string, string] | null;
+	rowSeparator: [string, string, string] | null;
+	bottom: [string, string, string] | null;
+}
+
+const TABLE_GLYPHS: Record<Exclude<MarkdownTableStyle, "raw">, TableGlyphSet> = {
+	unicode: {
+		horizontal: "─",
+		vertical: "│",
+		padding: " ",
+		top: ["┌", "┬", "┐"],
+		separator: ["├", "┼", "┤"],
+		rowSeparator: ["├", "┼", "┤"],
+		bottom: ["└", "┴", "┘"],
+	},
+	ascii: {
+		horizontal: "-",
+		vertical: "|",
+		padding: " ",
+		top: ["+", "+", "+"],
+		separator: ["+", "+", "+"],
+		rowSeparator: ["+", "+", "+"],
+		bottom: ["+", "+", "+"],
+	},
+	clean: {
+		horizontal: "─",
+		vertical: "│",
+		padding: " ",
+		top: null,
+		separator: null,
+		rowSeparator: null,
+		bottom: null,
+	},
+	"clean-top-bottom": {
+		horizontal: "─",
+		vertical: "│",
+		padding: " ",
+		top: ["─", "─", "─"],
+		separator: null,
+		rowSeparator: null,
+		bottom: ["─", "─", "─"],
+	},
+};
+
+function emitTableRow(glyphs: TableGlyphSet, cells: string[]): string {
+	if (!glyphs.vertical) return cells.join("  ");
+	return `${glyphs.vertical}${glyphs.padding}${cells.join(`${glyphs.padding}${glyphs.vertical}${glyphs.padding}`)}${glyphs.padding}${glyphs.vertical}`;
+}
+
 /**
  * Default text styling for markdown content.
  * Applied to all text unless overridden by markdown formatting.
@@ -76,7 +130,7 @@ export interface DefaultTextStyle {
  * Each function takes text and returns styled text with ANSI codes.
  */
 export interface MarkdownTheme {
-	heading: (text: string) => string;
+	heading: (text: string, level?: number) => string;
 	link: (text: string) => string;
 	linkUrl: (text: string) => string;
 	code: (text: string) => string;
@@ -95,11 +149,25 @@ export interface MarkdownTheme {
 	codeBlockIndent?: string;
 }
 
+export type MarkdownTableStyle = "unicode" | "ascii" | "clean" | "clean-top-bottom" | "raw";
+
+let defaultTableStyle: MarkdownTableStyle = "unicode";
+
+export function setDefaultTableStyle(style: MarkdownTableStyle): void {
+	defaultTableStyle = style;
+}
+
+export function getDefaultTableStyle(): MarkdownTableStyle {
+	return defaultTableStyle;
+}
+
 export interface MarkdownOptions {
 	/** Preserve source list markers instead of normalizing them. */
 	preserveOrderedListMarkers?: boolean;
 	/** Preserve source backslash escapes instead of normalizing escaped punctuation. */
 	preserveBackslashEscapes?: boolean;
+	/** Select the table border strategy. Defaults to bordered Unicode output. */
+	tableStyle?: MarkdownTableStyle;
 	/** Transform source Markdown before parsing, with the exact width available for content. */
 	transform?: (markdown: string, availableWidth: number) => string;
 }
@@ -345,9 +413,10 @@ export class Markdown implements Component {
 				// the default text style.
 				let headingStyleFn: (text: string) => string;
 				if (headingLevel === 1) {
-					headingStyleFn = (text: string) => this.theme.heading(this.theme.bold(this.theme.underline(text)));
+					headingStyleFn = (text: string) =>
+						this.theme.heading(this.theme.bold(this.theme.underline(text)), headingLevel);
 				} else {
-					headingStyleFn = (text: string) => this.theme.heading(this.theme.bold(text));
+					headingStyleFn = (text: string) => this.theme.heading(this.theme.bold(text), headingLevel);
 				}
 
 				const headingStyleContext: InlineStyleContext = {
@@ -802,9 +871,24 @@ export class Markdown implements Component {
 			}
 		}
 
+		// One shared width/layout pass feeds style-specific border emitters.
+		const tableStyle = this.options.tableStyle ?? defaultTableStyle;
+		if (tableStyle === "raw") {
+			const fallbackLines = token.raw ? wrapTextWithAnsi(token.raw, availableWidth) : [];
+			if (nextTokenType && nextTokenType !== "space") {
+				fallbackLines.push("");
+			}
+			return fallbackLines;
+		}
+
 		// Render top border
-		const topBorderCells = columnWidths.map((w) => "─".repeat(w));
-		lines.push(`┌─${topBorderCells.join("─┬─")}─┐`);
+		const glyphs = TABLE_GLYPHS[tableStyle];
+		const topBorderCells = columnWidths.map((w) => glyphs.horizontal.repeat(w));
+		if (glyphs.top) {
+			lines.push(
+				`${glyphs.top[0]}${glyphs.padding}${topBorderCells.join(`${glyphs.padding}${glyphs.top[1]}${glyphs.padding}`)}${glyphs.padding}${glyphs.top[2]}`,
+			);
+		}
 
 		// Render header with wrapping
 		const headerCellLines: string[][] = token.header.map((cell, i) => {
@@ -819,13 +903,16 @@ export class Markdown implements Component {
 				const padded = text + " ".repeat(Math.max(0, columnWidths[colIdx] - visibleWidth(text)));
 				return this.theme.bold(padded);
 			});
-			lines.push(`│ ${rowParts.join(" │ ")} │`);
+			lines.push(emitTableRow(glyphs, rowParts));
 		}
 
 		// Render separator
-		const separatorCells = columnWidths.map((w) => "─".repeat(w));
-		const separatorLine = `├─${separatorCells.join("─┼─")}─┤`;
-		lines.push(separatorLine);
+		const separatorCells = columnWidths.map((w) => glyphs.horizontal.repeat(w));
+		if (glyphs.separator) {
+			lines.push(
+				`${glyphs.separator[0]}${glyphs.padding}${separatorCells.join(`${glyphs.padding}${glyphs.separator[1]}${glyphs.padding}`)}${glyphs.padding}${glyphs.separator[2]}`,
+			);
+		}
 
 		// Render rows with wrapping
 		for (let rowIndex = 0; rowIndex < token.rows.length; rowIndex++) {
@@ -841,17 +928,24 @@ export class Markdown implements Component {
 					const text = cellLines[lineIdx] || "";
 					return text + " ".repeat(Math.max(0, columnWidths[colIdx] - visibleWidth(text)));
 				});
-				lines.push(`│ ${rowParts.join(" │ ")} │`);
+				lines.push(emitTableRow(glyphs, rowParts));
 			}
 
-			if (rowIndex < token.rows.length - 1) {
-				lines.push(separatorLine);
+			if (rowIndex < token.rows.length - 1 && glyphs.rowSeparator) {
+				const rowSeparatorCells = columnWidths.map((w) => glyphs.horizontal.repeat(w));
+				lines.push(
+					`${glyphs.rowSeparator[0]}${glyphs.padding}${rowSeparatorCells.join(`${glyphs.padding}${glyphs.rowSeparator[1]}${glyphs.padding}`)}${glyphs.padding}${glyphs.rowSeparator[2]}`,
+				);
 			}
 		}
 
 		// Render bottom border
-		const bottomBorderCells = columnWidths.map((w) => "─".repeat(w));
-		lines.push(`└─${bottomBorderCells.join("─┴─")}─┘`);
+		if (glyphs.bottom) {
+			const bottomBorderCells = columnWidths.map((w) => glyphs.horizontal.repeat(w));
+			lines.push(
+				`${glyphs.bottom[0]}${glyphs.padding}${bottomBorderCells.join(`${glyphs.padding}${glyphs.bottom[1]}${glyphs.padding}`)}${glyphs.padding}${glyphs.bottom[2]}`,
+			);
+		}
 
 		if (nextTokenType && nextTokenType !== "space") {
 			lines.push(""); // Add spacing after table

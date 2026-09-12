@@ -343,7 +343,12 @@ export abstract class TuiBase extends Container implements TUI {
 	private lastRenderAt = 0;
 	private static readonly MIN_RENDER_INTERVAL_MS = 16;
 	private showHardwareCursor = getTuiEnv("ICE_HARDWARE_CURSOR") === "1";
-	private clearOnShrink = getTuiEnv("ICE_CLEAR_ON_SHRINK") === "1";
+	// Clearing on shrink is the safe default for main-screen differential rendering.
+	// Dynamic selectors can change height as selection descriptions change; stale
+	// rows otherwise remain visible on terminals whose cursor/scrollback state
+	// differs from the logical buffer. Set the shrink-clear environment option to
+	// 0 to opt out on unusually slow terminals.
+	private clearOnShrink = getTuiEnv("ICE_CLEAR_ON_SHRINK") !== "0";
 	protected fullRedrawCount = 0;
 	protected stopped = false;
 	private pendingOsc11BackgroundReplies = 0;

@@ -53,4 +53,22 @@ describe("SettingsSelectorComponent", () => {
 
 		expect(onChange).toHaveBeenCalledWith(90);
 	});
+
+	it("opens the full appearance customizer from settings", () => {
+		const onOpenAppearance = vi.fn();
+		const selector = new SettingsSelectorComponent(
+			{
+				warnings: {},
+				availableThinkingLevels: [],
+				availableThemes: [],
+			} as unknown as SettingsConfig,
+			{ onOpenAppearance } as unknown as SettingsCallbacks,
+		);
+		const settingsList = selector.getSettingsList();
+
+		for (const character of "Appearance") settingsList.handleInput(character);
+		settingsList.handleInput("\r");
+
+		expect(onOpenAppearance).toHaveBeenCalledOnce();
+	});
 });

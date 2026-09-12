@@ -3,11 +3,16 @@ import type { ToolDefinition, ToolRenderContext } from "../../../core/extensions
 import { createAllToolDefinitions, type ToolName } from "../../../core/tools/index.ts";
 import { getTextOutput as getRenderedTextOutput } from "../../../core/tools/render-utils.ts";
 import { convertToPng } from "../../../utils/image-convert.ts";
+import { createDefaultAppearance } from "../appearance/appearance-defaults.ts";
+import type { ToolAppearance } from "../appearance/appearance-types.ts";
+import { applyTextPresentation, toolStateBackground } from "../appearance/text-presentation.ts";
 import { theme } from "../theme/theme.ts";
 
 export interface ToolExecutionOptions {
 	showImages?: boolean;
 	imageWidthCells?: number;
+	/** Optional appearance override; defaults reproduce current rendering. */
+	toolsAppearance?: ToolAppearance;
 }
 
 export class ToolExecutionComponent extends Container {
@@ -30,6 +35,7 @@ export class ToolExecutionComponent extends Container {
 	private builtInToolDefinition?: ToolDefinition<any, any>;
 	private ui: TUI;
 	private cwd: string;
+	private toolsAppearance: ToolAppearance | null = null;
 	private executionStarted = false;
 	private argsComplete = false;
 	private result?: {
@@ -57,6 +63,7 @@ export class ToolExecutionComponent extends Container {
 		this.builtInToolDefinition = createAllToolDefinitions(cwd)[toolName as ToolName];
 		this.showImages = options.showImages ?? true;
 		this.imageWidthCells = options.imageWidthCells ?? 60;
+		this.toolsAppearance = options.toolsAppearance ?? null;
 		this.ui = ui;
 		this.cwd = cwd;
 
@@ -65,8 +72,8 @@ export class ToolExecutionComponent extends Container {
 		// Always create all shell variants. contentBox is used for default renderer-based composition.
 		// selfRenderContainer is used when the tool renders its own framing.
 		// contentText is reserved for generic fallback rendering when no tool definition exists.
-		this.contentBox = new Box(1, 1, (text: string) => theme.bg("toolPendingBg", text));
-		this.contentText = new Text("", 1, 1, (text: string) => theme.bg("toolPendingBg", text));
+		this.contentBox = new Box(1, 1, (text: string) => this.toolBg("pending", text));
+		this.contentText = new Text("", 1, 1, (text: string) => this.toolBg("pending", text));
 		this.selfRenderContainer = new Container();
 
 		if (this.hasRendererDefinition()) {
@@ -132,8 +139,40 @@ export class ToolExecutionComponent extends Container {
 		};
 	}
 
+	/** Appearance-driven tool state background; falls back to theme tokens. */
+	private toolBg(state: "pending" | "success" | "error", text: string): string {
+		const appearance = this.toolsAppearance;
+		if (!appearance) {
+			return state === "pending"
+				? theme.bg("toolPendingBg", text)
+				: state === "error"
+					? theme.bg("toolErrorBg", text)
+					: theme.bg("toolSuccessBg", text);
+		}
+		return toolStateBackground(
+			{ ...createDefaultAppearance(), tools: appearance } as Parameters<typeof toolStateBackground>[0],
+			state,
+		)(text);
+	}
+
+	/** Appearance-driven title/output styling; falls back to theme tokens. */
+	private toolTitle(text: string): string {
+		if (!this.toolsAppearance) return theme.fg("toolTitle", theme.bold(text));
+		return applyTextPresentation(this.toolsAppearance.title, text);
+	}
+
+	private toolOutput(text: string): string {
+		if (!this.toolsAppearance) return theme.fg("toolOutput", text);
+		return applyTextPresentation(this.toolsAppearance.output, text);
+	}
+
+	setToolsAppearance(appearance: ToolAppearance | null): void {
+		this.toolsAppearance = appearance;
+		this.updateDisplay();
+	}
+
 	private createCallFallback(): Component {
-		return new Text(theme.fg("toolTitle", theme.bold(this.toolName)), 0, 0);
+		return new Text(this.toolTitle(this.toolName), 0, 0);
 	}
 
 	private createResultFallback(): Component | undefined {
@@ -141,7 +180,7 @@ export class ToolExecutionComponent extends Container {
 		if (!output) {
 			return undefined;
 		}
-		return new Text(theme.fg("toolOutput", output), 0, 0);
+		return new Text(this.toolOutput(output), 0, 0);
 	}
 
 	updateArgs(args: any): void {
@@ -251,11 +290,8 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private updateDisplay(): void {
-		const bgFn = this.isPartial
-			? (text: string) => theme.bg("toolPendingBg", text)
-			: this.result?.isError
-				? (text: string) => theme.bg("toolErrorBg", text)
-				: (text: string) => theme.bg("toolSuccessBg", text);
+		const state = this.isPartial ? "pending" : this.result?.isError ? "error" : "success";
+		const bgFn = (text: string): string => this.toolBg(state, text);
 
 		let hasContent = false;
 		this.hideComponent = false;
@@ -344,7 +380,7 @@ export class ToolExecutionComponent extends Container {
 					const imageComponent = new Image(
 						imageData,
 						imageMimeType,
-						{ fallbackColor: (s: string) => theme.fg("toolOutput", s) },
+						{ fallbackColor: (s: string) => this.toolOutput(s) },
 						{ maxWidthCells: this.imageWidthCells },
 					);
 					this.imageComponents.push(imageComponent);
@@ -363,7 +399,7 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private formatToolExecution(): string {
-		let text = theme.fg("toolTitle", theme.bold(this.toolName));
+		let text = this.toolTitle(this.toolName);
 		const content = JSON.stringify(this.args, null, 2);
 		if (content) {
 			text += `\n\n${content}`;

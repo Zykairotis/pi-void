@@ -4,7 +4,12 @@ import type { AgentSession } from "../../../core/agent-session.ts";
 import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
 import { addUsageToTotals, createUsageTotals } from "../../../core/usage-totals.ts";
+import { createDefaultAppearance } from "../appearance/appearance-defaults.ts";
+import type { FooterAppearance, FooterFieldId } from "../appearance/appearance-types.ts";
+import { applyTextPresentation } from "../appearance/text-presentation.ts";
 import { theme } from "../theme/theme.ts";
+
+const DEFAULT_FOOTER_APPEARANCE = createDefaultAppearance().footer;
 
 /**
  * Sanitize text for display in a single-line status.
@@ -51,6 +56,7 @@ export class FooterComponent implements Component {
 	private autoCompactEnabled = true;
 	private session: AgentSession;
 	private footerData: ReadonlyFooterDataProvider;
+	private appearance: FooterAppearance | null = null;
 
 	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider) {
 		this.session = session;
@@ -67,6 +73,9 @@ export class FooterComponent implements Component {
 
 	setAutoCompactEnabled(enabled: boolean): void {
 		this.autoCompactEnabled = enabled;
+	}
+	setAppearance(appearance: FooterAppearance | null): void {
+		this.appearance = appearance ? structuredClone(appearance) : null;
 	}
 
 	/**
@@ -86,6 +95,13 @@ export class FooterComponent implements Component {
 	}
 
 	render(width: number): string[] {
+		if (this.appearance && JSON.stringify(this.appearance) !== JSON.stringify(DEFAULT_FOOTER_APPEARANCE)) {
+			return this.renderCustomized(width, this.appearance);
+		}
+		return this.renderLegacy(width);
+	}
+
+	private renderLegacy(width: number): string[] {
 		const state = this.session.state;
 
 		// Calculate cumulative usage from ALL session entries (not just post-compaction messages)
@@ -244,6 +260,96 @@ export class FooterComponent implements Component {
 			lines.push(truncateToWidth(statusLine, width, theme.fg("dim", "...")));
 		}
 
+		return lines;
+	}
+	private renderCustomized(width: number, appearance: FooterAppearance): string[] {
+		const state = this.session.state;
+		const usageTotals = createUsageTotals();
+		let latestCacheHitRate: number | undefined;
+		for (const entry of this.session.sessionManager.getEntries()) {
+			if (entry.type === "message" && entry.message.role === "assistant") {
+				addUsageToTotals(usageTotals, entry.message.usage);
+				const prompt = entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
+				latestCacheHitRate = prompt > 0 ? (entry.message.usage.cacheRead / prompt) * 100 : undefined;
+			} else if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage) {
+				addUsageToTotals(usageTotals, entry.message.usage);
+			} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
+				addUsageToTotals(usageTotals, entry.usage);
+			}
+		}
+		const contextUsage = this.session.getContextUsage();
+		const contextWindow = contextUsage?.contextWindow ?? state.model?.contextWindow ?? 0;
+		const contextPercentValue = contextUsage?.percent ?? 0;
+		const contextPercent = typeof contextUsage?.percent === "number" ? contextUsage.percent.toFixed(1) : "?";
+		const usingSubscription = state.model
+			? state.model.provider === "kimi-coding" || this.session.modelRuntime.isUsingOAuth(state.model.provider)
+			: false;
+		const extensionStatuses = Array.from(this.footerData.getExtensionStatuses().entries())
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([, text]) => sanitizeStatusText(text));
+		const fields: Partial<Record<FooterFieldId, string>> = {
+			cwd: formatCwdForFooter(this.session.sessionManager.getCwd(), process.env.HOME || process.env.USERPROFILE),
+			branch: this.footerData.getGitBranch() || undefined,
+			session: this.session.sessionManager.getSessionName() || undefined,
+			usage:
+				[
+					usageTotals.input ? `↑${formatTokens(usageTotals.input)}` : "",
+					usageTotals.output ? `↓${formatTokens(usageTotals.output)}` : "",
+				]
+					.filter(Boolean)
+					.join(" ") || undefined,
+			cache:
+				[
+					usageTotals.cacheRead ? `R${formatTokens(usageTotals.cacheRead)}` : "",
+					usageTotals.cacheWrite ? `W${formatTokens(usageTotals.cacheWrite)}` : "",
+					latestCacheHitRate !== undefined && (usageTotals.cacheRead > 0 || usageTotals.cacheWrite > 0)
+						? `CH${latestCacheHitRate.toFixed(1)}%`
+						: "",
+				]
+					.filter(Boolean)
+					.join(" ") || undefined,
+			cost:
+				usageTotals.cost || usingSubscription
+					? `$${usageTotals.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`
+					: undefined,
+			context: `${contextPercent === "?" ? "?" : `${contextPercent}%`}/${formatTokens(contextWindow)}${this.autoCompactEnabled ? " (auto)" : ""}`,
+			provider: this.footerData.getAvailableProviderCount() > 1 ? state.model?.provider : undefined,
+			model: state.model?.id || "no-model",
+			thinking: state.model?.reasoning ? `thinking ${state.thinkingLevel || "off"}` : undefined,
+			extensions: extensionStatuses.length ? extensionStatuses.join(" ") : undefined,
+		};
+		if (areExperimentalFeaturesEnabled()) fields.usage = [fields.usage, "xp"].filter(Boolean).join(" ");
+
+		const renderField = (id: FooterFieldId, text: string, secondary: boolean): string => {
+			if (id === "context" && contextPercentValue > 90) return theme.fg("error", text);
+			if (id === "context" && contextPercentValue > 70) return theme.fg("warning", text);
+			return applyTextPresentation(secondary ? appearance.secondary : appearance.primary, text);
+		};
+		const renderGroup = (allowed: ReadonlySet<FooterFieldId>, secondary: boolean): string | undefined => {
+			const parts = appearance.order
+				.filter((id) => allowed.has(id) && appearance.visible[id] && fields[id])
+				.map((id) => ({ id, text: renderField(id, fields[id]!, secondary) }));
+			while (parts.length > 1 && visibleWidth(parts.map((part) => part.text).join(appearance.separator)) > width)
+				parts.pop();
+			if (!parts.length) return undefined;
+			return truncateToWidth(parts.map((part) => part.text).join(appearance.separator), width, "…");
+		};
+		const primaryIds = new Set<FooterFieldId>(["cwd", "branch", "session"]);
+		const secondaryIds = new Set<FooterFieldId>([
+			"usage",
+			"cache",
+			"cost",
+			"context",
+			"provider",
+			"model",
+			"thinking",
+		]);
+		const lines = [renderGroup(primaryIds, false), renderGroup(secondaryIds, true)].filter((line): line is string =>
+			Boolean(line),
+		);
+		if (appearance.visible.extensions && fields.extensions) {
+			lines.push(truncateToWidth(applyTextPresentation(appearance.extensions, fields.extensions), width, "…"));
+		}
 		return lines;
 	}
 }
