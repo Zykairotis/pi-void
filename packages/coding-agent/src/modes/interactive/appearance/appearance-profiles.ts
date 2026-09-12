@@ -255,6 +255,45 @@ export function validateAppearancePartial(partial: unknown): { valid: boolean; i
 	];
 	const INPUT_BORDER_STYLES = ["none", "single", "double", "round", "bold"];
 	const TABLE_STYLES = ["unicode", "ascii", "clean", "clean-top-bottom", "raw"];
+	// A present scalar/array/null section is discarded during normalization and
+	// would silently fall back to defaults on apply; reject it path-specifically.
+	const OBJECT_SECTION_PATHS: readonly (readonly string[])[] = [
+		["userMessage"],
+		["assistantMessage"],
+		["inputBox"],
+		["thinking"],
+		["statusIndicators"],
+		["markdown"],
+		["tools"],
+		["bash"],
+		["diff"],
+		["systemCards"],
+		["footer"],
+		["chrome"],
+		["subagentChrome"],
+		["thinking", "indicator"],
+		["thinking", "label"],
+		["thinking", "block"],
+		["markdown", "headings"],
+		["markdown", "headings", "overrides"],
+		["markdown", "codeBlock"],
+		["markdown", "quote"],
+		["tools", "states"],
+		["footer", "visible"],
+	];
+	for (const path of OBJECT_SECTION_PATHS) {
+		let value: unknown = partial;
+		for (const key of path) {
+			if (!isRecord(value)) {
+				value = undefined;
+				break;
+			}
+			value = value[key];
+		}
+		if (value !== undefined && !isRecord(value)) {
+			issues.push(`${path.join(".")}: expected an object`);
+		}
+	}
 	const userMessage = isRecord(partial.userMessage) ? partial.userMessage : undefined;
 	checkEnum(userMessage?.borderStyle, BORDER_STYLES, "userMessage.borderStyle");
 	const assistantMessage = isRecord(partial.assistantMessage) ? partial.assistantMessage : undefined;

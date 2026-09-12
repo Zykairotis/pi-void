@@ -142,4 +142,25 @@ describe("appearance profiles and bundles (F10)", () => {
 			applyProfileToAppearance({ version: 2, name: "bad", appearance: 5 as never }, createDefaultAppearance()),
 		).toThrow(/expected an object/);
 	});
+
+	test("malformed nested sections are rejected with path-specific issues", () => {
+		for (const section of ["userMessage", "markdown", "footer", "thinking"]) {
+			for (const malformed of [42, "nope", [], null]) {
+				const result = validateAppearancePartial({ [section]: malformed });
+				expect(result.valid).toBe(false);
+				expect(result.issues).toContain(`${section}: expected an object`);
+			}
+		}
+		const nested = validateAppearancePartial({ thinking: { indicator: 7 }, footer: { visible: [] } });
+		expect(nested.issues).toContain("thinking.indicator: expected an object");
+		expect(nested.issues).toContain("footer.visible: expected an object");
+		// Omitted sections stay valid.
+		expect(validateAppearancePartial({ userMessage: { paddingX: 2 } }).valid).toBe(true);
+		expect(saveProfile({ version: 2, name: "bad-section", appearance: { userMessage: 42 } as never }).success).toBe(
+			false,
+		);
+		const bundle = importBundle(JSON.stringify({ version: 2, appearance: { bash: [] } }));
+		expect(bundle.success).toBe(false);
+		expect(bundle.appearanceIssues).toContain("bash: expected an object");
+	});
 });

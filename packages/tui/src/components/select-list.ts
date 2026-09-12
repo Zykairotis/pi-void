@@ -1,4 +1,4 @@
-import { applyChromeBorder, type ChromeBorderStyle } from "../chrome-border.ts";
+import { applyChromeBorder, type ChromeBorderStyle, chromeBorderGlyphs } from "../chrome-border.ts";
 import { getKeybindings } from "../keybindings.ts";
 import type { Component } from "../tui.ts";
 import { truncateToWidth, visibleWidth } from "../utils.ts";
@@ -78,6 +78,11 @@ export class SelectList implements Component {
 	render(width: number): string[] {
 		const lines: string[] = [];
 
+		// Side-bearing borders reserve two columns; render items at the inner
+		// width so the border wrapper never truncates labels or descriptions.
+		const glyphs = this.theme.borderStyle ? chromeBorderGlyphs(this.theme.borderStyle) : null;
+		const contentWidth = glyphs?.sides ? Math.max(1, width - 2) : width;
+
 		// If no items match filter, show message
 		if (this.filteredItems.length === 0) {
 			lines.push(this.theme.noMatch("  No matching commands"));
@@ -100,17 +105,17 @@ export class SelectList implements Component {
 
 			const isSelected = i === this.selectedIndex;
 			const descriptionSingleLine = item.description ? normalizeToSingleLine(item.description) : undefined;
-			lines.push(this.renderItem(item, isSelected, width, descriptionSingleLine, primaryColumnWidth));
+			lines.push(this.renderItem(item, isSelected, contentWidth, descriptionSingleLine, primaryColumnWidth));
 		}
 
 		// Add scroll indicators if needed
 		if (startIndex > 0 || endIndex < this.filteredItems.length) {
 			const scrollText = `  (${this.selectedIndex + 1}/${this.filteredItems.length})`;
 			// Truncate if too long for terminal
-			lines.push(this.theme.scrollInfo(truncateToWidth(scrollText, width - 2, "")));
+			lines.push(this.theme.scrollInfo(truncateToWidth(scrollText, contentWidth - 2, "")));
 		}
 
-		if (this.theme.borderStyle) {
+		if (glyphs && this.theme.borderStyle) {
 			return applyChromeBorder(lines, width, this.theme.borderStyle, this.theme.borderColor ?? ((text) => text));
 		}
 		return lines;

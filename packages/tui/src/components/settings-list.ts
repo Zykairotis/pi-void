@@ -1,4 +1,4 @@
-import { applyChromeBorder, type ChromeBorderStyle } from "../chrome-border.ts";
+import { applyChromeBorder, type ChromeBorderStyle, chromeBorderGlyphs } from "../chrome-border.ts";
 import { fuzzyFilter } from "../fuzzy.ts";
 import { getKeybindings } from "../keybindings.ts";
 import type { Component } from "../tui.ts";
@@ -113,8 +113,12 @@ export class SettingsList implements Component {
 			return this.submenuComponent.render(width);
 		}
 
-		const lines = this.renderMainList(width);
-		if (this.theme.borderStyle) {
+		// Side-bearing borders reserve two columns; render content at the inner
+		// width so the border wrapper never truncates right-edge content.
+		const glyphs = this.theme.borderStyle ? chromeBorderGlyphs(this.theme.borderStyle) : null;
+		const contentWidth = glyphs?.sides ? Math.max(1, width - 2) : width;
+		const lines = this.renderMainList(contentWidth);
+		if (glyphs && this.theme.borderStyle) {
 			return applyChromeBorder(lines, width, this.theme.borderStyle, this.theme.borderColor ?? ((text) => text));
 		}
 		return lines;

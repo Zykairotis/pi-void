@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { parseCustomColorToRgb } from "../src/modes/interactive/appearance/appearance-colors.ts";
 import { createDefaultAppearance } from "../src/modes/interactive/appearance/appearance-defaults.ts";
 import { validateAppearance } from "../src/modes/interactive/appearance/appearance-validate.ts";
 
@@ -38,6 +39,30 @@ describe("appearance validation", () => {
 		expect(result.appearance.thinking.indicator.intervalMs).toBeGreaterThanOrEqual(16);
 		expect(result.appearance.thinking.label.verbs.length).toBeGreaterThan(0);
 		expect(result.appearance.markdown.tableStyle).toBe("unicode");
+	});
+
+	test("eight-digit hex colors are rejected instead of rendering opaque", () => {
+		const result = validateAppearance({
+			...structuredClone(createDefaultAppearance()),
+			userMessage: { foreground: { kind: "custom", value: "#11223380" } },
+		});
+		expect(result.valid).toBe(false);
+		expect(result.issues.some((issue) => issue.path === "userMessage.foreground")).toBe(true);
+		expect(result.appearance.userMessage.foreground).toEqual({ kind: "theme", token: "userMessageText" });
+		// 3- and 6-digit forms remain valid, and parsing ignores no channels.
+		const sixDigit = validateAppearance({
+			...structuredClone(createDefaultAppearance()),
+			userMessage: { foreground: { kind: "custom", value: "#112233" } },
+		});
+		expect(sixDigit.valid).toBe(true);
+		const threeDigit = validateAppearance({
+			...structuredClone(createDefaultAppearance()),
+			userMessage: { foreground: { kind: "custom", value: "#123" } },
+		});
+		expect(threeDigit.valid).toBe(true);
+		expect(parseCustomColorToRgb("#11223380")).toBeNull();
+		expect(parseCustomColorToRgb("#112233")).toEqual({ r: 0x11, g: 0x22, b: 0x33 });
+		expect(parseCustomColorToRgb("#123")).toEqual({ r: 0x11, g: 0x22, b: 0x33 });
 	});
 
 	test("v1 migration survives malformed highlighter entries without throwing", () => {

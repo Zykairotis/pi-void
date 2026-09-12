@@ -135,7 +135,9 @@ function normalizePlainText(
 }
 
 function isValidHexColor(value: string): boolean {
-	return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(value);
+	// ANSI output has no alpha channel; 8-digit hex would render opaque with
+	// different semantics than the author wrote, so only 3/6-digit forms pass.
+	return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
 }
 
 function isValidRgbColor(value: string): boolean {

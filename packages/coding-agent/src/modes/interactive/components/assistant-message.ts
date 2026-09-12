@@ -112,7 +112,7 @@ export class AssistantMessageComponent extends Container {
 				? configuredAppearance
 				: null;
 		const chars = appearance ? assistantBorderChars(appearance.borderStyle) : null;
-		const borderWidth = chars ? 2 : 0;
+		const borderWidth = chars?.sides ? 2 : 0;
 		const paddingX = appearance?.paddingX ?? 0;
 		const paddingY = appearance?.paddingY ?? 0;
 		const innerWidth = Math.max(1, width - borderWidth - paddingX * 2);
@@ -133,12 +133,18 @@ export class AssistantMessageComponent extends Container {
 				...Array.from({ length: paddingY }, () => decorateBody("")),
 			];
 			if (chars) {
-				const horizontalWidth = Math.max(0, width - 2);
-				lines = [
-					borderColor(`${chars.tl}${chars.h.repeat(horizontalWidth)}${chars.tr}`),
-					...lines.map((line) => `${borderColor(chars.v)}${line}${borderColor(chars.v)}`),
-					borderColor(`${chars.bl}${chars.h.repeat(horizontalWidth)}${chars.br}`),
-				];
+				if (chars.sides) {
+					const horizontalWidth = Math.max(0, width - 2);
+					lines = [
+						borderColor(`${chars.tl}${chars.h.repeat(horizontalWidth)}${chars.tr}`),
+						...lines.map((line) => `${borderColor(chars.v)}${line}${borderColor(chars.v)}`),
+						borderColor(`${chars.bl}${chars.h.repeat(horizontalWidth)}${chars.br}`),
+					];
+				} else {
+					// Top-bottom-only styles: horizontal rules across the full width,
+					// no side columns reserved or drawn.
+					lines = [borderColor(chars.h.repeat(width)), ...lines, borderColor(chars.h.repeat(width))];
+				}
 			}
 		}
 
@@ -273,25 +279,29 @@ export class AssistantMessageComponent extends Container {
 
 function assistantBorderChars(
 	style: AppearanceSettingsV2["assistantMessage"]["borderStyle"],
-): { tl: string; tr: string; bl: string; br: string; h: string; v: string } | null {
+): { tl: string; tr: string; bl: string; br: string; h: string; v: string; sides: boolean } | null {
 	switch (style) {
 		case "none":
 			return null;
-		case "double":
+		case "top-bottom-single":
+			return { tl: "", tr: "", bl: "", br: "", h: "─", v: "", sides: false };
 		case "top-bottom-double":
-			return { tl: "╔", tr: "╗", bl: "╚", br: "╝", h: "═", v: "║" };
-		case "round":
-			return { tl: "╭", tr: "╮", bl: "╰", br: "╯", h: "─", v: "│" };
-		case "bold":
+			return { tl: "", tr: "", bl: "", br: "", h: "═", v: "", sides: false };
 		case "top-bottom-bold":
-			return { tl: "┏", tr: "┓", bl: "┗", br: "┛", h: "━", v: "┃" };
+			return { tl: "", tr: "", bl: "", br: "", h: "━", v: "", sides: false };
+		case "double":
+			return { tl: "╔", tr: "╗", bl: "╚", br: "╝", h: "═", v: "║", sides: true };
+		case "round":
+			return { tl: "╭", tr: "╮", bl: "╰", br: "╯", h: "─", v: "│", sides: true };
+		case "bold":
+			return { tl: "┏", tr: "┓", bl: "┗", br: "┛", h: "━", v: "┃", sides: true };
 		case "single-double":
-			return { tl: "╓", tr: "╖", bl: "╙", br: "╜", h: "─", v: "║" };
+			return { tl: "╓", tr: "╖", bl: "╙", br: "╜", h: "─", v: "║", sides: true };
 		case "double-single":
-			return { tl: "╒", tr: "╕", bl: "╘", br: "╛", h: "═", v: "│" };
+			return { tl: "╒", tr: "╕", bl: "╘", br: "╛", h: "═", v: "│", sides: true };
 		case "classic":
-			return { tl: "+", tr: "+", bl: "+", br: "+", h: "-", v: "|" };
+			return { tl: "+", tr: "+", bl: "+", br: "+", h: "-", v: "|", sides: true };
 		default:
-			return { tl: "┌", tr: "┐", bl: "└", br: "┘", h: "─", v: "│" };
+			return { tl: "┌", tr: "┐", bl: "└", br: "┘", h: "─", v: "│", sides: true };
 	}
 }

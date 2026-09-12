@@ -12,6 +12,8 @@ function clampByte(n: number): number {
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 	const cleaned = hex.replace("#", "");
+	// ANSI output has no alpha channel; keep validation and parsing limited to
+	// 3- and 6-digit hex so 8-digit values cannot silently render opaque.
 	const expanded =
 		cleaned.length === 3
 			? cleaned
@@ -19,12 +21,11 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 					.map((c) => c + c)
 					.join("")
 			: cleaned;
-	const match = /^([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/.exec(expanded);
-	if (!match) return null;
+	if (!/^[0-9a-fA-F]{6}$/.test(expanded)) return null;
 	return {
-		r: parseInt(match[1].slice(0, 2), 16),
-		g: parseInt(match[1].slice(2, 4), 16),
-		b: parseInt(match[1].slice(4, 6), 16),
+		r: parseInt(expanded.slice(0, 2), 16),
+		g: parseInt(expanded.slice(2, 4), 16),
+		b: parseInt(expanded.slice(4, 6), 16),
 	};
 }
 

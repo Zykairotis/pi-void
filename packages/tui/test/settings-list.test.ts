@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type SettingItem, SettingsList, type SettingsListTheme } from "../src/components/settings-list.ts";
+import { visibleWidth } from "../src/utils.ts";
 
 const theme: SettingsListTheme = {
 	label: (text) => text,
@@ -90,4 +91,27 @@ test("updateItem clamps the selection when a filtered result disappears", () => 
 	list.updateItem("c", { label: "Box" });
 	list.handleInput("\r");
 	assert.deepEqual(changes.at(-1), { id: "b", value: "1" });
+});
+
+test("side-bearing borders render content at the border's inner width", () => {
+	const items: SettingItem[] = [{ id: "a", label: "A", currentValue: "v".repeat(41), values: ["x"] }];
+	const list = new SettingsList(
+		items,
+		10,
+		{ ...theme, borderStyle: "single", borderColor: (text) => text },
+		() => {},
+		() => {},
+	);
+	const lines = list.render(50);
+	const joined = lines.join("\n");
+
+	assert.ok(lines[0]?.startsWith("┌"));
+	assert.ok(lines.at(-1)?.startsWith("└"));
+	// The value fits the 48-column inner width, so the border must not
+	// ellipsize or truncate it away.
+	assert.ok(joined.includes("v".repeat(41)));
+	assert.ok(!joined.includes("…"));
+	for (const line of lines) {
+		assert.ok(visibleWidth(line) <= 50, `line exceeds width: ${JSON.stringify(line)}`);
+	}
 });
