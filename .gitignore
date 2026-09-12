@@ -46,6 +46,7 @@ plans/
 
 # Local dotfiles/directories and generated summaries; keep GitHub configuration tracked.
 .*
+.worktrees/
 !.github/
 !.github/**
 # ICE project resources are tracked; only local run state is ignored.
