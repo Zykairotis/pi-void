@@ -28,7 +28,7 @@ import type {
 	ThemePreviewSide,
 } from "../appearance/customization-draft-session.ts";
 import type { ThemeDraftSession } from "../appearance/theme-draft-session.ts";
-import { isValidThemeColorValue } from "../appearance/theme-library.ts";
+import { isCustomTheme, isValidThemeColorValue } from "../appearance/theme-library.ts";
 import { getSettingsListTheme, type Theme, theme } from "../theme/theme.ts";
 import { AppearancePreviewComponent, PREVIEW_SCENES, type PreviewScene } from "./appearance-preview.ts";
 import { ExtensionInputComponent } from "./extension-input.ts";
@@ -225,7 +225,7 @@ export class AppearanceCustomizerComponent extends Container {
 	/** Pending bundle import staged for preview/confirmation (plan 26.3). */
 	private pendingBundleImport: {
 		bundle: AppearanceBundleV2;
-		themeCollisions: string[];
+		themeCollisions: Array<{ name: string; replaceable: boolean }>;
 		profileCollisions: string[];
 		themeResolutions: Record<string, "replace" | "skip">;
 		profileResolutions: Record<string, "replace" | "skip">;
@@ -2434,10 +2434,12 @@ export class AppearanceCustomizerComponent extends Container {
 		}
 		const bundle = imported.bundle;
 		const themeDraft = this.session.getThemeDraft();
-		const themeCollisions: string[] = [];
+		const themeCollisions: Array<{ name: string; replaceable: boolean }> = [];
 		for (const embedded of bundle.themes ?? []) {
 			const embeddedName = typeof embedded.name === "string" && embedded.name ? embedded.name : "imported-theme";
-			if (themeDraft.listThemes().includes(embeddedName)) themeCollisions.push(embeddedName);
+			if (themeDraft.listThemes().includes(embeddedName)) {
+				themeCollisions.push({ name: embeddedName, replaceable: isCustomTheme(embeddedName) });
+			}
 		}
 		const profileDraft = this.session.getProfileDraft();
 		const profileCollisions: string[] = (bundle.profiles ?? [])
@@ -2463,9 +2465,12 @@ export class AppearanceCustomizerComponent extends Container {
 		for (const embedded of bundle.themes ?? []) {
 			const embeddedName = typeof embedded.name === "string" && embedded.name ? embedded.name : "imported-theme";
 			const collision = themeDraft.listThemes().includes(embeddedName);
-			if (collision && themeResolutions[embeddedName] !== "replace") continue;
+			// Built-in themes are never replaceable; a staged resolution must not
+			// turn them into replace:true (ThemeDraftSession rejects that).
+			const replaceable = collision && isCustomTheme(embeddedName);
+			if (collision && (!replaceable || themeResolutions[embeddedName] !== "replace")) continue;
 			const themeResult = themeDraft.importTheme(embeddedName, JSON.stringify(embedded), {
-				replace: collision,
+				replace: replaceable,
 			});
 			if (!themeResult.success) {
 				this.themeError = themeResult.error ?? "theme import failed";
@@ -2548,7 +2553,7 @@ export class AppearanceCustomizerComponent extends Container {
 				const pending = this.pendingBundleImport;
 				const collisionNote =
 					pending.themeCollisions.length + pending.profileCollisions.length
-						? ` · collisions: ${[...pending.themeCollisions, ...pending.profileCollisions].join(", ")}`
+						? ` · collisions: ${[...pending.themeCollisions.map((collision) => collision.name), ...pending.profileCollisions].join(", ")}`
 						: "";
 				items.push(
 					this.selectRow(
@@ -2559,12 +2564,24 @@ export class AppearanceCustomizerComponent extends Container {
 						["review", "stage", "cancel"],
 					),
 				);
-				for (const name of pending.themeCollisions) {
+				for (const collision of pending.themeCollisions) {
+					if (!collision.replaceable) {
+						items.push(
+							this.selectRow(
+								`bundle.themeCollision:${collision.name}`,
+								`Theme "${collision.name}" exists`,
+								`Built-in theme; the import skips it (built-ins cannot be replaced)`,
+								"skip",
+								["skip"],
+							),
+						);
+						continue;
+					}
 					items.push(
 						this.selectRow(
-							`bundle.themeCollision:${name}`,
-							`Theme "${name}" exists`,
-							"Replace the existing custom theme or skip it (built-ins cannot be replaced)",
+							`bundle.themeCollision:${collision.name}`,
+							`Theme "${collision.name}" exists`,
+							"Replace the existing custom theme or skip it",
 							"skip",
 							["skip", "replace"],
 						),

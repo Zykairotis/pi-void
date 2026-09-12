@@ -58,8 +58,12 @@ export function migrateAppearanceV1ToV2(value: unknown): AppearanceSettingsV2 {
 	if (Array.isArray(highlighters)) {
 		v2.inputHighlighters = highlighters.map((entry) => {
 			const rule = structuredClone(entry) as unknown as AppearanceSettingsV2["inputHighlighters"][number];
-			// v1 matching was case-sensitive.
-			rule.matcher = { kind: "literal", pattern: rule.matcher.pattern, caseSensitive: true };
+			// v1 matching was case-sensitive. Malformed entries pass through
+			// unchanged so validateAppearanceV2 reports them as issues instead of
+			// the migration throwing on persisted input during startup.
+			if (isRecord(rule) && isRecord(rule.matcher) && typeof rule.matcher.pattern === "string") {
+				rule.matcher = { kind: "literal", pattern: rule.matcher.pattern, caseSensitive: true };
+			}
 			return rule;
 		});
 	}

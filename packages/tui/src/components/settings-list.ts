@@ -97,6 +97,9 @@ export class SettingsList implements Component {
 		if (patch.currentValue !== undefined) item.currentValue = patch.currentValue;
 		if (this.searchEnabled) {
 			this.filteredItems = fuzzyFilter(this.items, this.searchInput?.getValue() ?? "", (item) => item.label);
+			if (this.selectedIndex >= this.filteredItems.length) {
+				this.selectedIndex = Math.max(0, this.filteredItems.length - 1);
+			}
 		}
 	}
 

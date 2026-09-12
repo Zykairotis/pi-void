@@ -481,7 +481,7 @@ describe("appearance customizer completion (plan 24% closure)", () => {
 		const h = customizer as unknown as {
 			handleFieldChange: (id: string, value: string) => void;
 			pendingBundleImport: {
-				themeCollisions: string[];
+				themeCollisions: Array<{ name: string; replaceable: boolean }>;
 				profileCollisions: string[];
 			} | null;
 		};
@@ -510,9 +510,19 @@ describe("appearance customizer completion (plan 24% closure)", () => {
 			appearance: { version: 2, markdown: { tableStyle: "ascii" } },
 		};
 		h.handleFieldChange("bundle.import", JSON.stringify(bundle));
-		expect(h.pendingBundleImport?.themeCollisions).toEqual(["dup"]);
+		// "dup" is a custom theme on disk, so the collision is replaceable.
+		expect(h.pendingBundleImport?.themeCollisions).toEqual([{ name: "dup", replaceable: true }]);
 		expect(h.pendingBundleImport?.profileCollisions).toEqual(["p1"]);
+		// Built-in collisions are never replaceable.
+		const builtinBundle = JSON.parse(JSON.stringify(bundle)) as typeof bundle;
+		builtinBundle.themes = [
+			JSON.parse(JSON.stringify(session.getThemeDraft().getThemeData("dark"))) as Record<string, unknown>,
+		];
+		h.handleFieldChange("bundle.import", JSON.stringify(builtinBundle));
+		expect(h.pendingBundleImport?.themeCollisions).toEqual([{ name: "dark", replaceable: false }]);
+		h.handleFieldChange("bundle.importConfirm", "cancel");
 		// Resolve collisions explicitly, then stage.
+		h.handleFieldChange("bundle.import", JSON.stringify(bundle));
 		h.handleFieldChange("bundle.themeCollision:dup", "replace");
 		h.handleFieldChange("bundle.profileCollision:p1", "replace");
 		h.handleFieldChange("bundle.importConfirm", "stage");

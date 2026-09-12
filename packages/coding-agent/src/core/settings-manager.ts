@@ -899,9 +899,11 @@ export class SettingsManager {
 	}
 
 	setAppearanceThemeSetting(setting: AppearanceThemeSetting): void {
-		this.globalSettings.theme = serializeAppearanceThemeSetting(setting);
-		this.markModified("theme");
-		this.save();
+		// Persist to the scope that supplied the effective theme setting so a
+		// project override cannot mask the customizer's save (get/set stay
+		// scope-consistent; globalFirst flips the precedence symmetrically).
+		const scope = this.getSettingSource("theme") ?? "global";
+		this.setSettingValue(scope, "theme", serializeAppearanceThemeSetting(setting));
 	}
 
 	getDefaultThinkingLevel(): ThinkingLevel | undefined {

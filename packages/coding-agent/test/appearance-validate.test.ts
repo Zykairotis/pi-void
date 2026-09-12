@@ -40,6 +40,29 @@ describe("appearance validation", () => {
 		expect(result.appearance.markdown.tableStyle).toBe("unicode");
 	});
 
+	test("v1 migration survives malformed highlighter entries without throwing", () => {
+		const result = validateAppearance({
+			version: 1,
+			inputHighlighters: [
+				null,
+				7,
+				{},
+				{ id: "no-pattern", matcher: { kind: "literal" } },
+				{ id: "todo", matcher: { kind: "literal", pattern: "TODO" }, styles: ["bold"] },
+			],
+		});
+		expect(result.valid).toBe(false);
+		expect(result.appearance.inputHighlighters).toHaveLength(1);
+		expect(result.appearance.inputHighlighters[0]?.matcher).toEqual({
+			kind: "literal",
+			pattern: "TODO",
+			caseSensitive: true,
+		});
+		expect(result.issues.some((issue) => issue.path === "inputHighlighters[0]")).toBe(true);
+		expect(result.issues.some((issue) => issue.path === "inputHighlighters[2].matcher.kind")).toBe(true);
+		expect(result.issues.some((issue) => issue.path === "inputHighlighters[3].matcher.pattern")).toBe(true);
+	});
+
 	test("valid appearance round-trips", () => {
 		const defaults = createDefaultAppearance();
 		const result = validateAppearance(structuredClone(defaults));

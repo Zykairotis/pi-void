@@ -4661,21 +4661,32 @@ export class InteractiveMode {
 		setDefaultTableStyle(appearance.markdown.tableStyle);
 		this.footer?.setAppearance(appearance.footer);
 		this.agentSwitcher?.setAppearance?.(appearance.subagentChrome);
-		for (const child of this.chatContainer?.children ?? []) {
-			const withAppearance = child as unknown as {
-				setAppearance?: (value: typeof appearance.userMessage) => void;
-				setAssistantAppearance?: (value: typeof appearance.assistantMessage) => void;
-				setThinkingAppearance?: (value: typeof appearance.thinking.block) => void;
-				setToolsAppearance?: (value: typeof appearance.tools) => void;
-				setBashAppearance?: (value: typeof appearance.bash) => void;
-				setCardAppearance?: (value: typeof appearance.systemCards) => void;
-			};
-			withAppearance.setAppearance?.(appearance.userMessage);
-			withAppearance.setAssistantAppearance?.(appearance.assistantMessage);
-			withAppearance.setThinkingAppearance?.(appearance.thinking.block);
-			withAppearance.setToolsAppearance?.(appearance.tools);
-			withAppearance.setBashAppearance?.(appearance.bash);
-			withAppearance.setCardAppearance?.(appearance.systemCards);
+		const statusIndicator = this.activeStatusIndicator;
+		if (statusIndicator) {
+			statusIndicator.setAppearance(appearance.statusIndicators[statusIndicator.kind]);
+			if (statusIndicator.kind === "working") {
+				statusIndicator.setIndicator(this.getEffectiveWorkingIndicator());
+			}
+		}
+		// Bash commands started while streaming mount in the pending container,
+		// so both message containers carry live appearance.
+		for (const container of [this.chatContainer, this.pendingMessagesContainer]) {
+			for (const child of container?.children ?? []) {
+				const withAppearance = child as unknown as {
+					setAppearance?: (value: typeof appearance.userMessage) => void;
+					setAssistantAppearance?: (value: typeof appearance.assistantMessage) => void;
+					setThinkingAppearance?: (value: typeof appearance.thinking.block) => void;
+					setToolsAppearance?: (value: typeof appearance.tools) => void;
+					setBashAppearance?: (value: typeof appearance.bash) => void;
+					setCardAppearance?: (value: typeof appearance.systemCards) => void;
+				};
+				withAppearance.setAppearance?.(appearance.userMessage);
+				withAppearance.setAssistantAppearance?.(appearance.assistantMessage);
+				withAppearance.setThinkingAppearance?.(appearance.thinking.block);
+				withAppearance.setToolsAppearance?.(appearance.tools);
+				withAppearance.setBashAppearance?.(appearance.bash);
+				withAppearance.setCardAppearance?.(appearance.systemCards);
+			}
 		}
 		this.ui.requestRender();
 	}
@@ -6748,6 +6759,11 @@ export class InteractiveMode {
 			setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
 			await this.themeController.applyFromSettings();
 			this.applyRuntimeSettings();
+			// SettingsManager.reload() replaced the persisted appearance; the
+			// controller must re-read its baseline so external changes reach the
+			// runtime instead of surviving only until restart.
+			this.appearanceController?.refreshBaseline();
+			this.applyAppearanceToRuntime();
 			this.setupAutocompleteProvider();
 			const runner = this.session.extensionRunner;
 			this.setupExtensionShortcuts(runner);

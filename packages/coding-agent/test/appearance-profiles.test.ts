@@ -14,6 +14,7 @@ import {
 	readProfile,
 	renameProfile,
 	saveProfile,
+	validateAppearancePartial,
 } from "../src/modes/interactive/appearance/appearance-profiles.ts";
 
 let agentDir = "";
@@ -120,5 +121,25 @@ describe("appearance profiles and bundles (F10)", () => {
 		const invalidTheme = importBundle(JSON.stringify({ version: 1, theme: { name: "bad", colors: {} } }));
 		expect(invalidTheme.success).toBe(false);
 		expect(invalidTheme.error).toContain("invalid theme in bundle");
+	});
+
+	test("non-object appearance partials are rejected everywhere", () => {
+		for (const partial of [null, 5, "nope", [], true]) {
+			expect(validateAppearancePartial(partial).valid).toBe(false);
+			expect(validateAppearancePartial(partial).issues.join(" ")).toContain("expected an object");
+		}
+		expect(validateAppearancePartial({}).valid).toBe(true);
+		expect(saveProfile({ version: 2, name: "scalar", appearance: 5 as never }).success).toBe(false);
+		const scalarBundle = importBundle(JSON.stringify({ version: 2, appearance: "nope" }));
+		expect(scalarBundle.success).toBe(false);
+		expect(scalarBundle.appearanceIssues?.join(" ")).toContain("expected an object");
+		const profileWithScalar = importBundle(
+			JSON.stringify({ version: 2, profiles: [{ version: 2, name: "bad", appearance: 5 }] }),
+		);
+		expect(profileWithScalar.success).toBe(false);
+		expect(profileWithScalar.error).toBe("bundle contains an invalid profile");
+		expect(() =>
+			applyProfileToAppearance({ version: 2, name: "bad", appearance: 5 as never }, createDefaultAppearance()),
+		).toThrow(/expected an object/);
 	});
 });

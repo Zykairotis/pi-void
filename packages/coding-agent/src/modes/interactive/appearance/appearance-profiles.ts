@@ -206,6 +206,11 @@ export function applyProfileToAppearance(
 	profile: AppearanceProfileV2,
 	base: AppearanceSettingsV2,
 ): AppearanceSettingsV2 {
+	if (profile.appearance !== undefined && !isRecord(profile.appearance)) {
+		// A present-but-malformed appearance must fail loudly; merging it would
+		// silently keep the current draft.
+		throw new Error("invalid appearance in profile: expected an object");
+	}
 	return mergeAppearancePartial(base, profile.appearance ?? {});
 }
 
@@ -216,12 +221,20 @@ const MAX_BUNDLE_PROFILES = 256;
 /**
  * Validate a stored appearance partial deterministically before save/import.
  *
- * The merge helper intentionally normalizes invalid enum spellings back to
- * defaults, so explicitly-set enum fields are checked against the raw partial
- * first; anything else is validated through the merged v2 value.
+ * The partial must be a plain object; scalars, arrays, and null are rejected
+ * because the merge helper treats them as empty patches and would silently
+ * validate defaults. The merge helper intentionally normalizes invalid enum
+ * spellings back to defaults, so explicitly-set enum fields are checked
+ * against the raw partial first; anything else is validated through the
+ * merged v2 value.
  */
 export function validateAppearancePartial(partial: unknown): { valid: boolean; issues: string[] } {
 	const issues: string[] = [];
+	if (!isRecord(partial)) {
+		// Scalars, arrays, and null would merge into defaults and silently
+		// validate; imports must reject them instead of staging a no-op.
+		return { valid: false, issues: ["appearance: expected an object"] };
+	}
 	const checkEnum = (value: unknown, allowed: readonly string[], path: string): void => {
 		if (value !== undefined && (typeof value !== "string" || !allowed.includes(value))) {
 			issues.push(`${path}: expected one of ${allowed.join(", ")}`);
@@ -242,24 +255,22 @@ export function validateAppearancePartial(partial: unknown): { valid: boolean; i
 	];
 	const INPUT_BORDER_STYLES = ["none", "single", "double", "round", "bold"];
 	const TABLE_STYLES = ["unicode", "ascii", "clean", "clean-top-bottom", "raw"];
-	if (isRecord(partial)) {
-		const userMessage = isRecord(partial.userMessage) ? partial.userMessage : undefined;
-		checkEnum(userMessage?.borderStyle, BORDER_STYLES, "userMessage.borderStyle");
-		const assistantMessage = isRecord(partial.assistantMessage) ? partial.assistantMessage : undefined;
-		checkEnum(assistantMessage?.borderStyle, BORDER_STYLES, "assistantMessage.borderStyle");
-		const inputBox = isRecord(partial.inputBox) ? partial.inputBox : undefined;
-		checkEnum(inputBox?.borderStyle, INPUT_BORDER_STYLES, "inputBox.borderStyle");
-		const markdown = isRecord(partial.markdown) ? partial.markdown : undefined;
-		checkEnum(markdown?.tableStyle, TABLE_STYLES, "markdown.tableStyle");
-		const codeBlock = isRecord(markdown?.codeBlock) ? markdown.codeBlock : undefined;
-		checkEnum(codeBlock?.borderStyle, BORDER_STYLES, "markdown.codeBlock.borderStyle");
-		const quote = isRecord(markdown?.quote) ? markdown.quote : undefined;
-		checkEnum(quote?.borderStyle, BORDER_STYLES, "markdown.quote.borderStyle");
-		const bash = isRecord(partial.bash) ? partial.bash : undefined;
-		checkEnum(bash?.borderStyle, BORDER_STYLES, "bash.borderStyle");
-		const systemCards = isRecord(partial.systemCards) ? partial.systemCards : undefined;
-		checkEnum(systemCards?.borderStyle, BORDER_STYLES, "systemCards.borderStyle");
-	}
+	const userMessage = isRecord(partial.userMessage) ? partial.userMessage : undefined;
+	checkEnum(userMessage?.borderStyle, BORDER_STYLES, "userMessage.borderStyle");
+	const assistantMessage = isRecord(partial.assistantMessage) ? partial.assistantMessage : undefined;
+	checkEnum(assistantMessage?.borderStyle, BORDER_STYLES, "assistantMessage.borderStyle");
+	const inputBox = isRecord(partial.inputBox) ? partial.inputBox : undefined;
+	checkEnum(inputBox?.borderStyle, INPUT_BORDER_STYLES, "inputBox.borderStyle");
+	const markdown = isRecord(partial.markdown) ? partial.markdown : undefined;
+	checkEnum(markdown?.tableStyle, TABLE_STYLES, "markdown.tableStyle");
+	const codeBlock = isRecord(markdown?.codeBlock) ? markdown.codeBlock : undefined;
+	checkEnum(codeBlock?.borderStyle, BORDER_STYLES, "markdown.codeBlock.borderStyle");
+	const quote = isRecord(markdown?.quote) ? markdown.quote : undefined;
+	checkEnum(quote?.borderStyle, BORDER_STYLES, "markdown.quote.borderStyle");
+	const bash = isRecord(partial.bash) ? partial.bash : undefined;
+	checkEnum(bash?.borderStyle, BORDER_STYLES, "bash.borderStyle");
+	const systemCards = isRecord(partial.systemCards) ? partial.systemCards : undefined;
+	checkEnum(systemCards?.borderStyle, BORDER_STYLES, "systemCards.borderStyle");
 	const merged = mergeAppearancePartial(createDefaultAppearance(), partial);
 	const validated = validateAppearance(merged);
 	for (const issue of validated.issues) issues.push(`${issue.path}: ${issue.message}`);

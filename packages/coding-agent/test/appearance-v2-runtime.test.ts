@@ -1,3 +1,4 @@
+import type { TUI } from "@zykairotis/ice-tui";
 import { describe, expect, test } from "vitest";
 import { createDefaultAppearance } from "../src/modes/interactive/appearance/appearance-defaults.ts";
 import {
@@ -5,9 +6,12 @@ import {
 	statusIndicatorColors,
 	toolStateBackground,
 } from "../src/modes/interactive/appearance/text-presentation.ts";
+import { RetryStatusIndicator, WorkingStatusIndicator } from "../src/modes/interactive/components/status-indicator.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 initTheme("dark");
+
+const fakeUi = { requestRender: () => {} } as unknown as TUI;
 
 describe("v2 runtime presentation adapters", () => {
 	test("tool state backgrounds resolve per state", () => {
@@ -58,5 +62,40 @@ describe("v2 runtime presentation adapters", () => {
 		expect(appearance.tools.title.foreground).toEqual({ kind: "theme", token: "toolTitle" });
 		expect(appearance.tools.output.foreground).toEqual({ kind: "theme", token: "toolOutput" });
 		expect(appearance.bash.command.foreground).toEqual({ kind: "theme", token: "bashMode" });
+	});
+
+	test("working status indicator rebinds label styling on live appearance updates", () => {
+		const appearance = createDefaultAppearance();
+		const indicator = new WorkingStatusIndicator(
+			fakeUi,
+			"Working...",
+			undefined,
+			appearance.statusIndicators.working,
+		);
+		const next = structuredClone(appearance.statusIndicators.working);
+		next.label.styles = ["bold"];
+		indicator.setAppearance(next);
+		// The working indicator re-renders on the next animation frame or
+		// setIndicator call; force one to verify the rebound closures.
+		indicator.setIndicator(undefined);
+		const rendered = indicator.render(80).join("\n");
+		expect(rendered).toContain("\x1b[1m");
+		expect(rendered).toContain("Working...");
+		indicator.dispose();
+	});
+
+	test("retry status indicator updates frames and styling on live appearance updates", () => {
+		const appearance = createDefaultAppearance();
+		const indicator = new RetryStatusIndicator(fakeUi, 1, 3, 60_000, appearance.statusIndicators.retry);
+		const before = indicator.render(80).join("\n");
+		const next = structuredClone(appearance.statusIndicators.retry);
+		next.label.styles = ["bold"];
+		next.indicator.frames = ["▸"];
+		indicator.setAppearance(next);
+		const after = indicator.render(80).join("\n");
+		expect(after).toContain("▸");
+		expect(after).toContain("\x1b[1m");
+		expect(after).not.toBe(before);
+		indicator.dispose();
 	});
 });

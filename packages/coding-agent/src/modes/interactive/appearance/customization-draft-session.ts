@@ -220,7 +220,16 @@ export class CustomizationDraftSession {
 
 	/** Merge a stored profile into the current appearance draft. */
 	loadProfile(profile: AppearanceProfileV2): ReturnType<typeof validateAppearance> {
-		const next = applyProfileToAppearance(profile, this.getAppearance());
+		let next: AppearanceSettingsV2;
+		try {
+			next = applyProfileToAppearance(profile, this.getAppearance());
+		} catch (error) {
+			return {
+				valid: false,
+				appearance: this.getAppearance(),
+				issues: [{ path: "appearance", message: error instanceof Error ? error.message : String(error) }],
+			};
+		}
 		return this.previewAppearance(next);
 	}
 

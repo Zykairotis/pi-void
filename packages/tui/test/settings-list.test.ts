@@ -74,3 +74,20 @@ test("typed search keeps Left/Right for the search cursor", () => {
 	list.handleInput(LEFT);
 	assert.equal(changes.length, 0);
 });
+
+test("updateItem clamps the selection when a filtered result disappears", () => {
+	const items: SettingItem[] = [
+		{ id: "a", label: "Alpha", currentValue: "1", values: ["1", "2"] },
+		{ id: "b", label: "Zeta", currentValue: "2", values: ["1", "2"] },
+		{ id: "c", label: "Beta", currentValue: "3", values: ["1", "2"] },
+	];
+	const { list, changes } = createList(items, { enableSearch: true });
+	// "ta" fuzzy-matches Zeta and Beta only.
+	list.handleInput("ta");
+	list.handleInput("\x1b[B");
+	// Relabel Beta so it drops out of the "ta" result set; the selection index
+	// must clamp instead of pointing past the end.
+	list.updateItem("c", { label: "Box" });
+	list.handleInput("\r");
+	assert.deepEqual(changes.at(-1), { id: "b", value: "1" });
+});
