@@ -2,7 +2,7 @@
  * Component for displaying bash command execution with streaming output.
  */
 
-import { Container, Loader, Spacer, Text, type TUI } from "@zykairotis/ice-tui";
+import { applyChromeBorder, Container, Loader, Spacer, Text, type TUI } from "@zykairotis/ice-tui";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -10,6 +10,9 @@ import {
 	truncateTail,
 } from "../../../core/tools/truncate.ts";
 import { stripAnsi } from "../../../utils/ansi.ts";
+import { resolveAppearanceColorFn } from "../appearance/appearance-resolve.ts";
+import type { BashAppearance } from "../appearance/appearance-types.ts";
+import { applyTextPresentation } from "../appearance/text-presentation.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyHint, keyText } from "./keybinding-hints.ts";
@@ -28,10 +31,12 @@ export class BashExecutionComponent extends Container {
 	private fullOutputPath?: string;
 	private expanded = false;
 	private contentContainer: Container;
+	private bashAppearance: BashAppearance | null = null;
 
-	constructor(command: string, ui: TUI, excludeFromContext = false) {
+	constructor(command: string, ui: TUI, excludeFromContext = false, bashAppearance: BashAppearance | null = null) {
 		super();
 		this.command = command;
+		this.bashAppearance = bashAppearance;
 
 		// Use dim border for excluded-from-context commands (!! prefix)
 		const colorKey = excludeFromContext ? "dim" : "bashMode";
@@ -48,7 +53,7 @@ export class BashExecutionComponent extends Container {
 		this.addChild(this.contentContainer);
 
 		// Command header
-		const header = new Text(theme.fg(colorKey, theme.bold(`$ ${command}`)), 1, 0);
+		const header = new Text(theme.fg(colorKey, theme.bold(`$ ${command}`)), this.bashAppearance?.paddingX ?? 1, 0);
 		this.contentContainer.addChild(header);
 
 		// Loader
@@ -70,6 +75,42 @@ export class BashExecutionComponent extends Container {
 	setExpanded(expanded: boolean): void {
 		this.expanded = expanded;
 		this.updateDisplay();
+	}
+
+	setBashAppearance(appearance: BashAppearance | null): void {
+		this.bashAppearance = appearance;
+		this.updateDisplay();
+	}
+
+	private bashCommand(text: string): string {
+		if (!this.bashAppearance) return theme.fg("bashMode", theme.bold(text));
+		return applyTextPresentation(this.bashAppearance.command, text);
+	}
+
+	private bashOutput(text: string): string {
+		if (!this.bashAppearance) return theme.fg("muted", text);
+		return applyTextPresentation(this.bashAppearance.output, text);
+	}
+
+	private bashStatus(text: string): string {
+		if (!this.bashAppearance) return theme.fg("muted", text);
+		return applyTextPresentation(this.bashAppearance.status, text);
+	}
+
+	override render(width: number): string[] {
+		if (!this.bashAppearance) return super.render(width);
+		const appearance = this.bashAppearance;
+		const hasSideBorder = !appearance.borderStyle.startsWith("top-bottom-") && appearance.borderStyle !== "none";
+		const borderWidth = hasSideBorder ? 2 : 0;
+		const contentWidth = Math.max(1, width - borderWidth);
+		const body = this.contentContainer.render(contentWidth);
+		const bordered = applyChromeBorder(
+			body,
+			width,
+			appearance.borderStyle,
+			resolveAppearanceColorFn(appearance.borderColor, "fg"),
+		);
+		return ["", ...bordered];
 	}
 
 	override invalidate(): void {
@@ -135,25 +176,30 @@ export class BashExecutionComponent extends Container {
 		this.contentContainer.clear();
 
 		// Command header
-		const header = new Text(theme.fg("bashMode", theme.bold(`$ ${this.command}`)), 1, 0);
+		const header = new Text(this.bashCommand(`$ ${this.command}`), this.bashAppearance?.paddingX ?? 1, 0);
 		this.contentContainer.addChild(header);
 
 		// Output
 		if (availableLines.length > 0) {
 			if (this.expanded) {
 				// Show all lines
-				const displayText = availableLines.map((line) => theme.fg("muted", line)).join("\n");
-				this.contentContainer.addChild(new Text(`\n${displayText}`, 1, 0));
+				const displayText = availableLines.map((line) => this.bashOutput(line)).join("\n");
+				this.contentContainer.addChild(new Text(`\n${displayText}`, this.bashAppearance?.paddingX ?? 1, 0));
 			} else {
 				// Use shared visual truncation utility with width-aware caching
-				const styledOutput = previewLogicalLines.map((line) => theme.fg("muted", line)).join("\n");
+				const styledOutput = previewLogicalLines.map((line) => this.bashOutput(line)).join("\n");
 				const styledInput = `\n${styledOutput}`;
 				let cachedWidth: number | undefined;
 				let cachedLines: string[] | undefined;
 				this.contentContainer.addChild({
 					render: (width: number) => {
 						if (cachedLines === undefined || cachedWidth !== width) {
-							const result = truncateToVisualLines(styledInput, PREVIEW_LINES, width, 1);
+							const result = truncateToVisualLines(
+								styledInput,
+								PREVIEW_LINES,
+								width,
+								this.bashAppearance?.paddingX ?? 1,
+							);
 							cachedLines = result.visualLines;
 							cachedWidth = width;
 						}
@@ -177,11 +223,11 @@ export class BashExecutionComponent extends Container {
 			if (hiddenLineCount > 0) {
 				if (this.expanded) {
 					statusParts.push(
-						`${theme.fg("muted", "(")}${keyHint("app.tools.expand", "to collapse")}${theme.fg("muted", ")")}`,
+						`${this.bashStatus("(")}${keyHint("app.tools.expand", "to collapse")}${this.bashStatus(")")}`,
 					);
 				} else {
 					statusParts.push(
-						`${theme.fg("muted", `... ${hiddenLineCount} more lines (`)}${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`,
+						`${this.bashStatus(`... ${hiddenLineCount} more lines (`)}${keyHint("app.tools.expand", "to expand")}${this.bashStatus(")")}`,
 					);
 				}
 			}
@@ -199,9 +245,15 @@ export class BashExecutionComponent extends Container {
 			}
 
 			if (statusParts.length > 0) {
-				this.contentContainer.addChild(new Text(`\n${statusParts.join("\n")}`, 1, 0));
+				this.contentContainer.addChild(
+					new Text(`\n${statusParts.join("\n")}`, this.bashAppearance?.paddingX ?? 1, 0),
+				);
 			}
 		}
+	}
+
+	dispose(): void {
+		this.loader.stop();
 	}
 
 	/**

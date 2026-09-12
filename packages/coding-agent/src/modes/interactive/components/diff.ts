@@ -1,5 +1,19 @@
 import * as Diff from "diff";
+import type { DiffAppearance } from "../appearance/appearance-types.ts";
+import { applyTextPresentation } from "../appearance/text-presentation.ts";
 import { theme } from "../theme/theme.ts";
+
+let activeDiffAppearance: DiffAppearance | undefined;
+
+export function setDiffAppearance(appearance: DiffAppearance | undefined): void {
+	activeDiffAppearance = appearance ? structuredClone(appearance) : undefined;
+}
+
+function diffStyle(kind: keyof DiffAppearance, text: string): string {
+	if (activeDiffAppearance) return applyTextPresentation(activeDiffAppearance[kind], text);
+	const token = kind === "added" ? "toolDiffAdded" : kind === "removed" ? "toolDiffRemoved" : "toolDiffContext";
+	return theme.fg(token, text);
+}
 
 /**
  * Parse diff line to extract prefix, line number, and content.
@@ -86,7 +100,7 @@ export function renderDiff(diffText: string, _options: RenderDiffOptions = {}): 
 		const parsed = parseDiffLine(line);
 
 		if (!parsed) {
-			result.push(theme.fg("toolDiffContext", line));
+			result.push(diffStyle("context", line));
 			i++;
 			continue;
 		}
@@ -121,24 +135,24 @@ export function renderDiff(diffText: string, _options: RenderDiffOptions = {}): 
 					replaceTabs(added.content),
 				);
 
-				result.push(theme.fg("toolDiffRemoved", `-${removed.lineNum} ${removedLine}`));
-				result.push(theme.fg("toolDiffAdded", `+${added.lineNum} ${addedLine}`));
+				result.push(diffStyle("removed", `-${removed.lineNum} ${removedLine}`));
+				result.push(diffStyle("added", `+${added.lineNum} ${addedLine}`));
 			} else {
 				// Show all removed lines first, then all added lines
 				for (const removed of removedLines) {
-					result.push(theme.fg("toolDiffRemoved", `-${removed.lineNum} ${replaceTabs(removed.content)}`));
+					result.push(diffStyle("removed", `-${removed.lineNum} ${replaceTabs(removed.content)}`));
 				}
 				for (const added of addedLines) {
-					result.push(theme.fg("toolDiffAdded", `+${added.lineNum} ${replaceTabs(added.content)}`));
+					result.push(diffStyle("added", `+${added.lineNum} ${replaceTabs(added.content)}`));
 				}
 			}
 		} else if (parsed.prefix === "+") {
 			// Standalone added line
-			result.push(theme.fg("toolDiffAdded", `+${parsed.lineNum} ${replaceTabs(parsed.content)}`));
+			result.push(diffStyle("added", `+${parsed.lineNum} ${replaceTabs(parsed.content)}`));
 			i++;
 		} else {
 			// Context line
-			result.push(theme.fg("toolDiffContext", ` ${parsed.lineNum} ${replaceTabs(parsed.content)}`));
+			result.push(diffStyle("context", ` ${parsed.lineNum} ${replaceTabs(parsed.content)}`));
 			i++;
 		}
 	}

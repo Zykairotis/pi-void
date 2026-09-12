@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ThinkingLevel } from "@zykairotis/ice-agent-core";
 import {
+	type ChromeBorderStyle,
 	type EditorTheme,
 	getCapabilities,
 	type MarkdownTheme,
@@ -104,7 +105,8 @@ const ThemeJsonSchema = Type.Object({
 	),
 });
 
-type ThemeJson = Static<typeof ThemeJsonSchema>;
+export type ThemeJson = Static<typeof ThemeJsonSchema>;
+export type ThemeColorValue = Static<typeof ColorValueSchema>;
 
 const validateThemeJson = Compile(ThemeJsonSchema);
 
@@ -165,6 +167,74 @@ export type ThemeBg =
 	| "toolPendingBg"
 	| "toolSuccessBg"
 	| "toolErrorBg";
+
+const THEME_COLOR_TOKENS: ReadonlySet<string> = new Set<string>([
+	"accent",
+	"border",
+	"borderAccent",
+	"borderMuted",
+	"success",
+	"error",
+	"warning",
+	"muted",
+	"dim",
+	"text",
+	"thinkingText",
+	"userMessageText",
+	"customMessageText",
+	"customMessageLabel",
+	"toolTitle",
+	"toolOutput",
+	"mdHeading",
+	"mdLink",
+	"mdLinkUrl",
+	"mdCode",
+	"mdCodeBlock",
+	"mdCodeBlockBorder",
+	"mdQuote",
+	"mdQuoteBorder",
+	"mdHr",
+	"mdListBullet",
+	"toolDiffAdded",
+	"toolDiffRemoved",
+	"toolDiffContext",
+	"syntaxComment",
+	"syntaxKeyword",
+	"syntaxFunction",
+	"syntaxVariable",
+	"syntaxString",
+	"syntaxNumber",
+	"syntaxType",
+	"syntaxOperator",
+	"syntaxPunctuation",
+	"thinkingOff",
+	"thinkingMinimal",
+	"thinkingLow",
+	"thinkingMedium",
+	"thinkingHigh",
+	"thinkingXhigh",
+	"thinkingMax",
+	"thinkingUltra",
+	"bashMode",
+]);
+
+const THEME_BG_TOKENS: ReadonlySet<string> = new Set<string>([
+	"selectedBg",
+	"scrollbarThumb",
+	"userMessageBg",
+	"customMessageBg",
+	"toolPendingBg",
+	"toolSuccessBg",
+	"toolErrorBg",
+]);
+
+export function isThemeColorToken(token: string): token is ThemeColor {
+	return THEME_COLOR_TOKENS.has(token);
+}
+
+export function isThemeBgToken(token: string): token is ThemeBg {
+	return THEME_BG_TOKENS.has(token);
+}
 
 type ColorMode = "truecolor" | "256color";
 
@@ -593,6 +663,15 @@ function parseThemeJson(label: string, json: unknown): ThemeJson {
 	return themeJson;
 }
 
+export function parseThemeJsonData(label: string, json: unknown): ThemeJson {
+	return parseThemeJson(label, json);
+}
+
+/** Return a validated, detached copy of a named theme's native JSON model. */
+export function getThemeJsonData(name: string): ThemeJson {
+	return structuredClone(loadThemeJson(name));
+}
+
 function parseThemeJsonContent(label: string, content: string): ThemeJson {
 	let json: unknown;
 	try {
@@ -650,6 +729,11 @@ function createTheme(themeJson: ThemeJson, mode?: ColorMode, sourcePath?: string
 		name: themeJson.name,
 		sourcePath,
 	});
+}
+
+/** Build a runtime theme directly from validated in-memory theme data. */
+export function createThemeFromData(label: string, json: unknown, mode?: ColorMode): Theme {
+	return createTheme(parseThemeJson(label, json), mode);
 }
 
 export function loadThemeFromPath(themePath: string, mode?: ColorMode): Theme {
@@ -1296,29 +1380,79 @@ export function getMarkdownTheme(): MarkdownTheme {
 	};
 }
 
+export interface InteractiveChromeThemeOverride {
+	selectedPrefix?: (text: string) => string;
+	selectedText?: (text: string) => string;
+	description?: (text: string) => string;
+	hint?: (text: string) => string;
+	settingsLabel?: (text: string, selected: boolean) => string;
+	settingsValue?: (text: string, selected: boolean) => string;
+	settingsCursor?: string;
+	editorBorder?: (text: string) => string;
+	scrollbarTrack?: (text: string) => string;
+	scrollbarThumb?: (text: string) => string;
+	/** Shared chrome border family; "none"/undefined draws no border. */
+	chromeBorder?: ChromeBorderStyle;
+	chromeBorderColor?: (text: string) => string;
+}
+
+let interactiveChromeThemeOverride: InteractiveChromeThemeOverride | undefined;
+
+export function setInteractiveChromeThemeOverride(value: InteractiveChromeThemeOverride | undefined): void {
+	interactiveChromeThemeOverride = value;
+}
+
+export function getInteractiveScrollbarTrackStyle(): (text: string) => string {
+	return (text) => interactiveChromeThemeOverride?.scrollbarTrack?.(text) ?? text;
+}
+
+export function getInteractiveScrollbarThumbStyle(): (text: string) => string {
+	return (text) => interactiveChromeThemeOverride?.scrollbarThumb?.(text) ?? theme.bg("scrollbarThumb", text);
+}
+
 export function getSelectListTheme(): SelectListTheme {
 	return {
-		selectedPrefix: (text: string) => theme.fg("accent", text),
-		selectedText: (text: string) => theme.fg("accent", text),
-		description: (text: string) => theme.fg("muted", text),
-		scrollInfo: (text: string) => theme.fg("muted", text),
-		noMatch: (text: string) => theme.fg("muted", text),
+		selectedPrefix: (text: string) =>
+			interactiveChromeThemeOverride?.selectedPrefix?.(text) ?? theme.fg("accent", text),
+		selectedText: (text: string) => interactiveChromeThemeOverride?.selectedText?.(text) ?? theme.fg("accent", text),
+		description: (text: string) => interactiveChromeThemeOverride?.description?.(text) ?? theme.fg("muted", text),
+		scrollInfo: (text: string) => interactiveChromeThemeOverride?.hint?.(text) ?? theme.fg("muted", text),
+		noMatch: (text: string) => interactiveChromeThemeOverride?.description?.(text) ?? theme.fg("muted", text),
+		borderStyle: getInteractiveChromeBorderStyle(),
+		borderColor: getInteractiveChromeBorderColor(),
 	};
 }
 
 export function getEditorTheme(): EditorTheme {
 	return {
-		borderColor: (text: string) => theme.fg("borderMuted", text),
+		borderColor: (text: string) =>
+			interactiveChromeThemeOverride?.editorBorder?.(text) ?? theme.fg("borderMuted", text),
 		selectList: getSelectListTheme(),
 	};
 }
 
 export function getSettingsListTheme(): SettingsListTheme {
 	return {
-		label: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : text),
-		value: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : theme.fg("muted", text)),
-		description: (text: string) => theme.fg("dim", text),
-		cursor: theme.fg("accent", "→ "),
-		hint: (text: string) => theme.fg("dim", text),
+		label: (text: string, selected: boolean) =>
+			interactiveChromeThemeOverride?.settingsLabel?.(text, selected) ??
+			(selected ? theme.fg("accent", text) : text),
+		value: (text: string, selected: boolean) =>
+			interactiveChromeThemeOverride?.settingsValue?.(text, selected) ??
+			(selected ? theme.fg("accent", text) : theme.fg("muted", text)),
+		description: (text: string) => interactiveChromeThemeOverride?.description?.(text) ?? theme.fg("dim", text),
+		cursor: interactiveChromeThemeOverride?.settingsCursor ?? theme.fg("accent", "→ "),
+		hint: (text: string) => interactiveChromeThemeOverride?.hint?.(text) ?? theme.fg("dim", text),
+		borderStyle: getInteractiveChromeBorderStyle(),
+		borderColor: getInteractiveChromeBorderColor(),
 	};
+}
+
+export function getInteractiveChromeBorderStyle(): ChromeBorderStyle | undefined {
+	const style = interactiveChromeThemeOverride?.chromeBorder;
+	if (!style || style === "none") return undefined;
+	return style;
+}
+
+export function getInteractiveChromeBorderColor(): ((text: string) => string) | undefined {
+	return interactiveChromeThemeOverride?.chromeBorderColor;
 }

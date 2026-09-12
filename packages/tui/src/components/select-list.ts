@@ -1,3 +1,4 @@
+import { applyChromeBorder, type ChromeBorderStyle } from "../chrome-border.ts";
 import { getKeybindings } from "../keybindings.ts";
 import type { Component } from "../tui.ts";
 import { truncateToWidth, visibleWidth } from "../utils.ts";
@@ -21,6 +22,9 @@ export interface SelectListTheme {
 	description: (text: string) => string;
 	scrollInfo: (text: string) => string;
 	noMatch: (text: string) => string;
+	/** Optional shared chrome border (appearance plan 6.10); absent = no border. */
+	borderStyle?: ChromeBorderStyle;
+	borderColor?: (text: string) => string;
 }
 
 export interface SelectListTruncatePrimaryContext {
@@ -106,6 +110,9 @@ export class SelectList implements Component {
 			lines.push(this.theme.scrollInfo(truncateToWidth(scrollText, width - 2, "")));
 		}
 
+		if (this.theme.borderStyle) {
+			return applyChromeBorder(lines, width, this.theme.borderStyle, this.theme.borderColor ?? ((text) => text));
+		}
 		return lines;
 	}
 

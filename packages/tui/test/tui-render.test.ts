@@ -428,6 +428,21 @@ describe("TUI resize handling", () => {
 });
 
 describe("TUI content shrinkage", () => {
+	it("defaults shrink clearing on for dynamic selector repaint safety", () => {
+		const key = "ICE_" + "CLEAR_ON_SHRINK";
+		const previous = process.env[key];
+		delete process.env[key];
+		try {
+			const terminal = new VirtualTerminal(40, 10);
+			const tui: TUI = new TuiMainScreen(terminal);
+			assert.strictEqual(tui.getClearOnShrink(), true);
+			tui.stop();
+		} finally {
+			if (previous === undefined) delete process.env[key];
+			else process.env[key] = previous;
+		}
+	});
+
 	it("clears empty rows when content shrinks significantly", async () => {
 		const terminal = new VirtualTerminal(40, 10);
 		const tui: TUI = new TuiMainScreen(terminal);

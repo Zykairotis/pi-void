@@ -11,6 +11,7 @@ import { keyHint } from "./keybinding-hints.ts";
 export interface ExtensionInputOptions {
 	tui?: TUI;
 	timeout?: number;
+	initialValue?: string;
 }
 
 export class ExtensionInputComponent extends Container implements Focusable {
@@ -61,6 +62,7 @@ export class ExtensionInputComponent extends Container implements Focusable {
 		}
 
 		this.input = new Input();
+		if (opts?.initialValue !== undefined) this.input.setValueAndMoveCursorToEnd(opts.initialValue);
 		this.addChild(this.input);
 		this.addChild(new Spacer(1));
 		this.addChild(

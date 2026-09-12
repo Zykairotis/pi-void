@@ -6,6 +6,16 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { getAgentDir, getProjectConfigDir } from "../config.ts";
+import {
+	type AppearanceSettingsV2,
+	type AppearanceThemeSetting,
+	parseAppearanceThemeSetting,
+	serializeAppearanceThemeSetting,
+} from "../modes/interactive/appearance/appearance-types.ts";
+import {
+	type AppearanceValidationResult,
+	validateAppearance,
+} from "../modes/interactive/appearance/appearance-validate.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { DEFAULT_COMPACTION_THRESHOLD_PERCENT, type MidRunCompaction } from "./compaction/compaction.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
@@ -151,6 +161,7 @@ export interface Settings {
 	showHardwareCursor?: boolean; // Show terminal cursor while still positioning it for IME
 	markdown?: MarkdownSettings;
 	warnings?: WarningSettings;
+	appearance?: unknown; // Validated global appearance settings (v1); project scope is ignored
 	sessionDir?: string; // Custom session storage directory (same format as --session-dir CLI flag)
 	httpProxy?: string; // Proxy URL applied as HTTP_PROXY and HTTPS_PROXY for Ice-managed HTTP clients
 	httpIdleTimeoutMs?: number; // HTTP header/body idle timeout in milliseconds; 0 disables it
@@ -878,6 +889,21 @@ export class SettingsManager {
 		this.save();
 	}
 
+	/**
+	 * Typed fixed/automatic view of the persisted theme setting. The slash
+	 * encoding stays an internal persistence detail; callers reasoning about
+	 * themes must use this typed form.
+	 */
+	getAppearanceThemeSetting(): AppearanceThemeSetting | undefined {
+		return parseAppearanceThemeSetting(this.getThemeSetting());
+	}
+
+	setAppearanceThemeSetting(setting: AppearanceThemeSetting): void {
+		this.globalSettings.theme = serializeAppearanceThemeSetting(setting);
+		this.markModified("theme");
+		this.save();
+	}
+
 	getDefaultThinkingLevel(): ThinkingLevel | undefined {
 		return this.settings.defaultThinkingLevel;
 	}
@@ -1042,6 +1068,10 @@ export class SettingsManager {
 
 	getHideThinkingBlock(): boolean {
 		return this.settings.hideThinkingBlock ?? false;
+	}
+
+	isHideThinkingBlockSet(): boolean {
+		return this.settings.hideThinkingBlock !== undefined;
 	}
 
 	getShowCacheMissNotices(): boolean {
@@ -1438,6 +1468,19 @@ export class SettingsManager {
 
 	getCodeBlockIndent(): string {
 		return this.settings.markdown?.codeBlockIndent ?? "  ";
+	}
+
+	getAppearanceSettings(): AppearanceSettingsV2 {
+		return validateAppearance(this.globalSettings.appearance).appearance;
+	}
+
+	setAppearanceSettings(appearance: AppearanceSettingsV2): AppearanceValidationResult {
+		const validated = validateAppearance(appearance);
+		if (!validated.valid) return validated;
+		this.globalSettings.appearance = structuredClone(validated.appearance);
+		this.markModified("appearance");
+		this.save();
+		return validated;
 	}
 
 	getWarnings(): WarningSettings {

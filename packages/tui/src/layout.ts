@@ -294,6 +294,15 @@ function paintScrollbar(box: LayoutBox, screen: string[], totalWidth: number): v
 	const geometry = getScrollbarGeometry(box);
 	if (!geometry || !box.scrollView) return;
 
+	const trackStyle = box.scrollView.getScrollbarTrackStyle();
+	if (trackStyle) {
+		for (let row = geometry.trackTop; row < geometry.trackTop + geometry.trackHeight; row++) {
+			if (row < box.clip.y || row >= box.clip.y + box.clip.height || row < 0 || row >= screen.length) continue;
+			if (row >= geometry.thumbTop && row < geometry.thumbTop + geometry.thumbHeight) continue;
+			screen[row] = styleScrollbarCell(screen[row] ?? "", geometry.column, totalWidth, trackStyle);
+		}
+	}
+
 	for (let offset = 0; offset < geometry.thumbHeight; offset++) {
 		const row = geometry.thumbTop + offset;
 		if (row < box.clip.y || row >= box.clip.y + box.clip.height || row < 0 || row >= screen.length) continue;

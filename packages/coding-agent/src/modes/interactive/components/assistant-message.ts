@@ -1,6 +1,17 @@
 import type { AssistantMessage } from "@zykairotis/ice-ai";
-import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@zykairotis/ice-tui";
+import {
+	Container,
+	Markdown,
+	type MarkdownTheme,
+	Spacer,
+	Text,
+	truncateToWidth,
+	visibleWidth,
+} from "@zykairotis/ice-tui";
 import type { MarkdownTransformer } from "../../../core/extensions/types.ts";
+import { resolveAppearanceColorFn } from "../appearance/appearance-resolve.ts";
+import type { AppearanceSettingsV2 } from "../appearance/appearance-types.ts";
+import { styleThinkingBlockText } from "../appearance/thinking-presentation.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 import { createMarkdownTransform } from "./markdown-transform.ts";
 
@@ -17,6 +28,8 @@ export class AssistantMessageComponent extends Container {
 	private markdownTheme: MarkdownTheme;
 	private hiddenThinkingLabel: string;
 	private outputPad: number;
+	private thinkingAppearance: AppearanceSettingsV2["thinking"]["block"] | null = null;
+	private assistantAppearance: AppearanceSettingsV2["assistantMessage"] | null = null;
 	private markdownTransformers: readonly MarkdownTransformer[];
 	private lastMessage?: AssistantMessage;
 	private hasToolCalls = false;
@@ -68,6 +81,17 @@ export class AssistantMessageComponent extends Container {
 		}
 	}
 
+	setThinkingAppearance(appearance: AppearanceSettingsV2["thinking"]["block"] | null): void {
+		this.thinkingAppearance = appearance;
+		if (this.lastMessage) {
+			this.updateContent(this.lastMessage);
+		}
+	}
+
+	setAssistantAppearance(appearance: AppearanceSettingsV2["assistantMessage"] | null): void {
+		this.assistantAppearance = appearance ? structuredClone(appearance) : null;
+	}
+
 	setOutputPad(padding: number): void {
 		this.outputPad = padding;
 		if (this.lastMessage) {
@@ -76,11 +100,49 @@ export class AssistantMessageComponent extends Container {
 	}
 
 	override render(width: number): string[] {
-		const lines = super.render(width);
-		if (this.hasToolCalls || lines.length === 0) {
-			return lines;
+		const configuredAppearance = this.assistantAppearance;
+		const appearance =
+			configuredAppearance &&
+			!(
+				configuredAppearance.paddingX === 0 &&
+				configuredAppearance.paddingY === 0 &&
+				configuredAppearance.borderStyle === "none" &&
+				configuredAppearance.background.kind === "terminal-default"
+			)
+				? configuredAppearance
+				: null;
+		const chars = appearance ? assistantBorderChars(appearance.borderStyle) : null;
+		const borderWidth = chars ? 2 : 0;
+		const paddingX = appearance?.paddingX ?? 0;
+		const paddingY = appearance?.paddingY ?? 0;
+		const innerWidth = Math.max(1, width - borderWidth - paddingX * 2);
+		let lines = super.render(innerWidth);
+
+		if (appearance) {
+			const background = resolveAppearanceColorFn(appearance.background, "bg");
+			const borderColor = resolveAppearanceColorFn(appearance.borderColor, "fg");
+			const contentWidth = Math.max(1, width - borderWidth);
+			const decorateBody = (line: string): string => {
+				const clipped = truncateToWidth(line, innerWidth, "");
+				const raw = `${" ".repeat(paddingX)}${clipped}`;
+				return background(raw + " ".repeat(Math.max(0, contentWidth - visibleWidth(raw))));
+			};
+			lines = [
+				...Array.from({ length: paddingY }, () => decorateBody("")),
+				...lines.map(decorateBody),
+				...Array.from({ length: paddingY }, () => decorateBody("")),
+			];
+			if (chars) {
+				const horizontalWidth = Math.max(0, width - 2);
+				lines = [
+					borderColor(`${chars.tl}${chars.h.repeat(horizontalWidth)}${chars.tr}`),
+					...lines.map((line) => `${borderColor(chars.v)}${line}${borderColor(chars.v)}`),
+					borderColor(`${chars.bl}${chars.h.repeat(horizontalWidth)}${chars.br}`),
+				];
+			}
 		}
 
+		if (this.hasToolCalls || lines.length === 0) return lines;
 		lines[0] = OSC133_ZONE_START + lines[0];
 		lines[lines.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + lines[lines.length - 1];
 		return lines;
@@ -138,9 +200,16 @@ export class AssistantMessageComponent extends Container {
 
 				if (this.hideThinkingBlock) {
 					// Show one static label for each run of thinking blocks when hidden.
-					this.contentContainer.addChild(
-						new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0),
-					);
+					// showByDefault:false means newly created components start hidden unless
+					// the mode passes an explicit visibility flag.
+					const hiddenLabel = this.thinkingAppearance?.hiddenLabel ?? this.hiddenThinkingLabel;
+					const hiddenForeground = this.thinkingAppearance
+						? resolveAppearanceColorFn(this.thinkingAppearance.foreground, "fg")
+						: (content: string) => theme.fg("thinkingText", content);
+					const hiddenStyled = this.thinkingAppearance
+						? hiddenForeground(styleThinkingBlockText(hiddenLabel, this.thinkingAppearance.styles, theme))
+						: theme.italic(theme.fg("thinkingText", hiddenLabel));
+					this.contentContainer.addChild(new Text(hiddenStyled, this.outputPad, 0));
 				} else {
 					// Render each run of thinking blocks as one Markdown section.
 					this.contentContainer.addChild(
@@ -150,8 +219,14 @@ export class AssistantMessageComponent extends Container {
 							0,
 							this.markdownTheme,
 							{
-								color: (text: string) => theme.fg("thinkingText", text),
-								italic: true,
+								color: (text: string) => {
+									const styled = this.thinkingAppearance
+										? styleThinkingBlockText(text, this.thinkingAppearance.styles, theme)
+										: theme.fg("thinkingText", text);
+									if (!this.thinkingAppearance) return styled;
+									return resolveAppearanceColorFn(this.thinkingAppearance.foreground, "fg")(styled);
+								},
+								italic: this.thinkingAppearance ? this.thinkingAppearance.styles.includes("italic") : true,
 							},
 							{
 								transform: createMarkdownTransform(
@@ -193,5 +268,30 @@ export class AssistantMessageComponent extends Container {
 				this.contentContainer.addChild(new Text(theme.fg("error", `Error: ${errorMsg}`), this.outputPad, 0));
 			}
 		}
+	}
+}
+
+function assistantBorderChars(
+	style: AppearanceSettingsV2["assistantMessage"]["borderStyle"],
+): { tl: string; tr: string; bl: string; br: string; h: string; v: string } | null {
+	switch (style) {
+		case "none":
+			return null;
+		case "double":
+		case "top-bottom-double":
+			return { tl: "╔", tr: "╗", bl: "╚", br: "╝", h: "═", v: "║" };
+		case "round":
+			return { tl: "╭", tr: "╮", bl: "╰", br: "╯", h: "─", v: "│" };
+		case "bold":
+		case "top-bottom-bold":
+			return { tl: "┏", tr: "┓", bl: "┗", br: "┛", h: "━", v: "┃" };
+		case "single-double":
+			return { tl: "╓", tr: "╖", bl: "╙", br: "╜", h: "─", v: "║" };
+		case "double-single":
+			return { tl: "╒", tr: "╕", bl: "╘", br: "╛", h: "═", v: "│" };
+		case "classic":
+			return { tl: "+", tr: "+", bl: "+", br: "+", h: "-", v: "|" };
+		default:
+			return { tl: "┌", tr: "┐", bl: "└", br: "┘", h: "─", v: "│" };
 	}
 }

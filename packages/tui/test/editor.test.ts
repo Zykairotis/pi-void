@@ -4150,3 +4150,51 @@ describe("Editor component", () => {
 		});
 	});
 });
+
+describe("Editor appearance borders", () => {
+	it("border-off emits no structural border rows", () => {
+		const editor = new Editor(createTestTUI(), defaultEditorTheme, { borderStyle: "none" });
+		const lines = editor.render(20);
+		assert.strictEqual(lines.length, 1);
+	});
+
+	it("default single border preserves top/bottom geometry", () => {
+		const editor = new Editor(createTestTUI(), defaultEditorTheme);
+		const lines = editor.render(20);
+		assert.strictEqual(lines.length, 3);
+		assert.ok(stripVTControlCharacters(lines[0]).startsWith("─"));
+	});
+
+	it("alternate glyph sets change border characters", () => {
+		const editor = new Editor(createTestTUI(), defaultEditorTheme, { borderStyle: "double" });
+		const lines = editor.render(20);
+		assert.ok(stripVTControlCharacters(lines[0]).startsWith("═"));
+		editor.setBorderStyle("bold");
+		assert.ok(stripVTControlCharacters(editor.render(20)[0]).startsWith("━"));
+	});
+});
+
+describe("Editor render decorations", () => {
+	it("keeps the end cursor in source coordinates after ANSI decoration", () => {
+		const editor = new Editor(createTestTUI(), defaultEditorTheme);
+		editor.setText("TODOx");
+		editor.setDecorations(() => [{ start: 0, end: 4, prefix: "\x1b[1m", suffix: "\x1b[22m" }]);
+		const content = editor.render(20)[1];
+		assert.ok(content);
+		assert.strictEqual(stripVTControlCharacters(content).slice(0, 6), "TODOx ");
+		assert.ok(content.indexOf("x") < content.indexOf("\x1b[7m "));
+	});
+
+	it("keeps the cursor on the requested source grapheme inside a decoration", () => {
+		const editor = new Editor(createTestTUI(), defaultEditorTheme);
+		editor.setText("TODOx");
+		editor.setDecorations(() => [{ start: 0, end: 4, prefix: "\x1b[1m", suffix: "\x1b[22m" }]);
+		editor.handleInput("\x1b[D");
+		editor.handleInput("\x1b[D");
+		editor.handleInput("\x1b[D");
+		const content = editor.render(20)[1];
+		assert.ok(content);
+		assert.strictEqual(stripVTControlCharacters(content).slice(0, 5), "TODOx");
+		assert.match(content, /\x1b\[7m\x1b\[1mD\x1b\[22m\x1b\[0m/);
+	});
+});

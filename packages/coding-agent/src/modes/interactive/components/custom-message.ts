@@ -1,13 +1,18 @@
 import type { TextContent } from "@zykairotis/ice-ai";
 import type { Component } from "@zykairotis/ice-tui";
-import { Box, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@zykairotis/ice-tui";
+import { applyChromeBorder, Box, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@zykairotis/ice-tui";
 import type { MessageRenderer } from "../../../core/extensions/types.ts";
 import type { CustomMessage } from "../../../core/messages.ts";
+import { resolveAppearanceColorFn } from "../appearance/appearance-resolve.ts";
+import type { SystemCardAppearance } from "../appearance/appearance-types.ts";
+import { applyTextPresentation } from "../appearance/text-presentation.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 
 /**
  * Component that renders a custom message entry from extensions.
  * Uses distinct styling to differentiate from user messages.
+ * Extension custom renderers keep precedence: appearance only styles the
+ * default ICE shell.
  */
 export class CustomMessageComponent extends Container {
 	private message: CustomMessage<unknown>;
@@ -17,18 +22,21 @@ export class CustomMessageComponent extends Container {
 	private markdownTheme: MarkdownTheme;
 	private _expanded = false;
 	private outputPad: number;
+	private cardAppearance: SystemCardAppearance | null = null;
 
 	constructor(
 		message: CustomMessage<unknown>,
 		customRenderer?: MessageRenderer,
 		markdownTheme: MarkdownTheme = getMarkdownTheme(),
 		outputPad = 1,
+		cardAppearance: SystemCardAppearance | null = null,
 	) {
 		super();
 		this.message = message;
 		this.customRenderer = customRenderer;
 		this.markdownTheme = markdownTheme;
 		this.outputPad = outputPad;
+		this.cardAppearance = cardAppearance;
 
 		this.addChild(new Spacer(1));
 
@@ -50,6 +58,37 @@ export class CustomMessageComponent extends Container {
 			this.outputPad = outputPad;
 			this.rebuild();
 		}
+	}
+
+	setCardAppearance(appearance: SystemCardAppearance | null): void {
+		this.cardAppearance = appearance;
+		this.rebuild();
+	}
+
+	private cardLabel(text: string): string {
+		if (!this.cardAppearance) return theme.fg("customMessageLabel", text);
+		return applyTextPresentation(this.cardAppearance.label, text);
+	}
+
+	private cardBody(text: string): string {
+		if (!this.cardAppearance) return theme.fg("customMessageText", text);
+		return applyTextPresentation(this.cardAppearance.body, text);
+	}
+
+	override render(width: number): string[] {
+		const lines = super.render(width);
+		if (this.customComponent || !this.cardAppearance || this.cardAppearance.borderStyle === "none") return lines;
+		const spacer = lines.length > 0 ? [lines[0] ?? ""] : [];
+		const body = lines.slice(spacer.length);
+		return [
+			...spacer,
+			...applyChromeBorder(
+				body,
+				width,
+				this.cardAppearance.borderStyle,
+				resolveAppearanceColorFn(this.cardAppearance.borderColor, "fg"),
+			),
+		];
 	}
 
 	override invalidate(): void {
@@ -84,12 +123,20 @@ export class CustomMessageComponent extends Container {
 			}
 		}
 
-		// Default rendering uses our box
+		// Default rendering uses our box. Recreate it so appearance-owned
+		// padding/background are structural rather than cosmetic overlays.
+		if (this.cardAppearance) {
+			this.box = new Box(
+				this.cardAppearance.paddingX,
+				this.cardAppearance.paddingY,
+				resolveAppearanceColorFn(this.cardAppearance.background, "bg"),
+			);
+		}
 		this.addChild(this.box);
 		this.box.clear();
 
 		// Default rendering: label + content
-		const label = theme.fg("customMessageLabel", `\x1b[1m[${this.message.customType}]\x1b[22m`);
+		const label = this.cardLabel(`\x1b[1m[${this.message.customType}]\x1b[22m`);
 		this.box.addChild(new Text(label, 0, 0));
 		this.box.addChild(new Spacer(1));
 
@@ -106,7 +153,7 @@ export class CustomMessageComponent extends Container {
 
 		this.box.addChild(
 			new Markdown(text, 0, 0, this.markdownTheme, {
-				color: (text: string) => theme.fg("customMessageText", text),
+				color: (text: string) => this.cardBody(text),
 			}),
 		);
 	}

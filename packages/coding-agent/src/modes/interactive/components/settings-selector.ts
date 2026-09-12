@@ -90,6 +90,9 @@ export interface SettingsConfig {
 	uiMode: UiMode;
 	fullscreenScrollbar: ScrollViewScrollbar;
 	warnings: WarningSettings;
+	tableStyle: string;
+	inputBorderStyle: string;
+	thinkingIntervalMs: number;
 	extensionSettings?: RegisteredSettings[];
 }
 
@@ -127,6 +130,15 @@ export interface SettingsCallbacks {
 	onUiModeChange: (mode: UiMode) => void;
 	onFullscreenScrollbarChange: (mode: ScrollViewScrollbar) => void;
 	onWarningsChange: (warnings: WarningSettings) => void;
+	onTableStyleChange: (style: string) => void;
+	onTableStylePreview: (style: string) => void;
+	onInputBorderStyleChange: (style: string) => void;
+	onInputBorderStylePreview: (style: string) => void;
+	onThinkingIntervalChange: (intervalMs: number) => void;
+	onThinkingIntervalPreview: (intervalMs: number) => void;
+	onAppearanceApply: () => void;
+	onAppearanceCancel: () => void;
+	onOpenAppearance: () => void;
 	onCancel: () => void;
 }
 
@@ -564,6 +576,41 @@ export class SettingsSelectorComponent extends Container {
 				values: ["true", "false"],
 			},
 			{
+				id: "table-style",
+				label: "Table style",
+				description: "Markdown table borders; one shared layout feeds every style",
+				currentValue: config.tableStyle,
+				values: ["unicode", "ascii", "clean", "clean-top-bottom", "raw"],
+			},
+			{
+				id: "input-border-style",
+				label: "Input border",
+				description: "Prompt box border style; none removes structural border rows",
+				currentValue: config.inputBorderStyle,
+				values: ["single", "double", "round", "bold", "none"],
+			},
+			{
+				id: "thinking-interval",
+				label: "Thinking interval",
+				description: "Working indicator frame interval in milliseconds",
+				currentValue: String(config.thinkingIntervalMs),
+				values: ["40", "80", "120", "200", "500"],
+			},
+			{
+				id: "appearance-apply",
+				label: "Apply appearance",
+				description: "Persist previewed table, input border, and thinking interval",
+				currentValue: "apply",
+				values: ["apply"],
+			},
+			{
+				id: "appearance-cancel",
+				label: "Cancel appearance preview",
+				description: "Discard previewed appearance changes",
+				currentValue: "cancel",
+				values: ["cancel"],
+			},
+			{
 				id: "cache-miss-notices",
 				label: "Cache miss notices",
 				description: "Show transcript notices for significant prompt-cache misses",
@@ -673,6 +720,13 @@ export class SettingsSelectorComponent extends Container {
 				description: "Scrollbar behavior in fullscreen mode; has no effect in regular mode",
 				currentValue: config.fullscreenScrollbar,
 				values: ["auto", "always", "hidden"],
+			},
+			{
+				id: "appearance",
+				label: "Appearance",
+				description: "Customize themes, messages, input, thinking, tables, highlighters, and profiles",
+				currentValue: "configure",
+				values: ["configure"],
 			},
 			{
 				id: "theme",
@@ -847,6 +901,21 @@ export class SettingsSelectorComponent extends Container {
 					case "hide-thinking":
 						callbacks.onHideThinkingBlockChange(newValue === "true");
 						break;
+					case "table-style":
+						callbacks.onTableStylePreview(newValue);
+						break;
+					case "input-border-style":
+						callbacks.onInputBorderStylePreview(newValue);
+						break;
+					case "thinking-interval":
+						callbacks.onThinkingIntervalPreview(parseInt(newValue, 10));
+						break;
+					case "appearance-apply":
+						callbacks.onAppearanceApply();
+						break;
+					case "appearance-cancel":
+						callbacks.onAppearanceCancel();
+						break;
 					case "cache-miss-notices":
 						callbacks.onShowCacheMissNoticesChange(newValue === "true");
 						break;
@@ -897,6 +966,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "fullscreen-scrollbar":
 						callbacks.onFullscreenScrollbarChange(newValue as ScrollViewScrollbar);
+						break;
+					case "appearance":
+						callbacks.onOpenAppearance();
 						break;
 					case "theme":
 						callbacks.onThemeChange(newValue);
