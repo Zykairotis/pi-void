@@ -4492,7 +4492,9 @@ describe("ICE subagent contracts", () => {
 				hardCap: "enforced",
 			});
 			expect(result.diagnostics.some((diagnostic) => diagnostic.code === "token_budget_exhausted")).toBe(true);
-			expect(result.diagnostics.some((diagnostic) => diagnostic.code === "token_finalization_unavailable")).toBe(true);
+			expect(result.diagnostics.some((diagnostic) => diagnostic.code === "token_finalization_unavailable")).toBe(
+				true,
+			);
 			expect(scripted.consumed()).toBe(1);
 		} finally {
 			scripted.unregister();

@@ -1230,7 +1230,8 @@ export class SubagentJobRegistry {
 			// Persisted token authority is monotonic. A newer snapshot cannot widen a
 			// bounded job to a larger/unbounded ceiling, nor can it rewind already
 			// recorded charged usage. Keep the last trustworthy snapshot instead.
-			if (previousMaxTokens !== undefined && (nextMaxTokens === undefined || nextMaxTokens > previousMaxTokens)) continue;
+			if (previousMaxTokens !== undefined && (nextMaxTokens === undefined || nextMaxTokens > previousMaxTokens))
+				continue;
 			const previousChargedTokens = previous.snapshot.result?.budget?.chargedTokens;
 			const nextChargedTokens = data.result?.budget?.chargedTokens;
 			if (
