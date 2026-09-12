@@ -219,6 +219,24 @@ const MAX_BUNDLE_THEMES = 64;
 const MAX_BUNDLE_PROFILES = 256;
 
 /**
+ * Every object-valued path in the v2 appearance schema, derived from the
+ * defaults so the list stays complete as sections evolve. AppearanceColor
+ * nodes (string `kind` on the default) are excluded: normalizeColor reports
+ * them with a color-specific message. Array and scalar defaults are skipped;
+ * their own normalizers report present malformed values.
+ */
+const OBJECT_SECTION_PATHS: readonly (readonly string[])[] = (() => {
+	const paths: (readonly string[])[] = [];
+	const walk = (node: unknown, path: readonly string[]): void => {
+		if (!isRecord(node)) return;
+		if (path.length > 0 && typeof node.kind !== "string") paths.push([...path]);
+		for (const [key, child] of Object.entries(node)) walk(child, [...path, key]);
+	};
+	walk(createDefaultAppearance() as unknown as Record<string, unknown>, []);
+	return paths;
+})();
+
+/**
  * Validate a stored appearance partial deterministically before save/import.
  *
  * The partial must be a plain object; scalars, arrays, and null are rejected
@@ -255,32 +273,9 @@ export function validateAppearancePartial(partial: unknown): { valid: boolean; i
 	];
 	const INPUT_BORDER_STYLES = ["none", "single", "double", "round", "bold"];
 	const TABLE_STYLES = ["unicode", "ascii", "clean", "clean-top-bottom", "raw"];
-	// A present scalar/array/null section is discarded during normalization and
-	// would silently fall back to defaults on apply; reject it path-specifically.
-	const OBJECT_SECTION_PATHS: readonly (readonly string[])[] = [
-		["userMessage"],
-		["assistantMessage"],
-		["inputBox"],
-		["thinking"],
-		["statusIndicators"],
-		["markdown"],
-		["tools"],
-		["bash"],
-		["diff"],
-		["systemCards"],
-		["footer"],
-		["chrome"],
-		["subagentChrome"],
-		["thinking", "indicator"],
-		["thinking", "label"],
-		["thinking", "block"],
-		["markdown", "headings"],
-		["markdown", "headings", "overrides"],
-		["markdown", "codeBlock"],
-		["markdown", "quote"],
-		["tools", "states"],
-		["footer", "visible"],
-	];
+	// A present scalar/array/null object section is discarded during
+	// normalization and would silently fall back to defaults on apply; reject
+	// it path-specifically.
 	for (const path of OBJECT_SECTION_PATHS) {
 		let value: unknown = partial;
 		for (const key of path) {

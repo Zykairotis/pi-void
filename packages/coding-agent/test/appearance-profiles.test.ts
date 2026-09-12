@@ -144,16 +144,38 @@ describe("appearance profiles and bundles (F10)", () => {
 	});
 
 	test("malformed nested sections are rejected with path-specific issues", () => {
-		for (const section of ["userMessage", "markdown", "footer", "thinking"]) {
+		for (const section of ["userMessage", "markdown", "footer", "thinking", "statusIndicators", "chrome"]) {
 			for (const malformed of [42, "nope", [], null]) {
 				const result = validateAppearancePartial({ [section]: malformed });
 				expect(result.valid).toBe(false);
 				expect(result.issues).toContain(`${section}: expected an object`);
 			}
 		}
-		const nested = validateAppearancePartial({ thinking: { indicator: 7 }, footer: { visible: [] } });
-		expect(nested.issues).toContain("thinking.indicator: expected an object");
-		expect(nested.issues).toContain("footer.visible: expected an object");
+		const nested = validateAppearancePartial({
+			thinking: { indicator: 7 },
+			footer: { visible: [] },
+			markdown: { body: 9 },
+			statusIndicators: { working: 1, retry: { label: [] } },
+			tools: { states: { pending: "x", success: 0, error: null } },
+			bash: { command: 5 },
+			chrome: { description: true },
+			subagentChrome: { running: false },
+		});
+		for (const path of [
+			"thinking.indicator",
+			"footer.visible",
+			"markdown.body",
+			"statusIndicators.working",
+			"statusIndicators.retry.label",
+			"tools.states.pending",
+			"tools.states.success",
+			"tools.states.error",
+			"bash.command",
+			"chrome.description",
+			"subagentChrome.running",
+		]) {
+			expect(nested.issues).toContain(`${path}: expected an object`);
+		}
 		// Omitted sections stay valid.
 		expect(validateAppearancePartial({ userMessage: { paddingX: 2 } }).valid).toBe(true);
 		expect(saveProfile({ version: 2, name: "bad-section", appearance: { userMessage: 42 } as never }).success).toBe(
@@ -162,5 +184,10 @@ describe("appearance profiles and bundles (F10)", () => {
 		const bundle = importBundle(JSON.stringify({ version: 2, appearance: { bash: [] } }));
 		expect(bundle.success).toBe(false);
 		expect(bundle.appearanceIssues).toContain("bash: expected an object");
+		const bundleStates = importBundle(
+			JSON.stringify({ version: 2, appearance: { tools: { states: { error: 1 } } } }),
+		);
+		expect(bundleStates.success).toBe(false);
+		expect(bundleStates.appearanceIssues).toContain("tools.states.error: expected an object");
 	});
 });

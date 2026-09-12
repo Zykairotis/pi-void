@@ -133,4 +133,18 @@ describe("SelectList", () => {
 			assert.ok(visibleWidth(line) <= 50, `line exceeds width: ${JSON.stringify(line)}`);
 		}
 	});
+
+	it("keeps the configured border on the empty-result state", () => {
+		const list = new SelectList([{ value: "cmd", label: "cmd" }], 5, {
+			...testTheme,
+			borderStyle: "single",
+			borderColor: (text) => text,
+		});
+		list.setFilter("no-match");
+		const rendered = list.render(50);
+
+		assert.ok(rendered[0].startsWith("┌"));
+		assert.ok(rendered.at(-1)?.startsWith("└"));
+		assert.ok(rendered.some((line) => line.includes("No matching commands")));
+	});
 });
