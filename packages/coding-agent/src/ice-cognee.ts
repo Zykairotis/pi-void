@@ -1482,6 +1482,77 @@ export function createIceCogneeExtension(options: IceCogneeExtensionOptions = {}
 			},
 		});
 
+		// Settings UI surface: mirrors the /cognee toggles so the memory stack is
+		// discoverable outside the command. persistConfig keeps file state,
+		// runtime config, the client, and tool registration in sync.
+		ice.registerSettings("cognee", {
+			items: [
+				{
+					id: "enabled",
+					label: "Cognee memory",
+					description: "Cognee-backed session memory (recall, remember, improve)",
+					currentValue: runtime.config.enabled ? "on" : "off",
+					values: ["off", "on"],
+				},
+				{
+					id: "autoRecall",
+					label: "Cognee recall",
+					description: "Search Cognee memory for relevant context on each prompt",
+					currentValue: runtime.config.autoRecall ? "on" : "off",
+					values: ["off", "on"],
+				},
+				{
+					id: "autoRemember",
+					label: "Cognee remember",
+					description: "Store the final compaction checkpoint as Cognee memory",
+					currentValue: runtime.config.autoRemember,
+					values: ["off", "compaction"],
+				},
+				{
+					id: "compactionSummaryMode",
+					label: "Cognee compact summary",
+					description:
+						"Who writes the compact summary: auto/defer keep the Ice or Blackhole checkpoint; own lets Cognee write it",
+					currentValue: runtime.config.compactionSummaryMode,
+					values: ["auto", "defer", "own"],
+				},
+				{
+					id: "captureSession",
+					label: "Cognee session capture",
+					description: "Capture prompts, answers, and traces into Cognee during the session",
+					currentValue: runtime.config.captureSession ? "on" : "off",
+					values: ["off", "on"],
+				},
+				{
+					id: "captureTools",
+					label: "Cognee tool traces",
+					description: "Also store tool execution traces when session capture is on",
+					currentValue: runtime.config.captureTools ? "on" : "off",
+					values: ["off", "on"],
+				},
+				{
+					id: "autoImprove",
+					label: "Cognee auto-improve",
+					description: "Promote session cache into the permanent graph on idle",
+					currentValue: runtime.config.autoImprove ? "on" : "off",
+					values: ["off", "on"],
+				},
+			],
+			onChange: (id, value) => {
+				const patch: Partial<IceCogneeConfig> = {};
+				if (id === "enabled") patch.enabled = value === "on";
+				else if (id === "autoRecall") patch.autoRecall = value === "on";
+				else if (id === "captureSession") patch.captureSession = value === "on";
+				else if (id === "captureTools") patch.captureTools = value === "on";
+				else if (id === "autoImprove") patch.autoImprove = value === "on";
+				else if (id === "autoRemember") patch.autoRemember = value === "compaction" ? "compaction" : "off";
+				else if (id === "compactionSummaryMode") {
+					patch.compactionSummaryMode = value === "own" ? "own" : value === "defer" ? "defer" : "auto";
+				} else return;
+				void persistConfig({ ...runtime.config, ...patch }, { hasUI: false, ui: { notify: () => {} } });
+			},
+		});
+
 		// Claude skills analog
 		ice.on("resources_discover", async () => ({
 			skillPaths: [skillsDir],

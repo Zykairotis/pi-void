@@ -288,6 +288,7 @@ function extensionHookFixture(
 	const handlers = new Map<string, Hook>();
 	const commands = new Map<string, (args: string, ctx: ExtensionContext) => Promise<void> | void>();
 	const tools = new Map<string, { execute: (...args: unknown[]) => Promise<unknown> }>();
+	const settingsRegistrations = new Map<string, number>();
 	const activeToolSets: string[][] = [];
 	const appended: Array<{ customType: string; data: unknown }> = [];
 	const notifications: string[] = [];
@@ -307,6 +308,9 @@ function extensionHookFixture(
 		},
 		registerTool(tool: { name: string; execute: (...args: unknown[]) => Promise<unknown> }) {
 			tools.set(tool.name, tool);
+		},
+		registerSettings(name: string, settings: { items: unknown[] }) {
+			settingsRegistrations.set(name, settings.items.length);
 		},
 		getActiveTools: () => [...currentTools],
 		setActiveTools(toolNames: string[]) {
@@ -348,6 +352,7 @@ function extensionHookFixture(
 		handlers,
 		commands,
 		tools,
+		settingsRegistrations,
 		activeToolSets,
 		appended,
 		notifications,
