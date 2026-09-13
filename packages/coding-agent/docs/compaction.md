@@ -36,6 +36,12 @@ contextTokens > floor(contextWindow * thresholdPercent / 100)
 
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
 
+### Mid-Run Safety Net
+
+The automatic threshold check runs between agent runs: after `agent_end` and before each prompt submission. With `compaction.midRunCompaction: "off"` (the default), a single uninterrupted run never re-checks the threshold, so context can climb far past it mid-run.
+
+To make that overflow path unreachable, a hard safety net applies at tool-turn boundaries regardless of `midRunCompaction`: once context exceeds **95% of the model's context window** (`MID_RUN_SAFETY_NET_PERCENT`), the next tool turn compacts and the run pauses afterward, like `"pause"`. Below the ceiling, `"off"` keeps its opt-in semantics and no mid-run compaction happens. Blackhole's independent mid-run trigger (below) can fire earlier when configured.
+
 ### Optional Blackhole Compaction
 
 ICE includes an optional deterministic Blackhole compaction extension. Load it explicitly with `--extension` or install the local package through Ice's package settings. It uses `turn_end` after tool execution, compacts before the next model request, and resumes the task when configured with `midRunCompaction: "resume"`.

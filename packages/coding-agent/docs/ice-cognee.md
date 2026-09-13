@@ -71,6 +71,20 @@ Does **not** auto-use `COGNEE_PLUGIN_DATASET=agent_sessions`. Default dataset re
 /cognee flush [pending|uncertain]
 ```
 
+## Settings panel
+
+The built-in extension registers a **Cognee** section in `/settings` (search for "cognee"). Every row persists through the same config path as the command toggles and takes effect immediately.
+
+| Row | Values | Default | Description |
+|-----|--------|---------|-------------|
+| Cognee memory | `off`, `on` | `on` | Master switch. Off disables recall, memory writes, and the `cognee_search` tool |
+| Cognee recall | `off`, `on` | `on` | Scoped recall injection before each prompt (turn-scoped, never persisted) |
+| Cognee remember | `off`, `compaction` | `compaction` | Store the final compaction checkpoint into the graph after each compaction |
+| Cognee compact summary | `auto`, `defer`, `own` | `auto` | Who writes the compact summary text: `auto`/`defer` keep the Ice or Blackhole checkpoint and Cognee only stores it; `own` lets Cognee replace the summary with a recall-based one |
+| Cognee session capture | `off`, `on` | `on` | Capture prompts, answers, and traces into memory during the session |
+| Cognee tool traces | `off`, `on` | `on` | Also store tool execution traces when session capture is on |
+| Cognee auto-improve | `off`, `on` | `on` | Idle watcher promoting the session cache into the permanent graph (~5 minute cooldown) |
+
 ## Realtime observer
 
 `/cognee watch` starts a loopback-only dashboard and reports its URL in the Ice UI. It reads the local

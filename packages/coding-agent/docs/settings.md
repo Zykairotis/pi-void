@@ -115,10 +115,10 @@ Set `ICE_SKIP_VERSION_CHECK=1` to disable the Ice version update check. Use `--o
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `compaction.enabled` | boolean | `true` | Enable auto-compaction |
-| `compaction.thresholdPercent` | number | `85` | Context percentage that triggers automatic compaction |
+| `compaction.thresholdPercent` | number | `85` | Context percentage that triggers automatic compaction (checked between runs) |
 | `compaction.reserveTokens` | number | `16384` | Tokens reserved for the compaction summary response |
 | `compaction.keepRecentTokens` | number | `20000` | Recent tokens to keep (not summarized) |
-| `compaction.midRunCompaction` | string | `"off"` | Native mid-tool-loop mode: `"off"`, `"pause"`, or `"resume"` |
+| `compaction.midRunCompaction` | string | `"off"` | Native mid-tool-loop mode: `"off"`, `"pause"`, or `"resume"`. With `"off"`, a safety net still compacts at the next tool-turn boundary once context passes 95% of the model context window, then pauses the run |
 
 ```json
 {
@@ -132,9 +132,11 @@ Set `ICE_SKIP_VERSION_CHECK=1` to disable the Ice version update check. Use `--o
 }
 ```
 
+For long uninterrupted agent runs, set `midRunCompaction` to `"resume"` to compact proactively at the 85% threshold and continue the task automatically. The 95% safety net applies regardless of this setting.
+
 ### Optional Blackhole Extension
 
-Load the optional extension with `--extension packages/coding-agent/examples/extensions/ice-blackhole/index.ts` or install the package through Ice's package settings. It stores configuration at `~/.ice/agent/ice-blackhole/ice-blackhole-config.json`.
+Load the optional extension by copying `examples/extensions/ice-blackhole/` from the installed package into `~/.ice/agent/extensions/` (or load it with `--extension packages/coding-agent/examples/extensions/ice-blackhole/index.ts`). It stores configuration at `~/.ice/agent/ice-blackhole/ice-blackhole-config.json`.
 
 ```text
 /blackhole percent 20
@@ -145,7 +147,18 @@ Load the optional extension with `--extension packages/coding-agent/examples/ext
 /blackhole status
 ```
 
-The loaded extension also exposes all Blackhole fields in `/settings`: compaction mode, engine, mid-run mode, threshold mode and value, tail behavior, and memory. Changes persist to the Blackhole config file immediately. Set `memory: false` to keep deterministic compaction without observational-memory workers. Keep native `compaction.enabled` set to `true` for overflow recovery and native `compaction.midRunCompaction` set to `"off"` when Blackhole owns the mid-run trigger.
+The loaded extension exposes all Blackhole fields in `/settings`. Changes persist to the Blackhole config file immediately.
+
+| Row | Values | Default | Description |
+|-----|--------|---------|-------------|
+| Blackhole compaction | `auto`, `manual`, `off` | `auto` | `auto`: Blackhole's `session_before_compact` hook replaces the Ice summary whenever a compaction runs. `manual`: it only steps in for its own mid-run trigger. `off`: loaded but inert |
+| Blackhole engine | `blackhole`, `ice-default` | `blackhole` | Summary builder used when the hook handles a compaction: Blackhole's own structured pipeline (goals, file ops, commits, preferences) or Ice's native summarization |
+| Blackhole mid-run | `off`, `pause`, `resume` | `off` | Blackhole's own mid-run trigger, independent of native `compaction.midRunCompaction`. Crosses its threshold at a tool-turn boundary, then pauses or injects a resume message and continues |
+| Blackhole token threshold | 1%–99% | `20%` | Percentage of the active model's context window used by the mid-run trigger; `/blackhole tokens <n>` switches to an absolute token count (`compactAfterPercent` and `compactAfterTokens` are mutually exclusive) |
+| Blackhole tail | `ice-default`, `minimal` | `minimal` | `minimal` summarizes the retained tail too and keeps only the new compact entry (much smaller context after compaction); `ice-default` keeps the normal `keepRecentTokens` tail verbatim |
+| Blackhole memory | `false`, `true` | `false` | Placeholder for observational-memory workers; no functional effect today |
+
+If both native and Blackhole mid-run triggers are enabled, Blackhole yields to native ICE and displays a warning. Keep native `compaction.enabled` set to `true` for overflow recovery; the native 95% safety net applies regardless of which mid-run trigger owns proactive compaction.
 
 ### Branch Summary
 
